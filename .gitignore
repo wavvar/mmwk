@@ -25,3 +25,10 @@ firmwares/esp/*/*/*/ota/
 # Local agent/browser artifacts
 .superpowers/
 .playwright-mcp/
+AGENTS.md
+.codex
+
+# Local planning artifacts
+/findings.md
+/progress.md
+/task_plan.md
