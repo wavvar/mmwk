@@ -1,0 +1,27 @@
+# macOS / Windows cruft
+.DS_Store
+._*
+.AppleDouble
+.LSOverride
+.Spotlight-V100/
+.Trashes/
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Local Python environments and caches
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+output/
+
+# Local extracted ESP bundle directories
+firmwares/esp/*/*/*/factory/
+firmwares/esp/*/*/*/ota/
+
+# Local agent/browser artifacts
+.superpowers/
+.playwright-mcp/
