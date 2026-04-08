@@ -1,4 +1,4 @@
-# MINI 模组简介
+# PRO 模组简介
 
 ## 目录
 
@@ -8,13 +8,15 @@
 - [4. 开发与烧录调试方向](#4-开发与烧录调试方向)
 - [5. 接口说明](#5-接口说明)
 - [5.1 烧录调试器 Type-C 接口说明](#51-烧录调试器-type-c-接口说明)
-- [5.2 状态 LED 接口参考](#52-状态-led-接口参考)
+- [5.2 状态 RGB LED 接口参考](#52-状态-rgb-led-接口参考)
 - [5.3 按键接口参考](#53-按键接口参考)
 - [6. 相关文档](#6-相关文档)
 
 ## 1. 模组概述
 
-`MINI(RPM)` 属于 `RPX 6843` 系列感知模块。`6843` 系列是 `Wavvar` 的旗舰模块产品线，搭载 `TI` 的高性能毫米波雷达技术，适用于需要稳定运动跟踪和精确空间测量的高级空间感知场景。
+`PRO(RTP)` 属于 `RPX 6843` 系列感知模块。`6843` 系列是 `Wavvar` 的旗舰模块产品线，搭载 `TI` 的高性能毫米波雷达技术，适用于需要稳定运动跟踪和精确空间测量的高级空间感知场景。
+
+与 `MINI` 相比，`PRO` 在主控侧采用 `ESP32-S3` 芯片；其余功能能力与 `MINI` 保持一致。
 
 典型应用包括：
 
@@ -29,13 +31,13 @@
 ## 2. 外观与尺寸
 
 <div style="text-align: center; margin: 10px 0;">
-  <img src="./img/RPX/6843/mini.png" alt="MINI 模组外观" width="45%" style="display: block; margin: 0 auto;" />
-  <p style="margin: 4px 0 0 0;">MINI 外观参考</p>
+  <img src="./img/RPX/6843/pro-1.png" alt="PRO 模组外观参考" width="45%" style="display: block; margin: 0 auto;" />
+  <p style="margin: 4px 0 0 0;">PRO 模组外观参考</p>
 </div>
 
 | 项目 | 规格 |
 | --- | --- |
-| 尺寸 | 65x65x18 mm |
+| 尺寸 | 83x83x17 mm |
 
 ## 3. 技术规格和主要特性
 
@@ -59,29 +61,34 @@
 |  | | Station / SoftAP / Station + SoftAP |
 |  | | 最大 150 Mbps（理论值，实际取决于网络环境） |
 |  | 本地通信 | UART（数据格式由固件定义，可支持二进制或 JSON） |
+|  | 蜂窝网络（可选） | LTE Cat.1 bis（4G，全网通） |
+|  | | 下行最高 10 Mbps / 上行最高 5 Mbps （见注 2） | 
 | **硬件架构** | 处理架构 | 双芯片异构架构（毫米波雷达 SoC + 主控 MCU） |
 |  | 雷达处理单元 | ARM Cortex-R4F + C674x DSP + 硬件加速器（HWA） |
-|  | 主控单元 | ESP32 双核处理器 |
-|  | 片上内存 | 520 KB（ESP32） + 1.75 MB（雷达 SoC） |
-|  | PSRAM | 8 MB PSRAM（挂接 ESP32） |
-|  | Flash 存储 | 8 MB（ESP32） + 4 MB（雷达 SoC，可选） |
-|  | I/O 与指示器 | 1× LED、1× 按键、1× LED（可选） |
+|  | 主控单元 | ESP32-S3（Xtensa LX7 双核，最高 240 MHz） |
+|  | 片上内存 | 512 KB（主控 MCU） + 1.75 MB（雷达 SoC） |
+|  | PSRAM | 8 MB PSRAM（挂接主控 MCU） |
+|  | Flash 存储 | 8 MB（主控 MCU） + 4 MB（雷达 SoC，可选） |
+|  | I/O 与指示器 | 1× RGB LED、1× 按键、1× LED（可选） |
 |  | IMU（可选） | 可选 6 轴陀螺仪 + 3 轴加速度计 |
 |  | 环境光传感器（可选） | 可选支持 |
+|  | 语音(可选) | 可选支持(1x 喇嘛 1x mic) |
 
 > 注 1：本条“发射/接收通道”参数说明为：`1.3 V` 模式下最多支持 `2TX` 同时发射；`3TX` 同时发射需 `1V LDO bypass` 特定模式。
 
+> 注 2: 理论峰值，实际性能取决于网络覆盖、信号质量及运营商配置。
+
 ## 4. 开发与烧录调试方向
 
-为确保烧录和串口通信成功，请注意 `Type-C` 接口的方向要求。`Mini` 设备在连接烧录调试器时，应将烧录调试器的 `A` 面与机身正面保持同向。
+为确保烧录和串口通信成功，请注意 `Type-C` 接口的方向要求。`Pro` 设备在连接烧录调试器时，应将烧录调试器的 `B` 面与机身正面保持同向。
 
 | 平台 | 对位示意图 |
 | --- | --- |
-| **Mini 设备**（A 面与机身正面同向） | <img src="./img/RPX/6843/mini_flasher.png" width="400" alt="Mini Alignment Guide"> |
+| **Pro 设备**（B 面与机身正面同向） | <img src="./img/RPX/6843/pro_flasher.png" width="400" alt="Pro Alignment Guide"> |
 
 ## 5. 接口说明
 
-`MINI` 模组接口说明包含烧录调试器 `Type-C`、状态 `LED` 以及按键输入三个部分。
+`PRO` 模组接口说明包含烧录调试器 `Type-C`、状态 `RGB LED` 以及按键输入三个部分。
 
 ### 5.1 烧录调试器 Type-C 接口说明
 
@@ -109,22 +116,22 @@
 | GND | 黑色 | GND |
 | VBUS | 红色 | 5V |
 
-### 5.2 状态 LED 接口参考
+### 5.2 状态 RGB LED 接口参考
 
-状态 `LED` 由 `ESP32_STATUS_IO22` 控制，电路参考如下。
+`PRO` 板上提供 `RGB` 状态 `LED`，主控侧采用 `ESP32-S3`。当前参考图如下。
 
 <div style="text-align: center; margin: 10px 0;">
-  <img src="./img/RPX/6843/mini-status-led.png" alt="MINI 状态 LED 接口参考" width="90%" style="display: block; margin: 0 auto;" />
-  <p style="margin: 4px 0 0 0;">MINI 状态 LED 接口参考</p>
+  <img src="./img/RPX/6843/pro-rgb-led.png" alt="PRO 状态 RGB LED 接口参考" width="90%" style="display: block; margin: 0 auto;" />
+  <p style="margin: 4px 0 0 0;">PRO 状态 RGB LED 接口参考</p>
 </div>
 
 ### 5.3 按键接口参考
 
-按键输入连接至 `ESP32_KEY_IN_IO37`，默认由 `10kΩ` 电阻上拉至 `3V3`，按下时触发低电平输入。
+`PRO` 板上提供按键输入接口，当前参考图如下。
 
 <div style="text-align: center; margin: 10px 0;">
-  <img src="./img/RPX/6843/mini-key.png" alt="MINI 按键接口参考" width="35%" style="display: block; margin: 0 auto;" />
-  <p style="margin: 4px 0 0 0;">MINI 按键接口参考</p>
+  <img src="./img/RPX/6843/pro-key.png" alt="PRO 按键接口参考" width="35%" style="display: block; margin: 0 auto;" />
+  <p style="margin: 4px 0 0 0;">PRO 按键接口参考</p>
 </div>
 
 ## 6. 相关文档
