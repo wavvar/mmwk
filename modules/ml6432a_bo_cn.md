@@ -1,4 +1,4 @@
-# ML6432A 模组简介
+# ML6432A_BO 模组简介
 
 ## 目录
 
@@ -7,7 +7,8 @@
 - [3. 应用领域](#3-应用领域)
 - [4. WDR/MDR 系列集成说明](#4-wdrmdr-系列集成说明)
 - [5. 接口说明](#5-接口说明)
-- [5.1 状态 LED 参考](#51-状态-led-参考)
+- [5.1 接口参考图](#51-接口参考图)
+- [5.2 状态 LED 参考](#52-状态-led-参考)
 - [6. 使用与烧录说明](#6-使用与烧录说明)
 - [6.1 烧录参考图](#61-烧录参考图)
 - [6.2 启动模式配置说明](#62-启动模式配置说明)
@@ -18,37 +19,33 @@
 
 ## 1. 模组简介
 
-`ML6432A` 是基于 TI `IWRL6432AOP` 芯片开发的高性能低功耗毫米波雷达模组。模组集成了雷达射频前端、数字处理单元及天线，具有尺寸紧凑、集成度高等特点。本模组主要面向智能家居、人员存在检测、体征检测、运动检测等应用领域。支持 `UART` 和 `SPI` 接口，方便用户进行快速开发和集成。
+`ML6432A_BO` 是基于 TI `IWRL6432AOP` 芯片开发的高性能低功耗毫米波雷达模组。模组集成了雷达射频前端、数字处理单元及天线，具有尺寸紧凑、集成度高等特点。本模组主要面向智能家居、人员存在检测、体征检测、运动检测等应用领域。支持 `UART`、`SPI` 和 `CAN-FD` 接口，方便用户进行快速开发和集成，并适合作为 `MDR-M` / `WDR-M` 的直插式雷达板方案。
 
 <div style="text-align: center; margin: 10px 0;">
-  <img src="./img/MDR/ml6432a-front-view.png" alt="ML6432A 模组正面" width="50%" style="display: block; margin: 0 auto;" />
-  <p style="margin: 4px 0 0 0;">ML6432A</p>
+  <img src="./img/MDR/ml6432a-bo-front-view.png" alt="ML6432A_BO 模组正面" width="60%" style="display: block; margin: 0 auto;" />
+  <p style="margin: 4px 0 0 0;">ML6432A_BO</p>
 </div>
 
 ## 2. 技术规格和主要特性
 
-## 模块规格说明
-
-## 模块规格说明
-
 | 类别 | 项目 | 规格 | 备注 |
 |---|---|---|---|
-| **基础参数** | 尺寸 | 15 × 39 × 7.2 mm | 模组尺寸，以结构图纸为准 |
+| **基础参数** | 尺寸 | 7.6 × 48 × 7.2 mm | 模组尺寸，以结构图纸为准 |
 |  | 供电输入 | 3.3V | 单电源输入，建议电源能力 ≥1A |
 |  | 功耗 | 与工作模式相关 | Active 模式典型约 1W，低功耗模式更低 |
 |  | 通信接口 | UART / SPI / CAN-FD / SOP | 支持多接口通信与启动配置 |
 | **环境参数** | 工作温度 | 0 ～ +45°C |  |
 |  | 存储温度 | -55 ～ +150°C |  |
 |  | 工作湿度 | ≤95%（无冷凝） |  |
-| **对外接口** | P1 | 6Pin，SPI + UART 通信接口 |  |
-|  | P2 | 6Pin，电源 + CAN + 控制接口 |  |
-| **P1 接口定义** | SPIA_MOSI | SPI 主机发送 |  |
-|  | SPIA_MISO | SPI 主机接收 |  |
-|  | SPIA_CS | SPI 片选 |  |
-|  | SPIA_CLK | SPI 时钟 |  |
+| **对外接口** | 板对板连接器 | 直插式系统连接 | 适配 `WDR-M` |
+|  | 信号类别 | SPI + UART + CAN + 控制接口 |  |
+| **P1 接口定义** | SPIA_MOSI | SPI 主机发送 | 通过板对板连接引出 |
+|  | SPIA_MISO | SPI 主机接收 | 通过板对板连接引出 |
+|  | SPIA_CS | SPI 片选 | 通过板对板连接引出 |
+|  | SPIA_CLK | SPI 时钟 | 通过板对板连接引出 |
 |  | RS232_TX | 串口发送 | TTL 电平 |
 |  | RS232_RX | 串口接收 | TTL 电平 |
-| **P2 接口定义** | 3.3V | 电源输入 |  |
+| **P2 接口定义** | 3.3V | 电源输入 | 通过板对板连接引出 |
 |  | GND | 电源地 |  |
 |  | NRESET | 模组复位 | 低电平有效 |
 |  | MCU_IO_MODE_SET | 模式控制 | 功能扩展接口 |
@@ -69,7 +66,7 @@
 |  | 控制信号 | NRESET / SOP / 模式控制 |  |
 | **板载特性** | 启动方式 | Flash / Application / Debug | 多模式启动 |
 |  | 接口类型 | 多接口复用 | SPI / UART / CAN |
-|  | LED（可选） | 2x Led |
+|  | LED（可选） | 2x Led |  |
 
 ## 3. 应用领域
 
@@ -81,54 +78,51 @@
 
 ## 4. WDR/MDR 系列集成说明
 
-在系统集成场景下，`ML6432A` 与 `ML6432A_BO` 在雷达侧保持相同的电气接口定义，但安装方式不同。`ML6432A` 在功能上同样受 `MDR-M` / `WDR-M` 支持，但通常需要通过转接线连接，而不是直接插接到主控板。
-
-以下图片来自 `WDR/MDR` 集成资料，可作为补充参考。
+在系统集成场景下，`ML6432A_BO` 与 `ML6432A` 在雷达侧保持相同的电气接口类别，但安装方式不同。`ML6432A_BO` 是面向 `MDR-M` / `WDR-M` 的优先直插版本，在构建完整 `WDR/MDR` 模块时更适合作为直插式雷达板方案。
 
 <div style="text-align: center; margin: 10px 0;">
-  <img src="./img/MDR/ml6432a-connector-layout-reference.png" alt="ML6432A 连接器布局参考图" width="48%" style="display: inline-block; margin: 0 12px;" />
-  <img src="./img/MDR/ml6432a-p1-p2-position-reference.png" alt="ML6432A P1 与 P2 位置参考图" width="38%" style="display: inline-block; margin: 0 12px;" />
-  <p style="margin: 4px 0 0 0;">连接器布局与 P1/P2 位置参考</p>
-</div>
-
-<div style="text-align: center; margin: 10px 0;">
-  <img src="./img/MDR/ml6432a-signal-schematic-reference.png" alt="ML6432A 信号原理参考图" width="70%" style="display: block; margin: 0 auto;" />
-  <p style="margin: 4px 0 0 0;">WDR/MDR 集成资料中的信号原理参考图</p>
+  <img src="./img/MDR/mdr-m-board-attachment-orientation.png" alt="MDR-M 插接方向参考" width="42%" style="display: inline-block; margin: 0 12px;" />
+  <img src="./img/MDR/ml6432a-bo-attachment-orientation.png" alt="ML6432A_BO 插接方向参考" width="42%" style="display: inline-block; margin: 0 12px;" />
+  <p style="margin: 4px 0 0 0;">MDR-M 与 ML6432A_BO 的直插方向参考</p>
 </div>
 
 如需查看完整的 `WDR/MDR` 系统级说明，请参考 [mdr_cn.md](./mdr_cn.md)。
 
 ## 5. 接口说明
 
-模组通过两个 `6-Pin` 连接器（`P1`、`P2`）与外部进行连接。接口包含电源、复位、模式设置以及 `SPI`、`UART`、`CAN FD` 通信接口。当前资料中的 `ML6432A` 接口参考如下。
+模组通过板对板连接方式接入 `WDR/MDR` 系统，同时保留与 `ML6432A` 相同的雷达侧接口类别。由于 `ML6432A_BO` 的对外接口排列与 `ML6432A` 不一致，本节先保留 `BO` 版本的外观与接口参考图。
 
 <div style="text-align: center; margin: 10px 0;">
-  <img src="./img/MDR/ml6432a-front-view.png" alt="ML6432A 正面" width="40%" style="display: block; margin: 0 auto;" />
-  <p style="margin: 4px 0 0 0;">图 1 ML6432A 正面</p>
+  <img src="./img/MDR/ml6432a-bo-front-view.png" alt="ML6432A_BO 正面" width="60%" style="display: block; margin: 0 auto;" />
+  <p style="margin: 4px 0 0 0;">图 1 ML6432A_BO 正面</p>
 </div>
 
 <div style="text-align: center; margin: 10px 0;">
-  <img src="./img/MDR/ml6432a-back-view.png" alt="ML6432A 背面" width="40%" style="display: block; margin: 0 auto;" />
-  <p style="margin: 4px 0 0 0;">图 2 ML6432A 背面</p>
+  <img src="./img/MDR/ml6432a-bo-back-view.png" alt="ML6432A_BO 背面" width="60%" style="display: block; margin: 0 auto;" />
+  <p style="margin: 4px 0 0 0;">图 2 ML6432A_BO 背面</p>
 </div>
 
 <div style="text-align: center; margin: 10px 0;">
-  <img src="./img/MDR/ml6432a-connector-pin-assignment.png" alt="ML6432A 接口线序" width="40%" style="display: block; margin: 0 auto;" />
-  <p style="margin: 4px 0 0 0;">图 3 ML6432A 接口线序</p>
+  <img src="./img/MDR/ml6432a-bo-connector-pin-assignment.jpg" alt="ML6432A_BO 接口线序" width="55%" style="display: block; margin: 0 auto;" />
+  <p style="margin: 4px 0 0 0;">图 3 ML6432A_BO 接口线序</p>
 </div>
 
+### 5.1 接口参考图
+
+下图为你新增的 `ML6432A_BO` 接口参考图，可用于确认 `BO` 版本的板对板接口位置与连接方式。
+
 <div style="text-align: center; margin: 10px 0;">
-  <img src="./img/MDR/ml6432a-interface-schematic.png" alt="ML6432A 接口原理图" width="90%" style="display: block; margin: 0 auto;" />
-  <p style="margin: 4px 0 0 0;">图 4 接口原理图</p>
+  <img src="./img/ML6432A_BO/l6432a_bo_interface.png" alt="ML6432A_BO 接口参考图" width="68%" style="display: block; margin: 0 auto;" />
+  <p style="margin: 4px 0 0 0;">图 4 ML6432A_BO 接口参考图</p>
 </div>
 
-### 5.1 状态 LED 参考
+### 5.2 状态 LED 参考
 
-下图为你新增的 `ML6432A` 状态 `LED` 参考图，可用于快速定位板载指示灯位置。
+下图为你新增的 `ML6432A_BO` 状态 `LED` 参考图，可用于快速定位板载指示灯位置。
 
 <div style="text-align: center; margin: 10px 0;">
-  <img src="./img/ML6432A/l6432a_led.png" alt="ML6432A 状态 LED 参考图" width="48%" style="display: block; margin: 0 auto;" />
-  <p style="margin: 4px 0 0 0;">图 5 ML6432A 状态 LED 参考图</p>
+  <img src="./img/ML6432A_BO/l6432a_bo_led.png" alt="ML6432A_BO 状态 LED 参考图" width="48%" style="display: block; margin: 0 auto;" />
+  <p style="margin: 4px 0 0 0;">图 5 ML6432A_BO 状态 LED 参考图</p>
 </div>
 
 ## 6. 使用与烧录说明
@@ -142,11 +136,11 @@
 
 ### 6.1 烧录参考图
 
-下图为你新增的 `ML6432A` 烧录参考图，可在连接烧录器和执行固件烧录时作为辅助参考。
+下图为你新增的 `ML6432A_BO` 烧录参考图，可在连接烧录器和执行固件烧录时作为辅助参考。
 
 <div style="text-align: center; margin: 10px 0;">
-  <img src="./img/ML6432A/l6432a_flasher.png" alt="ML6432A 烧录参考图" width="52%" style="display: block; margin: 0 auto;" />
-  <p style="margin: 4px 0 0 0;">图 6 ML6432A 烧录参考图</p>
+  <img src="./img/ML6432A_BO/l6432a_bo_flasher.png" alt="ML6432A_BO 烧录参考图" width="52%" style="display: block; margin: 0 auto;" />
+  <p style="margin: 4px 0 0 0;">图 6 ML6432A_BO 烧录参考图</p>
 </div>
 
 ### 6.2 启动模式配置说明
@@ -209,4 +203,4 @@
 
 - [MDR 模块简介](./mdr_cn.md)
 - [WDR-M 主控承载板简介](./wdr-m_cn.md)
-- [ML6432A_BO 模组简介](./ml6432a_bo_cn.md)
+- [ML6432A 模组简介](./ml6432a_cn.md)
