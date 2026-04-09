@@ -15,7 +15,7 @@
 
 ## 1. 板卡概述
 
-`WDR-M` 是 `WDR` 系统中的主控承载板。在详细硬件说明中，该角色统一以 `MDR-M` 表示，用于说明具体板级结构。`WDR` 完整模组由 `ML6432A_BO` 雷达板、`MDR-M` 主控板和 `WDR-4g` 通信板组成，其中 `WDR-M` 负责供电分配、本地控制、外围管理和板间互连。
+`WDR-M` 是 `WDR` 系统中的主控承载板。在详细硬件说明中，该角色统一以 `MDR-M` 表示，用于说明具体板级结构。`WDR` 完整模组由 `ML6432A_BO` 雷达板、`MDR-M` 主控板和 `WDR-4G` 通信板组成，其中 `WDR-M` 负责供电分配、本地控制、外围管理和板间互连。
 
 <div style="text-align: center; margin: 10px 0;">
   <img src="./img/MDR/mdr-module-top-view.png" alt="MDR 模块顶视图" width="80%" style="display: block; margin: 0 auto;" />

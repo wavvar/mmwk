@@ -6,11 +6,11 @@ Wavvar MMWK (mmWave Kit) is a product-level mmWave radar sensor platform. This d
 
 ## Features
 
-- **Radar Development Fast-track**: The default [**BRIDGE mode**](./docs/en/bridge.md) transforms MMWK into a transparent gateway, allowing you to stream raw radar data directly to high-level applications or AI agents via MQTT (CLIv1 default, MCPv1 compatibility). Start prototyping your radar-powered application in minutes, not months.
+- **Radar Development Fast-track**: The default [**BRIDGE mode**](./docs/en/bridge.md) transforms MMWK into a transparent gateway, allowing you to stream raw radar data directly to high-level applications or AI agents via MQTT ([CLIv1](./docs/CLIv1.md) default, [MCPv1](./docs/en/mcpv1.md) compatibility). Start prototyping your radar-powered application in minutes, not months.
 - **TI Firmware Compatible**: Runs standard TI radar binaries without modification. This allows you to leverage the entire TI radar ecosystem — develop on TI EVMs, use TI signal processing toolboxes, and deploy directly to MMWK with zero code migration.
 - **Dual-MCU Architecture**: Separates radar processing (TI C674x) from application logic (ESP32/ESP32S3). This ensures uninterrupted real-time radar performance while providing the flexibility to run complex networking, AI logic, and custom application code on the ESP MCU.
 - **Flexible Data Pipeline**: Supports multiple operating modes (BRIDGE, HUB, RAW). This versatility allows you to switch between transparent data forwarding and on-device intelligent processing based on your specific application requirements.
-- **AI-Native Support**: The device natively implements a canonical CLI JSON control protocol (CLIv1) over UART and MQTT, while the host provides an LLM-friendly CLI tool. MCP/JSON-RPC 2.0 remains supported as a compatibility layer for callers that explicitly select `--protocol mcp`.
+- **AI-Native Support**: The device natively implements a canonical CLI JSON control protocol ([CLIv1](./docs/CLIv1.md)) over UART and MQTT, while the host provides an LLM-friendly CLI tool. [MCP/JSON-RPC 2.0](./docs/en/mcpv1.md) remains supported as a compatibility layer for callers that explicitly select `--protocol mcp`.
 - **Comprehensive Tooling**: Includes open-source CLI, integration tests, and documentation. These resources reduce development friction and ensure a robust dev-to-deploy cycle with proven reference implementations.
 - **Production & Deployment Ready**: Built for scale with robust OTA updates, standardized configuration management, and field-proven reliability, providing everything you need for mass production and large-scale deployment.
 - **Ecosystem & Customization**: Our ecosystem provides comprehensive tailored solutions—from 200Hz high-frequency radar firmware and multi-functional applications (people tracking, vital signs) to full-stack customization for cloud platforms and mobile apps.
@@ -37,18 +37,18 @@ Optional peripherals include ESP-side user I/O, Audio, and 4G/LTE modules on sel
 
 Name | ESP | Audio | Radar | LED | 4G/LTE Support
 --- | --- | --- | --- | --- | ---
-MINI | ESP32 | No | IWR6843AoP | 1 | No
-PRO | ESP32S3 | Optional | IWR6843AoP | 1 | No
-RPI | ESP32S3 | Yes | IWRL6432AoP | 1 | No
-CFH | ESP32S3 | Yes | IWR6843AoP | 1 | No
+[MINI](./modules/mini.md) | ESP32 | No | IWR6843AoP | 1 | No
+[PRO](./modules/pro.md) | ESP32S3 | Optional | IWR6843AoP | 1 | No
+[RPI](./modules/rpx.md#3-rpi-6432-sensing-module) | ESP32S3 | Yes | IWRL6432AoP | 1 | No
+[CFH](./modules/rpx.md#2-6843-series-sensing-modules) | ESP32S3 | Yes | IWR6843AoP | 1 | No
 IOT | ESP32S3 | No | IWR6843AoP | 1 | Yes
-WDR | ESP32S3 | Yes | IWRL6432AoP | 2 | Optional
+[WDR](./modules/mdr.md) | ESP32S3 | Yes | IWRL6432AoP | 2 | Optional
 
 `LED` specifically refers to the radar-chip LED. Its IO follows the TI reference examples and must be controlled by the radar firmware.
 
 All boards also include one ESP-controlled button and one ESP-controlled LED.
 
-If you need product-line specific hardware context beyond the bridge workflow docs, the standalone `6843` branch plus the `RPI` platform are covered in the [RPX module guide](./modules/rpx.md), while the `WDR/MDR` controller-and-radar-board path is covered by the [MDR module introduction](./modules/mdr.md) and the [ML6432Ax series introduction](./modules/ml6432ax.md).
+If you need product-line specific hardware context beyond the [bridge workflow docs](./docs/en/bridge.md), start with the [Product Module Overview](./modules/README.md). The RPX line now has dedicated introductions for [MINI](./modules/mini.md) and [PRO](./modules/pro.md), while [RPI](./modules/rpx.md#3-rpi-6432-sensing-module) and [CFH](./modules/rpx.md#2-6843-series-sensing-modules) remain in the [RPX module guide](./modules/rpx.md). The `WDR/MDR` controller-and-radar-board path is covered by the [MDR module introduction](./modules/mdr.md), the [WDR-M main controller carrier board introduction](./modules/wdr-m.md), the [WDR-4G communication board introduction](./modules/wdr-4g.md), the [ML6432A_BO module introduction](./modules/ml6432a_bo.md), and the [ML6432A module introduction](./modules/ml6432a.md).
 
 The hardware architecture of separate MCUs enables users to quickly evaluate any TI radar firmware. Users can utilize all of TI's toolchains and development boards to develop and debug radar firmware, and then develop applications on the MMWK's ESP MCU. Existing TI radar firmware such as People Tracking and Vital Signs can all be used on MMWK.
 
@@ -102,7 +102,7 @@ MMWK defaults to [BRIDGE mode](./docs/en/bridge.md). Use this section to choose 
 2. **[MMWK Sensor BRIDGE Mode](./docs/en/bridge.md)**: Start here if bridge firmware is already running and you want the first end-to-end bridge bring-up, including radar flash plus collection.
 3. **[Device OTA Guide](./docs/en/ota.md)**: Start here if the device is already running bridge firmware and you only need an ESP OTA update.
 
-[MMWK Bridge Mode](./docs/en/bridge.md) is the canonical getting-started guide for bridge mode. It routes you onward to factory flash, radar flash plus collection, OTA, and the deeper bridge reference material.
+[MMWK Bridge Mode](./docs/en/bridge.md) is the canonical getting-started guide for bridge mode. It routes you onward to factory flash, radar flash plus collection, OTA, and the deeper [MMWK Sensor BRIDGE Reference](./docs/en/bridge-reference.md).
 
 
 

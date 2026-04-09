@@ -1,8 +1,8 @@
 # MMWK CLI Shell Wrapper
 
-This document is for [`./mmwk_cli.sh`](../../mmwk_cli.sh), the recommended shell entrypoint for controlling and managing MMWK bridge/hub devices on **macOS** and **Linux**. The shell wrapper bootstraps the Python CLI in [`scripts/mmwk_cli/`](../../scripts/mmwk_cli/) and exposes the same command surface over UART (Serial) and MQTT, defaulting to canonical CLI JSON with MCP fallback.
+This document is for [`./mmwk_cli.sh`](../../mmwk_cli.sh), the recommended shell entrypoint for controlling and managing MMWK bridge/hub devices on **macOS** and **Linux**. The shell wrapper bootstraps the Python CLI in [`scripts/mmwk_cli/`](../../scripts/mmwk_cli/) and exposes the same command surface over UART (Serial) and MQTT, defaulting to [canonical CLI JSON](../../../docs/CLIv1.md) with [MCP fallback](../../../docs/en/mcpv1.md).
 
-`mmwk_cli.sh` now defaults to the canonical CLI JSON protocol. During migration, callers that omit `--protocol` receive a warning so they can upgrade explicitly to `--protocol cli`. Use `--protocol mcp` only as a compatibility fallback.
+`mmwk_cli.sh` now defaults to the [canonical CLI JSON protocol](../../../docs/CLIv1.md). During migration, callers that omit `--protocol` receive a warning so they can upgrade explicitly to `--protocol cli`. Use `--protocol mcp` only as a compatibility fallback documented in the [MCP spec](../../../docs/en/mcpv1.md).
 
 ## Raw Semantics Contract
 
@@ -219,7 +219,7 @@ This is the recommended communication model:
 - **UART** is the local service path. Use it for factory provisioning, initial flashing, low-level bring-up, bench debugging, and rescue access when the device is not yet on the network.
 - **MQTT CLI JSON** is the builtin device interaction channel configured by `network mqtt`. It is the right path for real applications to send commands, read status, and manage devices remotely.
 - **MQTT RAW** is the radar passthrough channel configured by `radar raw` or auto-derived when raw forwarding is enabled. In bridge/auto mode it is an output-only radar surface carrying `raw_data` and `raw_resp`; host mode can additionally enable `raw_cmd`.
-- **MCPv1** remains a compatibility/reference layer. Use it only when an MCP client specifically requires that protocol shape.
+- **[MCPv1](../../../docs/en/mcpv1.md)** remains a compatibility/reference layer. Use it only when an MCP client specifically requires that protocol shape.
 - **Application guidance**: if you are building a product feature, service, AI agent, dashboard, or cloud workflow, integrate through MQTT. Do not treat a persistent UART cable as the normal application architecture.
 
 ### UART (Local)

@@ -1,8 +1,8 @@
 # MMWK CLI Shell Wrapper
 
-本文档介绍 [`./mmwk_cli.sh`](../../mmwk_cli.sh)。它是推荐在 **macOS** 和 **Linux** 上使用的 MMWK bridge/hub 控制入口。该 shell 包装脚本会自动引导 [`scripts/mmwk_cli/`](../../scripts/mmwk_cli/) 中的 Python CLI，并通过 UART（串口）和 MQTT 暴露同一套命令面，默认走标准 CLI JSON，必要时可回退到 MCP。
+本文档介绍 [`./mmwk_cli.sh`](../../mmwk_cli.sh)。它是推荐在 **macOS** 和 **Linux** 上使用的 MMWK bridge/hub 控制入口。该 shell 包装脚本会自动引导 [`scripts/mmwk_cli/`](../../scripts/mmwk_cli/) 中的 Python CLI，并通过 UART（串口）和 MQTT 暴露同一套命令面，默认走[标准 CLI JSON](../../../docs/CLIv1_CN.md)，必要时可回退到 [MCP](../../../docs/zh-cn/mcpv1.md)。
 
-`mmwk_cli.sh` 现在默认使用标准 CLI JSON 协议。迁移期内，如果调用方省略 `--protocol`，CLI 会打印 warning，提示你升级到显式的 `--protocol cli`。只有兼容性回退场景才建议使用 `--protocol mcp`。
+`mmwk_cli.sh` 现在默认使用[标准 CLI JSON 协议](../../../docs/CLIv1_CN.md)。迁移期内，如果调用方省略 `--protocol`，CLI 会打印 warning，提示你升级到显式的 `--protocol cli`。只有兼容性回退场景才建议使用 `--protocol mcp`，对应规范见 [MCP 协议文档](../../../docs/zh-cn/mcpv1.md)。
 
 ## 原始语义契约
 
@@ -225,7 +225,7 @@ flowchart LR
 - **UART**：本地工厂配置、刷写、bring-up、调试
 - **MQTT CLI JSON**：默认内置控制通道，通过 `network mqtt` 暴露设备控制与状态读取
 - **MQTT RAW**：雷达原始数据透传。bridge/auto 模式下只负责输出 `raw_data` / `raw_resp`；host 模式下可额外启用 `raw_cmd`
-- **MCPv1**：兼容/参考层，仅在 MCP 客户端明确需要该协议形态时使用
+- **[MCPv1](../../../docs/zh-cn/mcpv1.md)**：兼容/参考层，仅在 MCP 客户端明确需要该协议形态时使用
 
 ### UART（本地）
 
