@@ -1,0 +1,54 @@
+name: Release Generated Assets
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release-generated-assets:
+    runs-on: ubuntu-latest
+    env:
+      TAG_NAME: ${{ github.ref_name }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pandoc
+
+      - name: Generate build date
+        run: echo "BUILT_DATE=$(date -u +%F)" >> "$GITHUB_ENV"
+
+      - name: Generate PDFs
+        run: |
+          chmod +x downloads/generate.sh
+          bash downloads/generate.sh pdfs \
+            --version "$TAG_NAME" \
+            --built-date "$BUILT_DATE" \
+            --out-dir dist/release/pdfs
+
+      - name: Validate generated PDFs
+        run: |
+          downloads/.venv/bin/python - <<'PY'
+          from pathlib import Path
+          from downloads.generate_module_pdfs import MODULE_DOCS
+
+          out_dir = Path("dist/release/pdfs")
+          expected = sorted(pdf_name for _, pdf_name in MODULE_DOCS)
+          actual = sorted(path.name for path in out_dir.glob("*.pdf"))
+
+          if actual != expected:
+              raise SystemExit(f"Generated PDF set mismatch\nexpected={expected}\nactual={actual}")
+          PY
+
+      - name: Publish release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/release/pdfs/*.pdf
+          overwrite_files: true

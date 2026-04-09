@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import re
 import subprocess
 from dataclasses import dataclass
@@ -38,9 +39,7 @@ from reportlab.platypus.tableofcontents import TableOfContents
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DOWNLOADS_ROOT = Path(__file__).resolve().parent
 MODULES_ROOT = REPO_ROOT / "modules"
-OUTPUT_ROOT = DOWNLOADS_ROOT / "modules"
 GITHUB_BLOB_BASE = "https://github.com/wavvar/mmwk/blob/main"
 PAGE_WIDTH, PAGE_HEIGHT = A4
 LEFT_MARGIN = 18 * mm
@@ -59,7 +58,7 @@ ADDRESS_ZH = (
 FOOTER_CONTACT = "www.wavvar.com | support@wavvar.com"
 EN_FONT_NAME = "WavvarArialUnicode"
 ZH_FONT_NAME = "WavvarSongti"
-ZH_FONT_FALLBACK = "WavvarZhCID"
+ZH_FONT_FALLBACK = "STSong-Light"
 
 
 MODULE_DOCS = [
@@ -118,6 +117,27 @@ def escape_text(text: str | None) -> str:
     return escape(normalized, {'"': "&quot;"})
 
 
+def cover_meta_lines(language: str, display_version: str, built_date: str) -> list[str]:
+    if language == "zh-cn":
+        return [f"版本：{display_version}", f"更新时间：{built_date}"]
+    return [f"Version: {display_version}", f"Updated: {built_date}"]
+
+
+def display_path(path: Path) -> str:
+    try:
+        return str(path.relative_to(REPO_ROOT))
+    except ValueError:
+        return str(path)
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Generate MMWK module PDFs")
+    parser.add_argument("--display-version", required=True, help="Release version without tag prefix")
+    parser.add_argument("--built-date", required=True, help="Build date in YYYY-MM-DD format")
+    parser.add_argument("--out-dir", required=True, type=Path, help="Output directory for generated PDFs")
+    return parser.parse_args(argv)
+
+
 def register_fonts(language: str) -> tuple[str, str]:
     if language != "zh-cn":
         if EN_FONT_NAME not in pdfmetrics.getRegisteredFontNames():
@@ -169,14 +189,7 @@ def register_fonts(language: str) -> tuple[str, str]:
                 boldItalic=ZH_FONT_NAME,
             )
         elif ZH_FONT_FALLBACK not in pdfmetrics.getRegisteredFontNames():
-            pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
-            pdfmetrics.registerFontFamily(
-                ZH_FONT_FALLBACK,
-                normal="STSong-Light",
-                bold="STSong-Light",
-                italic="STSong-Light",
-                boldItalic="STSong-Light",
-            )
+            pdfmetrics.registerFont(UnicodeCIDFont(ZH_FONT_FALLBACK))
 
     if ZH_FONT_NAME in pdfmetrics.getRegisteredFontNames():
         return (ZH_FONT_NAME, ZH_FONT_NAME)
@@ -704,17 +717,29 @@ def filtered_body_children(body: ET.Element) -> list[ET.Element]:
     return filtered
 
 
-def build_cover(title: str, language: str, styles: StyleSheet1) -> list:
+def build_cover(
+    title: str,
+    language: str,
+    styles: StyleSheet1,
+    *,
+    display_version: str,
+    built_date: str,
+) -> list:
     if language == "zh-cn":
         eyebrow = "Wavvar MMWK 模组文档"
     else:
         eyebrow = "Wavvar MMWK Module Documentation"
     subtitle = "Wavvar Technologies"
+    meta_flowables = [
+        Paragraph(escape_text(line), styles["CoverMeta"])
+        for line in cover_meta_lines(language, display_version, built_date)
+    ]
     return [
         Spacer(1, 56 * mm),
         Paragraph(eyebrow, styles["CoverEyebrow"]),
         Paragraph(escape_text(title), styles["CoverTitle"]),
         Paragraph(subtitle, styles["CoverMeta"]),
+        *meta_flowables,
         Spacer(1, 12 * mm),
         HRFlowable(width="42%", color=colors.HexColor("#d8dee8"), thickness=1.0),
         Spacer(1, 104 * mm),
@@ -853,7 +878,13 @@ def render_element(
     return flowables
 
 
-def render_story(markdown_path: Path, styles: StyleSheet1) -> list:
+def render_story(
+    markdown_path: Path,
+    styles: StyleSheet1,
+    *,
+    display_version: str,
+    built_date: str,
+) -> list:
     with TemporaryDirectory(prefix="mmwk-module-html-") as temporary_dir:
         html_path = Path(temporary_dir) / f"{markdown_path.stem}.html"
         subprocess.run(
@@ -867,7 +898,13 @@ def render_story(markdown_path: Path, styles: StyleSheet1) -> list:
             raise RuntimeError(f"Could not find body in rendered HTML for {markdown_path.name}")
         language = document_language(markdown_path)
         title = first_heading(body)
-        story = build_cover(title, language, styles)
+        story = build_cover(
+            title,
+            language,
+            styles,
+            display_version=display_version,
+            built_date=built_date,
+        )
         story.extend(build_contents_page(language, styles))
         for child in filtered_body_children(body):
             story.extend(render_element(child, styles, markdown_path, max_width=CONTENT_WIDTH))
@@ -879,11 +916,24 @@ def render_story(markdown_path: Path, styles: StyleSheet1) -> list:
         return compact_story
 
 
-def build_pdf(markdown_name: str, pdf_name: str, styles: StyleSheet1) -> None:
+def build_pdf(
+    markdown_name: str,
+    pdf_name: str,
+    styles: StyleSheet1,
+    *,
+    display_version: str,
+    built_date: str,
+    output_root: Path,
+) -> None:
     markdown_path = MODULES_ROOT / markdown_name
-    output_path = OUTPUT_ROOT / pdf_name
+    output_path = output_root / pdf_name
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    story = render_story(markdown_path, styles)
+    story = render_story(
+        markdown_path,
+        styles,
+        display_version=display_version,
+        built_date=built_date,
+    )
     language = document_language(markdown_path)
     title = markdown_path.stem.replace("_", " ")
     document = ModuleDocTemplate(
@@ -899,15 +949,24 @@ def build_pdf(markdown_name: str, pdf_name: str, styles: StyleSheet1) -> None:
         author="Wavvar",
     )
     document.multiBuild(story)
-    print(f"generated {output_path.relative_to(REPO_ROOT)}")
+    print(f"generated {display_path(output_path)}")
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
+    args = parse_args(argv)
     if not REPO_ROOT.exists():
         raise SystemExit(f"Missing repo root: {REPO_ROOT}")
+    output_root = args.out_dir.expanduser().resolve()
     for markdown_name, pdf_name in MODULE_DOCS:
         styles = build_styles(document_language(MODULES_ROOT / markdown_name))
-        build_pdf(markdown_name, pdf_name, styles)
+        build_pdf(
+            markdown_name,
+            pdf_name,
+            styles,
+            display_version=args.display_version,
+            built_date=args.built_date,
+            output_root=output_root,
+        )
 
 
 if __name__ == "__main__":
