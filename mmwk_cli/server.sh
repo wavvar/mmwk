@@ -84,7 +84,7 @@ OPTIONS:
   --state-dir DIR    State/log/pid directory (default: ./output/local_server)
   --serve-dir DIR    Directory exposed by HTTP server (default: current working directory)
   --upload-dir DIR   Directory for HTTP POST upload dumps (default: <state-dir>/uploads)
-  --device-ota       Publish fixed-name bridge OTA artifact
+  --device-ota       Publish bridge OTA artifact
   --device-ota-board NAME
                      Board name for bridge OTA artifact lookup
   --host-ip IP       Advertised host IP for device access
@@ -233,7 +233,98 @@ resolve_device_ota_dir() {
     printf '%s\n' "${package_root}/firmwares/esp/${DEVICE_OTA_BOARD}"
 }
 
+resolve_latest_device_ota_version_dir() {
+    local board_root="$1"
+    local version_root="${board_root}/mmwk_sensor_bridge"
+
+    if [ ! -d "$version_root" ]; then
+        return 1
+    fi
+
+    find "$version_root" -mindepth 1 -maxdepth 1 -type d -name 'v*' | sort -V | tail -n 1
+}
+
+extract_device_ota_zip() {
+    local ota_zip="$1"
+    local extract_root="$2"
+
+    rm -rf "$extract_root"
+    mkdir -p "$extract_root"
+    "$PYTHON" - "$ota_zip" "$extract_root" <<'PY'
+import pathlib
+import sys
+import zipfile
+
+zip_path = pathlib.Path(sys.argv[1])
+extract_root = pathlib.Path(sys.argv[2])
+
+with zipfile.ZipFile(zip_path, "r") as zf:
+    zf.extractall(extract_root)
+PY
+}
+
+select_versioned_device_ota_artifact() {
+    local board_root="$1"
+    local version_dir=""
+    local ota_zip=""
+    local version_name=""
+    local extract_root=""
+    local bin_path=""
+
+    version_dir="$(resolve_latest_device_ota_version_dir "$board_root" || true)"
+    if [ -z "$version_dir" ]; then
+        return 1
+    fi
+
+    ota_zip="${version_dir}/ota.zip"
+    if [ ! -f "$ota_zip" ]; then
+        return 1
+    fi
+
+    version_name="$(basename "$version_dir")"
+    version_name="${version_name#v}"
+    extract_root="${STATE_DIR}/device_ota/${DEVICE_OTA_BOARD}/${version_name}"
+    extract_device_ota_zip "$ota_zip" "$extract_root"
+    bin_path="$(find "$extract_root" -type f -name '*.bin' | sort | head -n 1)"
+    if [ -z "$bin_path" ]; then
+        echo "Error: device OTA archive has no .bin payload: $ota_zip" >&2
+        exit 1
+    fi
+
+    DEVICE_OTA_DIR="$extract_root"
+    DEVICE_OTA_PATH="$bin_path"
+    DEVICE_OTA_VERSION="$version_name"
+    return 0
+}
+
+device_ota_url_for_host() {
+    local resolved_host_ip="$1"
+
+    if [ "$DEVICE_OTA" != "true" ] || [ -z "$DEVICE_OTA_PATH" ]; then
+        printf '%s\n' ""
+        return 0
+    fi
+
+    "$PYTHON" - "$resolved_host_ip" "$HTTP_PORT" "$SERVE_DIR" "$DEVICE_OTA_PATH" <<'PY'
+import os
+import sys
+
+host = sys.argv[1]
+port = sys.argv[2]
+serve_dir = os.path.abspath(sys.argv[3])
+artifact_path = os.path.abspath(sys.argv[4])
+
+rel_path = os.path.relpath(artifact_path, serve_dir)
+if rel_path.startswith(".."):
+    raise SystemExit("device OTA artifact must live under the served HTTP directory")
+
+print(f"http://{host}:{port}/{rel_path.replace(os.sep, '/')}")
+PY
+}
+
 configure_device_ota_mode() {
+    local board_root=""
+
     if [ "$DEVICE_OTA" != "true" ]; then
         return 0
     fi
@@ -243,19 +334,30 @@ configure_device_ota_mode() {
         exit 1
     fi
 
-    DEVICE_OTA_DIR="$(resolve_device_ota_dir)"
-    DEVICE_OTA_PATH="${DEVICE_OTA_DIR}/mmwk_sensor_bridge_full.bin"
-    if [ -f "${DEVICE_OTA_DIR}/mmwk_sensor_bridge.version" ]; then
-        DEVICE_OTA_VERSION="$(tr -d '\r\n' < "${DEVICE_OTA_DIR}/mmwk_sensor_bridge.version")"
-    else
-        DEVICE_OTA_VERSION=""
+    board_root="$(resolve_device_ota_dir)"
+    DEVICE_OTA_DIR="$board_root"
+    DEVICE_OTA_PATH="${board_root}/mmwk_sensor_bridge_full.bin"
+    if [ -f "$DEVICE_OTA_PATH" ]; then
+        if [ -f "${board_root}/mmwk_sensor_bridge.version" ]; then
+            DEVICE_OTA_VERSION="$(tr -d '\r\n' < "${board_root}/mmwk_sensor_bridge.version")"
+        else
+            DEVICE_OTA_VERSION=""
+        fi
+        return 0
     fi
+
+    if select_versioned_device_ota_artifact "$board_root"; then
+        return 0
+    fi
+
+    DEVICE_OTA_VERSION=""
 }
 
 if [ -z "$STATE_DIR" ]; then
     STATE_DIR="${INVOKE_PWD}/output/local_server"
 fi
 
+STATE_DIR="$(abspath_path "$STATE_DIR" "$INVOKE_PWD")"
 configure_device_ota_mode
 
 if [ -z "$SERVE_DIR" ]; then
@@ -269,7 +371,6 @@ if [ -z "$UPLOAD_DIR" ]; then
     UPLOAD_DIR="$STATE_DIR/uploads"
 fi
 
-STATE_DIR="$(abspath_path "$STATE_DIR" "$INVOKE_PWD")"
 SERVE_DIR="$(abspath_path "$SERVE_DIR" "$INVOKE_PWD")"
 UPLOAD_DIR="$(abspath_path "$UPLOAD_DIR" "$INVOKE_PWD")"
 
@@ -483,9 +584,7 @@ load_state_runtime() {
 write_env_file() {
     local resolved_host_ip="$1"
     local device_ota_url=""
-    if [ "$DEVICE_OTA" = "true" ]; then
-        device_ota_url="http://$resolved_host_ip:$HTTP_PORT/mmwk_sensor_bridge_full.bin"
-    fi
+    device_ota_url="$(device_ota_url_for_host "$resolved_host_ip")"
     cat > "$ENV_FILE" <<EOF_ENV
 MMWK_SERVER_HOST_IP=$resolved_host_ip
 MMWK_SERVER_MQTT_URI=mqtt://$resolved_host_ip:$MQTT_PORT
@@ -522,7 +621,7 @@ prepare_server() {
     local requested_http_port="$HTTP_PORT"
 
     if [ "$DEVICE_OTA" = "true" ] && [ ! -f "$DEVICE_OTA_PATH" ]; then
-        echo "Error: device OTA artifact not found: $DEVICE_OTA_PATH" >&2
+        echo "Error: device OTA artifact not found under $(resolve_device_ota_dir)" >&2
         exit 1
     fi
 
@@ -634,9 +733,7 @@ start_children() {
 print_server_summary() {
     local resolved_host_ip="$1"
     local device_ota_url=""
-    if [ "$DEVICE_OTA" = "true" ]; then
-        device_ota_url="http://$resolved_host_ip:$HTTP_PORT/mmwk_sensor_bridge_full.bin"
-    fi
+    device_ota_url="$(device_ota_url_for_host "$resolved_host_ip")"
     write_env_file "$resolved_host_ip"
 
     echo "Local server started"

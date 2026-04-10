@@ -100,11 +100,12 @@ COMMANDS:
     device hi              Device handshake
     device reboot          Reboot the device
     device ota             Update ESP firmware via HTTP OTA
-    device startup         Configure radar startup mode
     device agent           Enable/disable built-in agent services
     device heartbeat       Configure system heartbeat
     radar flash            Flash firmware via chunk transfer
     radar ota              Flash firmware via HTTP OTA (optional end-to-end raw_resp capture)
+    radar start            Start or restart radar service
+    radar stop             Stop radar service
     radar status           Query radar state
     radar version          Query firmware version
     radar raw              Configure/query raw forwarding

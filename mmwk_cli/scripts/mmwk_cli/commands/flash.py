@@ -87,12 +87,12 @@ class FlashCommand:
     def _pulse_radar_start(self) -> None:
         """Try a stop/start pulse to recover stale STARTING/ERROR states."""
         try:
-            self.mcp.call_tool("radar", {"action": "status", "set": "stop"}, timeout=10)
+            self.mcp.call_tool("radar", {"action": "stop"}, timeout=10)
         except Exception:
             pass
         time.sleep(1.0)
         try:
-            self.mcp.call_tool("radar", {"action": "status", "set": "start", "mode": "auto"}, timeout=10)
+            self.mcp.call_tool("radar", {"action": "start", "mode": "auto"}, timeout=10)
         except Exception:
             pass
 
@@ -119,7 +119,7 @@ class FlashCommand:
 
             if state == "stopped":
                 try:
-                    self.mcp.call_tool("radar", {"action": "status", "set": "start", "mode": "auto"}, timeout=10)
+                    self.mcp.call_tool("radar", {"action": "start", "mode": "auto"}, timeout=10)
                 except Exception:
                     pass
 
@@ -513,7 +513,7 @@ class FlashCommand:
 
                     if state == "stopped":
                         try:
-                            self.mcp.call_tool("radar", {"action": "status", "set": "start", "mode": "auto"}, timeout=10)
+                            self.mcp.call_tool("radar", {"action": "start", "mode": "auto"}, timeout=10)
                         except Exception:
                             pass
 

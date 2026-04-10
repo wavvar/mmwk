@@ -31,17 +31,16 @@ def _action_property(actions: list[str], description: str) -> dict:
 
 
 def _build_device_tool(profile: str) -> dict:
-    actions = ["startup", "agent", "heartbeat", "hi", "ota"]
+    actions = ["agent", "heartbeat", "hi", "ota"]
     if profile == "hub":
         actions.append("inquiry")
     else:
         actions.append("reboot")
     return _tool(
         "device",
-        "Device-level configuration: startup mode, agent flags, heartbeat, hi, and ESP OTA.",
+        "Device-level configuration: agent flags, heartbeat, hi, and ESP OTA.",
         {
             "action": _action_property(actions, "Operation"),
-            "mode": {"type": "string", "enum": ["auto", "host"], "description": "Startup mode"},
             "mqtt_en": {"type": "number", "description": "MQTT agent enable (0/1)"},
             "uart_en": {"type": "number", "description": "UART agent enable (0/1)"},
             "raw_auto": {"type": "number", "description": "Auto-enable raw stream on boot (0/1)"},
@@ -59,10 +58,10 @@ def _canonical_tools(profile: str) -> list[dict]:
     tools = [
         _tool(
             "radar",
-            "Radar service control: OTA update, UART flash, status query/set, raw data config, and debug diagnostics.",
+            "Radar service control: OTA update, UART flash, status query, start/stop control, raw data config, and debug diagnostics.",
             {
                 "action": _action_property(
-                    ["ota", "flash", "status", "switch", "cfg", "raw", "debug", "version", "calib"],
+                    ["ota", "flash", "status", "start", "stop", "switch", "cfg", "raw", "debug", "version", "calib"],
                     "Operation to perform",
                 ),
                 "base": {"type": "string", "description": "OTA base URL"},
@@ -79,11 +78,14 @@ def _canonical_tools(profile: str) -> list[dict]:
                 "config_size": {"type": "number", "description": "Flash config size"},
                 "chunk_size": {"type": "number", "description": "Flash chunk size"},
                 "reboot_delay": {"type": "number", "description": "ESP reboot delay after flash success (BRIDGE mode)"},
-                "set": {"type": "string", "enum": ["start", "stop"], "description": "Start/stop radar"},
                 "index": {"type": "number", "description": "Firmware index for action=switch"},
                 "persist": {"type": "boolean", "description": "Persist target as default firmware for action=switch"},
                 "gen": {"type": "boolean", "description": "Return generated config for action=cfg"},
-                "mode": {"type": "string", "enum": ["auto", "host"], "description": "Start mode"},
+                "mode": {
+                    "type": "string",
+                    "enum": ["auto", "host"],
+                    "description": "Persisted start mode for action=start",
+                },
                 "enabled": {"type": "boolean", "description": "Data output enable"},
                 "uri": {"type": "string", "description": "Raw MQTT broker URI"},
                 "uart_enabled": {"type": "boolean", "description": "Mirror raw frames to UART notifications"},

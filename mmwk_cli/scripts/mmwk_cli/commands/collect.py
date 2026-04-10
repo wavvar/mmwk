@@ -365,7 +365,7 @@ class CollectCommand:
         )
 
         try:
-            self.mcp.call_tool("radar", {"action": "status", "set": "stop"}, timeout=control_timeout)
+            self.mcp.call_tool("radar", {"action": "stop"}, timeout=control_timeout)
         except Exception as e:
             logger.warning(f"Failed to stop radar service for raw_resp probe: {e}")
 
@@ -374,7 +374,7 @@ class CollectCommand:
         try:
             self.mcp.call_tool(
                 "radar",
-                {"action": "status", "set": "start", "mode": "auto"},
+                {"action": "start", "mode": "auto"},
                 timeout=control_timeout,
             )
         except Exception as e:

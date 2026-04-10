@@ -90,7 +90,7 @@
 例如：
 
 - `device hi` 对应 `{"service":"device","action":"hi","args":{}}`
-- `radar status --set start --mode auto` 对应 `{"service":"radar","action":"status","args":{"set":"start","mode":"auto"}}`
+- `radar start --mode auto` 对应 `{"service":"radar","action":"start","args":{"mode":"auto"}}`
 - `help` 对应 `{"service":"help","args":{}}`
 
 ## 与 MCP 的兼容

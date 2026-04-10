@@ -80,12 +80,12 @@ Contract:
 - Current bridge builds expose bundled firmware/config pairs from a build-generated bundled catalog derived from the staged asset set, so `fw list` shows those bundled rows alongside manifest-managed entries.
 - Those bundled rows are runtime assets, not host-uploaded storage objects, so treat them as bundled/read-only catalog rows.
 - `fw set --index <n>` is a persistent default change, not a metadata-only toggle. The bridge routes it through the UART radar update/flash path, and on success that firmware becomes the new default entry.
-- `device hi` now exposes nested firmware state as `fw.default`, `fw.running`, `fw.switch`, and `fw.mode`.
+- `device hi` now exposes nested firmware state as `fw.default`, `fw.running`, `fw.switch`, and `fw.boot_mode`.
 - `fw.default` and `fw.running` each include `source`, `index`, `name`, `version`, and `config`.
 - `fw.default` is the saved persistent default entry; `fw.running` is the live runtime entry for the current session.
 - `fw.running.source=runtime` means the current radar session is pinned to an explicit staged runtime artifact pair instead of a catalog/default firmware row.
 - `fw.switch` reports the profile-gated switch capability flags. Current bridge builds report `fw.switch.persist=true` and `fw.switch.temp=false`.
-- `fw.mode` reports how the current radar session booted: `flash`, `uart`, `spi`, or `host`.
+- `fw.boot_mode` reports how the current radar session booted: `flash`, `uart`, `spi`, or `host`.
 - Legacy aliases `radar_fw`, `radar_fw_version`, and `radar_cfg` still mirror `fw.running` for compatibility.
 - Runtime-only non-default switching (`radar switch persist=false`) is not part of the validated bridge reference flow. It is not exposed by `mmwk_cli`, and with current bridge builds you should treat it as unsupported until temporary SPI boot is validated on the active radar family.
 
@@ -135,13 +135,17 @@ Contract:
 
 ## Startup Mode Contract
 
-- `startup_mode` means the saved/configured default mode.
-- `supported_modes` means the capability list for the active profile.
+- `start_mode` means the saved/configured default mode exposed by radar-facing status surfaces.
+- `supported_start_modes` means the capability list for the active profile on radar-facing status surfaces.
+- `fw.boot_mode` means the runtime radar boot path (`flash`, `host`, `uart`, `spi`).
 - bridge supports `["auto", "host"]`.
 - hub supports `["auto"]`.
-- `device startup --mode auto|host` updates the saved default mode.
-- `radar status --set start --mode auto|host` is a one-shot start request for the current radar service and does not overwrite the saved default mode.
+- `radar start --mode auto|host` persists the new default startup policy and then starts or restarts the current radar service in that mode.
+- `radar start` without `--mode` uses the saved `start_mode`.
+- `radar stop` stops the current radar service without rewriting `start_mode`.
+- `radar status` is query-only and no longer accepts `--set`.
 - `raw_auto` only controls raw-plane auto-start. It does not decide who owns radar startup.
+- device-facing identity surfaces no longer expose startup policy directly.
 
 Bridge startup-mode meaning:
 
@@ -206,9 +210,10 @@ Use `device agent --mqtt-en 1 --raw-auto 1` only as a manual override or trouble
 
 ## Host Mode vs Bridge Mode Boundaries
 
-- `startup_mode=host` means host-controlled bring-up, not “auto mode plus one more raw topic”.
-- `startup_mode=auto` means the ESP owns radar startup/config bring-up for bridge.
-- `mmwk/{mac}/raw/cmd` is available only in host mode.
+- `start_mode=host` means the saved default policy is host-controlled bring-up, not “auto mode plus one more raw topic”.
+- `start_mode=auto` means the saved default policy is ESP-managed radar bring-up for bridge.
+- `fw.boot_mode=host` means the current radar session actually booted through the host path.
+- `mmwk/{mac}/raw/cmd` is available only when the current radar session is in host mode.
 - In bridge/auto mode, the MQTT raw plane is output-only.
 - `mmwk/{mac}/raw/cmd` is distinct from the MCP topic `mmwk/{mac}/device/cmd`.
 - Real applications, services, dashboards, and agents should normally integrate through MQTT. UART remains valuable for factory setup, flashing, bring-up, bench debugging, and emergency fallback.
@@ -241,7 +246,7 @@ Interpret the results as follows:
 - On current PRO validation, repeated standalone UART commands can re-enter the boot window. Once MQTT control is available, prefer MQTT transport for `device hi`, `radar status`, and `radar version`.
 - `device hi` should show the canonical ESP firmware identity in `name` / `version`.
 - If `device hi` still reports `ip = 0.0.0.0`, treat the device network as not ready for MQTT raw capture yet. `collect` may wait briefly and then still fail at broker connect time if Wi-Fi/MQTT bring-up has not completed.
-- `device hi.fw.default`, `device hi.fw.running`, `device hi.fw.switch`, and `device hi.fw.mode` are the canonical firmware-state fields for bridge-managed multi-firmware sessions.
+- `device hi.fw.default`, `device hi.fw.running`, `device hi.fw.switch`, and `device hi.fw.boot_mode` are the canonical firmware-state fields for bridge-managed multi-firmware sessions.
 - Its `radar_fw`, `radar_fw_version`, and `radar_cfg` fields reflect the live running radar metadata entry for the current session; they do not stay pinned to `fw.default` after a successful direct flash, OTA, or runtime-only running-state change.
 - `radar_fw`, `radar_fw_version`, and `radar_cfg` are legacy aliases of `fw.running`.
 - `fw.switch.persist=true` with `fw.switch.temp=false` means current bridge builds support persistent default changes but do not expose validated runtime-only SPI switching.

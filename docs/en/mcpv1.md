@@ -114,7 +114,7 @@ Emitted from runtime events (sensor/update/protocol forwarding). `params.data` m
 
 ### `radar`
 
-`action` enum in schema: `ota`, `flash`, `reconf`, `cfg`, `status`, `switch`, `raw`, `debug`, `version`.
+`action` enum in schema: `ota`, `flash`, `reconf`, `cfg`, `start`, `stop`, `status`, `switch`, `raw`, `debug`, `version`.
 
 #### `action=ota`
 
@@ -192,25 +192,34 @@ Contract notes:
 - success payload is `{ "cfg": "...full radar cfg text..." }`.
 - missing, unreadable, empty, or otherwise unavailable cfg targets are hard errors.
 
-#### `action=status`
+#### `action=start`
 
-Optional controls:
+Optional:
 
-- `set: "start" | "stop"`
-- `mode: "auto" | "host"` (used when `set="start"`)
+- `mode: "auto" | "host"`
 
-Mode contract:
+Start contract:
 
-- `set="start"` with `mode` is a one-shot runtime start request.
-- It does not rewrite the persisted `device.startup` default.
+- without `mode`, the service uses the saved `start_mode`.
+- with `mode`, the service persists the new default startup policy and then starts or restarts the current radar service in that mode.
 - BRIDGE accepts `auto` and `host`.
 - HUB supports only `auto` and rejects `host`.
+- `raw_auto` is independent of startup ownership. It only controls raw-plane auto-start.
 
-Without `set`, server returns current service state.
+#### `action=stop`
 
-When queried without `set`, implementations return at least:
+- no extra args
+- stops the current radar service without rewriting the persisted `start_mode`.
+
+#### `action=status`
+
+No extra arguments. This is a query-only surface; callers must use `action=start` or `action=stop` to change runtime state.
+
+When queried, implementations return at least:
 
 - `state`: `running` | `stopped` | `starting` | `updating` | `error`
+- `start_mode`: saved/configured default mode
+- `supported_start_modes`: startup modes supported by the active profile
 - `details` (optional): structured startup/run failure details, present when `state=error`
   - `kind`
   - `stage`
@@ -224,6 +233,8 @@ Compatibility rule:
 
 - Here "startup CLI/welcome output" means any non-empty startup text from the radar. It may span multiple lines and must not be treated as a fixed banner template.
 - If `welcome=true` and no startup CLI/welcome output arrives before timeout, implementations should keep `state=error` and report `details.kind = startup_failed`.
+- BRIDGE reports `supported_start_modes: ["auto", "host"]`.
+- HUB reports `supported_start_modes: ["auto"]`.
 
 #### `action=switch`
 
@@ -379,47 +390,38 @@ If BRIDGE firmware receives `hub` tool call, it returns "Unknown tool".
 
 Schema actions:
 
-- BRIDGE: `startup`, `agent`, `heartbeat`, `hi`, `reboot`
-- HUB: `startup`, `agent`, `heartbeat`, `hi`
+- BRIDGE: `agent`, `heartbeat`, `hi`, `reboot`
+- HUB: `agent`, `heartbeat`, `hi`
+
+Legacy removal:
+
+- `action=startup` is removed from the schema. Use `radar action=start` with optional `mode`. Servers reject `device startup`.
 
 #### `action=hi`
 
 - returns device identity/status payload.
 - canonical ESP firmware identity fields are `name` and `version`.
 - `esp_fw` and `esp_fw_version` are not returned; use `name` / `version` instead.
-- `startup_mode` returns the saved/configured default mode.
-- `supported_modes` returns the startup modes supported by the active profile.
+- startup ownership is exposed on radar-facing surfaces instead: `radar status` and `mgmt.radar_runtime` return `start_mode` and `supported_start_modes`.
 - BRIDGE runtime includes extended fields for zero-config collection:
   - `radar_fw`, `radar_fw_version`, `radar_cfg`
-  - `fw.default`, `fw.running`, `fw.switch`, `fw.mode`
+  - `fw.default`, `fw.running`, `fw.switch`, `fw.boot_mode`
   - `mqtt_uri`, `client_id`, `cmd_topic`, `resp_topic`
   - `mqtt_en`, `uart_en`, `raw_auto`
   - `raw_data_topic`, `raw_resp_topic`
-  - `raw_cmd_topic` when bridge startup mode is `host`
+  - `raw_cmd_topic` when the current bridge runtime boot mode is `host`
 - `fw.default` and `fw.running` are objects with `source`, `index`, `name`, `version`, and `config`.
 - `fw.default` is the saved persistent default entry; `fw.running` is the live runtime entry for the current session.
 - `fw.switch` contains the profile-gated switch capability flags `persist` and `temp`.
-- `fw.mode` reports the current radar boot path: `flash`, `uart`, `spi`, or `host`.
+- `fw.boot_mode` reports the current radar boot path: `flash`, `uart`, `spi`, or `host`.
 - legacy aliases `radar_fw`, `radar_fw_version`, and `radar_cfg` remain mapped to `fw.running`.
 
 Profile capability contract:
 
-- BRIDGE reports `supported_modes: ["auto", "host"]`.
-- HUB reports `supported_modes: ["auto"]`.
+- BRIDGE radar-facing status surfaces report `supported_start_modes: ["auto", "host"]`.
+- HUB radar-facing status surfaces report `supported_start_modes: ["auto"]`.
 - BRIDGE currently reports `fw.switch.persist=true` and `fw.switch.temp=false`.
 - HUB currently reports `fw.switch.persist=false` and `fw.switch.temp=false`.
-
-#### `action=startup`
-
-- `mode: "auto" | "host"` to persist startup mode.
-
-Startup contract:
-
-- `startup_mode` is the saved/configured default mode.
-- BRIDGE accepts `auto` and `host`.
-- HUB supports only `auto`.
-- If HUB finds a persisted `host` value from older state, it repairs it to `auto` during initialization before exposing `device hi` / `mgmt.device`.
-- `raw_auto` is independent of startup ownership. It only controls raw-plane auto-start.
 
 #### `action=heartbeat`
 
@@ -540,7 +542,7 @@ Schema actions: `list`, `get`, `add`, `del`.
 
 Management entity notes:
 
-- `mgmt.radar_runtime` exposes the current `radar_state` plus nested `fw.default`, `fw.running`, `fw.switch`, and `fw.mode`.
+- `mgmt.radar_runtime` exposes the current `radar_state` plus `start_mode`, `supported_start_modes`, and nested `fw.default`, `fw.running`, `fw.switch`, and `fw.boot_mode`.
 - `mgmt.firmware_catalog` exposes the same top-level `fw` summary plus a `firmwares` array whose entries carry `default` and `running` flags.
 
 ### `adapter`

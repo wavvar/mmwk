@@ -1,8 +1,8 @@
 # MMWK CLI Shell Wrapper
 
-This document is for [`./mmwk_cli.sh`](../../mmwk_cli.sh), the recommended shell entrypoint for controlling and managing MMWK bridge/hub devices on **macOS** and **Linux**. The shell wrapper bootstraps the Python CLI in [`scripts/mmwk_cli/`](../../scripts/mmwk_cli/) and exposes the same command surface over UART (Serial) and MQTT, defaulting to [canonical CLI JSON](../../../docs/CLIv1.md) with [MCP fallback](../../../docs/en/mcpv1.md).
+This document is for [`./mmwk_cli.sh`](../../mmwk_cli.sh), the recommended shell entrypoint for controlling and managing MMWK bridge/hub devices on **macOS** and **Linux**. The shell wrapper bootstraps the Python CLI in [`scripts/mmwk_cli/`](../../scripts/mmwk_cli/) and exposes the same command surface over UART (Serial) and MQTT, defaulting to canonical CLI JSON with MCP fallback.
 
-`mmwk_cli.sh` now defaults to the [canonical CLI JSON protocol](../../../docs/CLIv1.md). During migration, callers that omit `--protocol` receive a warning so they can upgrade explicitly to `--protocol cli`. Use `--protocol mcp` only as a compatibility fallback documented in the [MCP spec](../../../docs/en/mcpv1.md).
+`mmwk_cli.sh` now defaults to the canonical CLI JSON protocol. During migration, callers that omit `--protocol` receive a warning so they can upgrade explicitly to `--protocol cli`. Use `--protocol mcp` only as a compatibility fallback.
 
 ## Raw Semantics Contract
 
@@ -74,8 +74,8 @@ Check the shell wrapper and discover device identity:
 ./mmwk_cli.sh device hi -p /dev/cu.usbserial-0001
 ```
 
-Expected `device hi` fields include `name`, `board`, `version`, `id`, `startup_mode`, and `supported_modes`, plus, when MQTT is configured, `mqtt_uri`, `client_id`, `raw_data_topic`, and `raw_resp_topic`. Here `name` / `version` are the canonical ESP firmware identity fields.
-`startup_mode` means the saved/configured default mode, while `supported_modes` is the capability list exposed by the active profile. BRIDGE reports `["auto", "host"]`; HUB reports `["auto"]`.
+Expected `device hi` fields include `name`, `board`, `version`, `id`, plus, when MQTT is configured, `mqtt_uri`, `client_id`, `raw_data_topic`, and `raw_resp_topic`. Here `name` / `version` are the canonical ESP firmware identity fields.
+Startup ownership is now exposed on radar-facing surfaces instead: `radar status` returns `start_mode` and `supported_start_modes`, while `fw.boot_mode` inside the `fw` object reports the runtime radar boot path. BRIDGE reports `["auto", "host"]`; HUB reports `["auto"]`.
 
 ### 2. Flash Your Radar Firmware + Config (UART, simplest)
 For a fresh device, UART flash is the most direct path because it does not require Wi-Fi first:
@@ -171,12 +171,15 @@ The MQTT **Client ID** is fixed to the Wi-Fi STA MAC rendered as 12 lowercase he
 
 #### 4. Startup Ownership Contract
 
-- `startup_mode` means the saved/configured default mode.
-- `supported_modes` means the startup modes supported by the active profile.
+- `start_mode` means the saved/configured default mode.
+- `supported_start_modes` means the startup modes supported by the active profile.
+- `fw.boot_mode` means the runtime radar boot path (`flash`, `host`, `uart`, `spi`).
 - In BRIDGE, `auto` means ESP-managed radar bring-up and `host` means host-controlled radar bring-up.
 - In HUB, only `auto` is supported.
-- `device startup --mode auto|host` persists the default startup policy.
-- `radar status --set start --mode auto|host` is a one-shot start request for the current radar service.
+- `radar start --mode auto|host` persists the new default startup policy and then restarts the current radar service in that mode.
+- `radar start` without `--mode` uses the saved `start_mode`.
+- `radar stop` stops the current radar service without rewriting `start_mode`.
+- `radar status` is query-only and no longer accepts `--set`.
 - `raw_auto` only controls raw-plane auto-start. It does not decide who owns radar startup.
 - In bridge `host`, the ESP still exposes raw transport, but it does not automatically send radar configuration as part of boot ownership.
 
@@ -219,7 +222,7 @@ This is the recommended communication model:
 - **UART** is the local service path. Use it for factory provisioning, initial flashing, low-level bring-up, bench debugging, and rescue access when the device is not yet on the network.
 - **MQTT CLI JSON** is the builtin device interaction channel configured by `network mqtt`. It is the right path for real applications to send commands, read status, and manage devices remotely.
 - **MQTT RAW** is the radar passthrough channel configured by `radar raw` or auto-derived when raw forwarding is enabled. In bridge/auto mode it is an output-only radar surface carrying `raw_data` and `raw_resp`; host mode can additionally enable `raw_cmd`.
-- **[MCPv1](../../../docs/en/mcpv1.md)** remains a compatibility/reference layer. Use it only when an MCP client specifically requires that protocol shape.
+- **MCPv1** remains a compatibility/reference layer. Use it only when an MCP client specifically requires that protocol shape.
 - **Application guidance**: if you are building a product feature, service, AI agent, dashboard, or cloud workflow, integrate through MQTT. Do not treat a persistent UART cable as the normal application architecture.
 
 ### UART (Local)
@@ -249,14 +252,15 @@ Recommended transport for real applications, dashboards, automation, and fleet/d
 | `device hi` | Handshake: identify model, version, and published metadata |
 | `device reboot` | Reboot the device |
 | `device ota` | Update the ESP firmware via HTTP OTA |
-| `device startup` | Configure radar startup mode (auto/host) |
 | `device agent` | Enable/disable built-in agent services |
 | `device heartbeat` | Configure system heartbeat packets |
 | `radar ota` | Update firmware via HTTP download (Fastest) |
 | `radar flash` | Update firmware via JSON chunks (Reliable) |
+| `radar start` | Persist an optional start mode and start/restart the radar service |
+| `radar stop` | Stop the current radar service without changing persisted start mode |
 | `radar reconf` | Reconfigure runtime radar contract without flashing firmware |
 | `radar cfg` | Read back radar cfg text (file cfg by default, hub `--gen` optional) |
-| `radar status`| Start/Stop or query radar sensing state |
+| `radar status`| Query radar sensing state, `start_mode`, and `supported_start_modes` |
 | `radar version`| Query running firmware version |
 | `radar raw` | Configure/query raw forwarding topics and enablement |
 | `radar debug` | Inspect or set radar debug counters |
@@ -288,13 +292,13 @@ Recommended transport for real applications, dashboards, automation, and fleet/d
 ./mmwk_cli.sh device hi -p /dev/cu.usbserial-0001
 ./mmwk_cli.sh device reboot -p /dev/cu.usbserial-0001
 ./mmwk_cli.sh device ota --fw mmwk_sensor_bridge_full.bin -p /dev/cu.usbserial-0001
-./mmwk_cli.sh device startup --mode auto -p /dev/cu.usbserial-0001
 ./mmwk_cli.sh device agent --mqtt-en 1 --uart-en 1 -p /dev/cu.usbserial-0001
 ./mmwk_cli.sh device heartbeat --interval 60 --fields rssi heap uptime -p /dev/cu.usbserial-0001
 
 # --- Radar ---
 ./mmwk_cli.sh radar status -p /dev/cu.usbserial-0001
-./mmwk_cli.sh radar status --set start --mode auto -p /dev/cu.usbserial-0001
+./mmwk_cli.sh radar start --mode auto -p /dev/cu.usbserial-0001
+./mmwk_cli.sh radar stop -p /dev/cu.usbserial-0001
 ./mmwk_cli.sh radar version -p /dev/cu.usbserial-0001
 ./mmwk_cli.sh radar ota --fw ../firmwares/radar/iwr6843/oob/out_of_box_6843_aop.bin -p /dev/cu.usbserial-0001
 ./mmwk_cli.sh radar flash --fw fw.bin --cfg config.cfg -p /dev/cu.usbserial-0001
@@ -386,6 +390,8 @@ If you already have a device running bridge firmware, you can simplify the updat
 eval $(./server.sh env)
 ./mmwk_cli.sh device ota --url "$MMWK_SERVER_DEVICE_OTA_URL" -p /dev/cu.usbserial-0001
 ```
+
+When `--device-ota` is used, `server.sh` first looks for the legacy top-level `firmwares/esp/<board>/mmwk_sensor_bridge_full.bin`. If that file is absent, it automatically falls back to the latest published `firmwares/esp/<board>/mmwk_sensor_bridge/v*/ota.zip`, extracts the OTA `.bin`, and exports the resolved path and URL via `MMWK_SERVER_DEVICE_OTA_*`.
 
 **Notes:**
 - MQTT always binds to `1883` by default.
@@ -540,7 +546,7 @@ Runtime reconf behavior:
 - After any `radar reconf`, wait for `radar status` to return `running` before you rely on `radar version` or any late-attach `collect` flow.
 
 Related startup-mode behavior:
-- BRIDGE reports `startup_mode` and `supported_modes` through `device hi` and `mgmt.device`.
+- BRIDGE reports `supported_start_modes: ["auto", "host"]` on radar-facing status surfaces, while device-facing surfaces no longer expose startup policy.
 - BRIDGE supports `["auto", "host"]`; HUB supports `["auto"]`.
 - In bridge `host`, `raw_auto=1` auto-starts `mmwk/{mac}/raw/data`, `mmwk/{mac}/raw/resp`, and `mmwk/{mac}/raw/cmd`.
 

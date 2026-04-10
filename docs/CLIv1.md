@@ -90,7 +90,7 @@ The canonical CLI JSON protocol keeps the existing host command surface stable b
 Examples:
 
 - `device hi` maps to `{"service":"device","action":"hi","args":{}}`
-- `radar status --set start --mode auto` maps to `{"service":"radar","action":"status","args":{"set":"start","mode":"auto"}}`
+- `radar start --mode auto` maps to `{"service":"radar","action":"start","args":{"mode":"auto"}}`
 - `help` maps to `{"service":"help","args":{}}`
 
 ## Compatibility With MCP

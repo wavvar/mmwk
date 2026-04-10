@@ -114,7 +114,7 @@
 
 ### `radar`
 
-`action` 枚举：`ota`、`flash`、`reconf`、`cfg`、`status`、`switch`、`raw`、`debug`、`version`
+`action` 枚举：`ota`、`flash`、`reconf`、`cfg`、`start`、`stop`、`status`、`switch`、`raw`、`debug`、`version`
 
 #### `action=ota`
 
@@ -192,25 +192,34 @@ BRIDGE 额外支持：
 - 成功返回的 payload 是 `{ "cfg": "...full radar cfg text..." }`。
 - 缺失、不可读、为空或其他不可用的 cfg 目标都属于硬错误。
 
-#### `action=status`
+#### `action=start`
 
-可选控制参数：
+可选：
 
-- `set: "start" | "stop"`
-- `mode: "auto" | "host"`（当 `set="start"` 时使用）
+- `mode: "auto" | "host"`
 
-模式契约：
+启动契约：
 
-- 带 `mode` 的 `set="start"` 是当前雷达服务的一次性启动请求。
-- 它不会改写持久化的 `device.startup` 默认模式。
+- 不带 `mode` 时，服务按已保存的 `start_mode` 启动。
+- 带 `mode` 时，服务会先持久化新的默认启动策略，再按该模式启动或重启当前雷达服务。
 - BRIDGE 接受 `auto` 和 `host`。
 - HUB 只支持 `auto`，并会拒绝 `host`。
+- `raw_auto` 与启动所有权独立，它只控制 raw 平面的自动启动。
 
-如果未设置 `set`，则返回当前服务状态。
+#### `action=stop`
 
-未设置 `set` 时，返回结果至少包含：
+- 无额外参数
+- 停止当前雷达服务，但不会改写已持久化的 `start_mode`。
+
+#### `action=status`
+
+无额外参数。这是只读查询面；要改变运行态，请使用 `action=start` 或 `action=stop`。
+
+返回结果至少包含：
 
 - `state`：`running` | `stopped` | `starting` | `updating` | `error`
+- `start_mode`：保存/配置的默认模式
+- `supported_start_modes`：当前 profile 支持的启动模式列表
 - `details`（可选）：结构化的启动/运行失败详情，仅在 `state=error` 时出现
   - `kind`
   - `stage`
@@ -224,6 +233,8 @@ BRIDGE 额外支持：
 
 - 这里的“启动 CLI/welcome 输出”指雷达启动阶段的任意非空文本；它可能是多行，不能被当作固定 banner 模板。
 - 如果 `welcome=true`，但在超时窗口内没有任何启动 CLI/welcome 输出，实现应保持 `state=error`，并返回 `details.kind = startup_failed`。
+- BRIDGE 会报告 `supported_start_modes: ["auto", "host"]`。
+- HUB 会报告 `supported_start_modes: ["auto"]`。
 
 #### `action=switch`
 
@@ -348,47 +359,38 @@ BRIDGE 专属扩展：
 
 Schema 中的 action：
 
-- BRIDGE：`startup`、`agent`、`heartbeat`、`hi`、`reboot`
-- HUB：`startup`、`agent`、`heartbeat`、`hi`
+- BRIDGE：`agent`、`heartbeat`、`hi`、`reboot`
+- HUB：`agent`、`heartbeat`、`hi`
+
+已删除的旧接口：
+
+- `action=startup` 已从 schema 中移除。请改用带可选 `mode` 的 `radar action=start`。服务端会拒绝 `device startup`。
 
 #### `action=hi`
 
 - 返回设备身份和状态载荷
 - ESP 固件身份字段以 `name` 和 `version` 为准
 - 不再返回 `esp_fw` 和 `esp_fw_version`；请统一读取 `name` / `version`
-- `startup_mode` 返回当前保存/配置的默认模式
-- `supported_modes` 返回当前 profile 支持的启动模式列表
+- 启动所有权现在改由雷达状态面暴露：`radar status` 和 `mgmt.radar_runtime` 返回 `start_mode` 与 `supported_start_modes`
 - BRIDGE 运行时还会返回：
   - `radar_fw`、`radar_fw_version`、`radar_cfg`
-  - `fw.default`、`fw.running`、`fw.switch`、`fw.mode`
+  - `fw.default`、`fw.running`、`fw.switch`、`fw.boot_mode`
   - `mqtt_uri`、`client_id`、`cmd_topic`、`resp_topic`
   - `mqtt_en`、`uart_en`、`raw_auto`
   - `raw_data_topic`、`raw_resp_topic`
-  - bridge 在 `startup_mode=host` 时还会返回 `raw_cmd_topic`
+  - 当前 bridge 运行态 boot mode 为 `host` 时还会返回 `raw_cmd_topic`
 - `fw.default` 和 `fw.running` 都是对象，包含 `source`、`index`、`name`、`version`、`config`
 - `fw.default` 表示保存下来的持久化默认条目；`fw.running` 表示当前会话真实运行中的条目
 - `fw.switch` 包含当前 profile 门控出来的切换能力标志 `persist` 和 `temp`
-- `fw.mode` 表示当前雷达会话的启动路径：`flash`、`uart`、`spi`、`host`
+- `fw.boot_mode` 表示当前雷达会话的启动路径：`flash`、`uart`、`spi`、`host`
 - 旧字段 `radar_fw`、`radar_fw_version`、`radar_cfg` 仍然保留，它们与 `fw.running` 对齐
 
 profile 能力契约：
 
-- BRIDGE 报告 `supported_modes: ["auto", "host"]`
-- HUB 报告 `supported_modes: ["auto"]`
+- BRIDGE 的雷达状态面会报告 `supported_start_modes: ["auto", "host"]`
+- HUB 的雷达状态面会报告 `supported_start_modes: ["auto"]`
 - BRIDGE 当前报告 `fw.switch.persist=true`、`fw.switch.temp=false`
 - HUB 当前报告 `fw.switch.persist=false`、`fw.switch.temp=false`
-
-#### `action=startup`
-
-- `mode: "auto" | "host"`，用于持久化启动模式
-
-启动契约：
-
-- `startup_mode` 表示当前保存/配置的默认模式
-- BRIDGE 接受 `auto` 和 `host`
-- HUB 只支持 `auto`
-- 如果 HUB 在旧持久化状态里发现 `host`，初始化阶段会先修复为 `auto`，再对外暴露 `device hi` / `mgmt.device`
-- `raw_auto` 与启动所有权独立，它只控制 raw 平面的自动启动
 
 #### `action=heartbeat`
 
@@ -464,7 +466,7 @@ BRIDGE 中会出现在 `tools/list` 且可调用；HUB 中不出现在 `tools/li
 
 管理类实体说明：
 
-- `mgmt.radar_runtime` 会暴露当前 `radar_state`，以及嵌套的 `fw.default`、`fw.running`、`fw.switch`、`fw.mode`
+- `mgmt.radar_runtime` 会暴露当前 `radar_state`、`start_mode`、`supported_start_modes`，以及嵌套的 `fw.default`、`fw.running`、`fw.switch`、`fw.boot_mode`
 - `mgmt.firmware_catalog` 会暴露同一份顶层 `fw` 摘要，以及一个 `firmwares` 数组；数组里的每个条目都带有 `default` 和 `running` 标志
 
 ### `adapter`

@@ -59,17 +59,20 @@ Choose this path if bridge firmware is already running and you only need to upda
 
 Use these terms consistently across bridge docs and CLI:
 
-- `startup_mode` is the saved/configured default mode.
-- `supported_modes` is the capability list exposed by the active profile.
-- Bridge reports `supported_modes: ["auto", "host"]`.
+- `start_mode` is the saved/configured default mode reported by radar-facing status surfaces.
+- `supported_start_modes` is the capability list exposed by the active profile on radar-facing status surfaces.
+- `fw.boot_mode` is the runtime radar boot path (`flash`, `host`, `uart`, `spi`).
+- Bridge reports `supported_start_modes: ["auto", "host"]`.
 - `auto` means ESP-managed radar bring-up.
 - `host` means host-controlled radar bring-up.
 - `raw_auto` only controls raw-plane auto-start; it does not decide who owns radar startup.
 
 Operationally:
 
-- `device startup --mode auto|host` persists the default startup policy.
-- `radar status --set start --mode auto|host` is a one-shot start request for the current radar service.
+- `radar start --mode auto|host` persists the new default startup policy and then starts or restarts the current radar service in that mode.
+- `radar start` without `--mode` uses the saved `start_mode`.
+- `radar stop` stops the current radar service without rewriting `start_mode`.
+- `radar status` is query-only and no longer accepts `--set`.
 - In bridge `host`, the ESP still exposes raw transport, but it does not automatically send radar configuration as part of boot ownership.
 
 ## Production / After-Sales 1-Page SOP
@@ -150,7 +153,7 @@ Here the topic meanings are:
 - `raw_resp`: radar CMD UART startup-trimmed command-port output (`cmd_resp`, from `on_cmd_data`)
 - `raw_cmd`: optional radar CMD UART ingress, available only in host mode, and distinct from the MCP topic `mmwk/{mac}/device/cmd`
 
-If `startup_mode=host` and `raw_auto=1`, bridge auto-start also derives `mmwk/{mac}/raw/cmd` together with `mmwk/{mac}/raw/data` and `mmwk/{mac}/raw/resp`.
+When the current radar service is running in host mode and `raw_auto=1`, bridge auto-start also derives `mmwk/{mac}/raw/cmd` together with `mmwk/{mac}/raw/data` and `mmwk/{mac}/raw/resp`.
 
 For single-UART `WDR/xWRL6432` boards there is no physical DATA UART. In that case:
 - with `single_uart_split=0`, runtime raw bytes remain on `raw_resp`
@@ -162,10 +165,10 @@ For single-UART `WDR/xWRL6432` boards there is no physical DATA UART. In that ca
 ./mmwk_cli/mmwk_cli.sh device hi -p /dev/cu.usbserial-0001
 ```
 
-Returns: `name`, `board`, `version`, `id`, `ip`, `mqtt_uri`, `client_id`, `cmd_topic`, `resp_topic`, `mqtt_en`, `uart_en`, `raw_auto`, `single_uart_split`, `radar_fw`, `radar_fw_version`, `radar_cfg`, `raw_data_topic`, `raw_resp_topic`, and, in host mode, `raw_cmd_topic`.
+Returns: `name`, `board`, `version`, `id`, `ip`, `mqtt_uri`, `client_id`, `cmd_topic`, `resp_topic`, `mqtt_en`, `uart_en`, `raw_auto`, `single_uart_split`, `radar_fw`, `radar_fw_version`, `radar_cfg`, `fw`, `raw_data_topic`, `raw_resp_topic`, and, in host mode, `raw_cmd_topic`.
 
 `name` / `version` identify the ESP firmware currently running on the MMWK board. `radar_fw` / `radar_fw_version` / `radar_cfg` describe the ESP-side selected/default radar metadata entry, not the authoritative live radar image after a direct flash/OTA. For runtime confirmation, use `radar version` plus `radar status`.
-`startup_mode` reports the saved/configured startup policy, while `supported_modes` reports the bridge capability list `["auto", "host"]`.
+`radar status` reports the saved/configured `start_mode` together with `supported_start_modes`, while `device hi.fw.boot_mode` reports the live radar boot path for the current session.
 
 #### 3.5 IoT Entity & Capability Registry (Optional)
 

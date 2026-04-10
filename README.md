@@ -143,7 +143,7 @@ If you need the MCP compatibility path, any MCP-compatible client — including 
 - **Dual transport** — UART (serial) for local access, MQTT for remote management over the network
 - **Firmware updates** — HTTP OTA (fastest) and UART chunk transfer (no WiFi needed)
 - **Runtime reconf** — `radar reconf` switches runtime `welcome` / `verify` / cfg behavior without flashing firmware again
-- **Startup contract discovery** — `device hi` and `mgmt.device` expose `startup_mode` plus `supported_modes`; BRIDGE supports `["auto", "host"]`, HUB supports `["auto"]`
+- **Startup contract discovery** — `radar status` and `mgmt.radar_runtime` expose `start_mode` plus `supported_start_modes`; `fw.boot_mode` inside the `fw` object reports the live radar boot path. BRIDGE supports `["auto", "host"]`, HUB supports `["auto"]`
 - **Device control** — Handshake, radar start/stop, WiFi/MQTT configuration, firmware partition management
 - **Zero setup shell wrapper** — `./mmwk_cli/mmwk_cli.sh` bootstraps the CLI on macOS/Linux; direct Python usage remains available as an advanced fallback from the `mmwk_cli` directory via `PYTHONPATH=scripts python3 -m mmwk_cli`
 - **Built-in server helper** — `./mmwk_cli/server.sh` provides a quick local MQTT broker and HTTP file server to assist with firmware OTA and data collection workflows
