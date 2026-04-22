@@ -128,17 +128,7 @@ Based on the newly added schematics, `WDR-M` reserves a complete audio subsystem
   <p style="margin: 4px 0 0 0;">Figure 4. WDR-M audio playback and amplifier path schematic</p>
 </div>
 
-The main functional blocks in this path are summarized below:
-
-| Functional Block | Description |
-| --- | --- |
-| `ES8311` audio codec | Handles conversion between digital audio and analog audio. The schematic annotation `I2C ADDRESS: 0011 000` indicates its configured control address |
-| Analog output | `OUTP` / `OUTN` pass through coupling and filtering stages to form `DAC_AOUTLP` / `DAC_AOUTLN`, which are then sent to the downstream amplifier |
-| `NS4150` amplifier | Further amplifies the codec output and drives the speaker interface through `PA_OUTL+` / `PA_OUTL-` |
-| Speaker interface | `P1` in the schematic is the speaker connection point, suitable for external speakers used for prompts or voice playback |
-| Amplifier control | `ESP32_AU_PA_CTL_IO17` is routed to the amplifier control pin, allowing the main controller to enable or disable playback |
-
-The `AEC` reference network shown at the bottom of the schematic indicates that the design has already considered feeding playback reference signals into the audio-processing path, which is useful for later echo-cancellation or voice-interaction integration.
+For port mapping, `P1` is the speaker connection port.
 
 ### 4.4.2 Microphone Capture Path
 
@@ -149,15 +139,7 @@ The `AEC` reference network shown at the bottom of the schematic indicates that 
   <p style="margin: 4px 0 0 0;">Figure 5. WDR-M microphone capture path schematic</p>
 </div>
 
-This path exposes the following board-level capabilities:
-
-| Functional Block | Description |
-| --- | --- |
-| `ES7210` microphone capture front end | Handles amplification and analog-to-digital conversion for multiple microphone inputs. The schematic annotation `I2C ADDRESS: 1000 000` indicates its configured address |
-| `MICBIAS` supply | `MICBIAS12` and `MICBIAS34` are provided in the schematic to bias front-end microphones such as electret microphones |
-| Microphone connectors | The current schematic clearly shows two connectors, `MIC1` and `MIC2`, each receiving differential audio input |
-| Expanded input channels | `MIC3` / `MIC4` are retained as differential signal nets in the schematic, showing that the design still leaves room for additional capture channels |
-| Main-controller data return | Captured digital audio is output through `SDOUT1/TDMOUT` to the `ESP32-S3` `I2S` receive side for local recognition, uplink, or algorithm processing |
+For port mapping, `P2` and `P3` are the microphone connection ports.
 
 From a system-integration perspective, these two schematics together show that `WDR-M` is not only the main control and interconnect board of the radar system, but also has the hardware foundation for voice prompts, sound capture, and voice-interaction oriented features.
 
