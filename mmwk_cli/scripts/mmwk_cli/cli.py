@@ -246,13 +246,6 @@ def cmd_radar_status(args):
         mcp.initialize(timeout=args.timeout)
 
         radar_args = {"action": "status"}
-        if getattr(args, "set", None):
-            radar_args["set"] = args.set
-            if args.set == "start" and getattr(args, "mode", None):
-                radar_args["mode"] = args.mode
-        elif getattr(args, "mode", None):
-            print("Error: --mode is only valid with --set start")
-            sys.exit(1)
 
         result = mcp.call_tool("radar", radar_args, timeout=args.timeout)
         text = mcp.extract_text(result)
@@ -260,6 +253,46 @@ def cmd_radar_status(args):
             data = json.loads(text)
             print(json.dumps(data, indent=2))
         except:
+            print(text)
+    finally:
+        transport.close()
+
+
+def cmd_radar_start(args):
+    """Handle: mmwk_cli radar start ..."""
+    transport = _cli_create_transport(args)
+    try:
+        mcp = McpClient(transport)
+        mcp.initialize(timeout=args.timeout)
+
+        radar_args = {"action": "start"}
+        if getattr(args, "mode", None):
+            radar_args["mode"] = args.mode
+
+        result = mcp.call_tool("radar", radar_args, timeout=args.timeout)
+        text = mcp.extract_text(result)
+        try:
+            data = json.loads(text)
+            print(json.dumps(data, indent=2))
+        except Exception:
+            print(text)
+    finally:
+        transport.close()
+
+
+def cmd_radar_stop(args):
+    """Handle: mmwk_cli radar stop ..."""
+    transport = _cli_create_transport(args)
+    try:
+        mcp = McpClient(transport)
+        mcp.initialize(timeout=args.timeout)
+
+        result = mcp.call_tool("radar", {"action": "stop"}, timeout=args.timeout)
+        text = mcp.extract_text(result)
+        try:
+            data = json.loads(text)
+            print(json.dumps(data, indent=2))
+        except Exception:
             print(text)
     finally:
         transport.close()
@@ -377,25 +410,6 @@ def cmd_device_ota(args):
             timeout=args.ota_timeout,
         )
         sys.exit(0 if ok else 1)
-    finally:
-        transport.close()
-
-
-def cmd_device_startup(args):
-    """Handle: mmwk_cli device startup ..."""
-    transport = _cli_create_transport(args)
-    try:
-        mcp = McpClient(transport)
-        mcp.initialize(timeout=args.timeout)
-
-        dev_args = {"action": "startup", "mode": args.mode}
-        result = mcp.call_tool("device", dev_args, timeout=args.timeout)
-        text = mcp.extract_text(result)
-        try:
-            data = json.loads(text)
-            print(json.dumps(data, indent=2))
-        except Exception:
-            print(text)
     finally:
         transport.close()
 
@@ -945,12 +959,20 @@ def main():
     add_transport_args(ota_parser)
     ota_parser.set_defaults(func=cmd_radar_ota)
 
+    # radar start
+    start_parser = radar_sub.add_parser("start", help="Start or restart radar service")
+    start_parser.add_argument("--mode", choices=["auto", "host"], default=None,
+                              help="Persist start mode, then start/restart radar service in that mode")
+    add_transport_args(start_parser)
+    start_parser.set_defaults(func=cmd_radar_start)
+
+    # radar stop
+    stop_parser = radar_sub.add_parser("stop", help="Stop radar service")
+    add_transport_args(stop_parser)
+    stop_parser.set_defaults(func=cmd_radar_stop)
+
     # radar status
     status_parser = radar_sub.add_parser("status", help="Query radar status")
-    status_parser.add_argument("--set", choices=["start", "stop"],
-                               help="Set radar service state")
-    status_parser.add_argument("--mode", choices=["auto", "host"], default=None,
-                               help="Start mode when used with --set start")
     add_transport_args(status_parser)
     status_parser.set_defaults(func=cmd_radar_status)
 
@@ -1014,13 +1036,6 @@ def main():
                                    help="OTA timeout in seconds (default: 300)")
     add_transport_args(device_ota_parser)
     device_ota_parser.set_defaults(func=cmd_device_ota)
-
-    # device startup
-    device_startup_parser = device_sub.add_parser("startup", help="Configure radar startup mode")
-    device_startup_parser.add_argument("--mode", required=True, choices=["auto", "host"],
-                                       help="Startup mode: auto or host")
-    add_transport_args(device_startup_parser)
-    device_startup_parser.set_defaults(func=cmd_device_startup)
 
     # device agent
     device_agent_parser = device_sub.add_parser("agent", help="Enable/disable built-in agent services")

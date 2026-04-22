@@ -794,7 +794,7 @@ class OtaCommand:
                                 try:
                                     self.mcp.call_tool(
                                         "radar",
-                                        {"action": "status", "set": "start", "mode": "auto"},
+                                        {"action": "start", "mode": "auto"},
                                         timeout=10,
                                     )
                                     start_recovery_sent = True

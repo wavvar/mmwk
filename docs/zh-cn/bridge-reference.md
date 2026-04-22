@@ -80,12 +80,12 @@ HTTP OTA 专属参数：
 - 当前 bridge 构建会从 staged assets 集合生成的 bundled catalog 暴露内置固件/配置对，因此 `fw list` 里会同时看到 manifest 管理项和 bridge 自带的只读固件/配置对。
 - 这些 bundled 条目属于运行时内置资产，不是主机上传后落到存储区的新对象；请把它们视为随 bridge 出厂携带的只读目录项。
 - `fw set --index <n>` 是持久化的默认固件切换，不是单纯的 metadata 开关。bridge 会把它路由到 UART 雷达 update/flash 路径；成功后，该固件会变成新的默认条目。
-- `device hi` 现在会返回嵌套固件状态：`fw.default`、`fw.running`、`fw.switch`、`fw.mode`。
+- `device hi` 现在会返回嵌套固件状态：`fw.default`、`fw.running`、`fw.switch`、`fw.boot_mode`。
 - `fw.default` 和 `fw.running` 都包含 `source`、`index`、`name`、`version`、`config`。
 - `fw.default` 表示保存下来的持久化默认条目；`fw.running` 表示当前会话真实运行中的条目。
 - `fw.running.source=runtime` 表示当前这次雷达会话固定在一对显式 staging 的运行时资产上，而不是目录/default 固件条目。
 - `fw.switch` 用来报告 profile 门控后的切换能力。当前 bridge 构建会返回 `fw.switch.persist=true`、`fw.switch.temp=false`。
-- `fw.mode` 表示当前雷达会话的启动路径：`flash`、`uart`、`spi`、`host`。
+- `fw.boot_mode` 表示当前雷达会话的启动路径：`flash`、`uart`、`spi`、`host`。
 - 旧字段 `radar_fw`、`radar_fw_version`、`radar_cfg` 仍然保留，并继续映射到 `fw.running`。
 - 运行时的非默认临时切换（`radar switch persist=false`）不属于这条已验证 bridge 参考主链。`mmwk_cli` 目前也没有把它作为用户命令暴露出来；在临时 SPI 启动路径完成当前雷达家族验证之前，请把它视为不支持。
 
@@ -135,13 +135,17 @@ HTTP OTA 专属参数：
 
 ## 启动模式契约
 
-- `startup_mode` 表示当前保存/当前配置的默认模式。
-- `supported_modes` 表示当前 profile 支持的模式列表。
+- `start_mode` 表示由雷达状态面暴露的、当前保存/当前配置的默认模式。
+- `supported_start_modes` 表示由雷达状态面暴露的、当前 profile 支持的模式列表。
+- `fw.boot_mode` 表示当前运行态真实使用的雷达 boot path（`flash`、`host`、`uart`、`spi`）。
 - bridge 支持 `["auto", "host"]`。
 - hub 只支持 `["auto"]`。
-- `device startup --mode auto|host` 用来更新保存的默认启动模式。
-- `radar status --set start --mode auto|host` 只是当前雷达服务的一次性启动请求，不会覆盖保存的默认模式。
+- `radar start --mode auto|host` 会先持久化新的默认模式，再按该模式启动或重启当前雷达服务。
+- 不带 `--mode` 的 `radar start` 会按已保存的 `start_mode` 启动。
+- `radar stop` 只停止当前雷达服务，不会改写 `start_mode`。
+- `radar status` 现在是只读查询，不再接受 `--set`。
 - `raw_auto` 只控制 raw 平面的自动启动，不决定由谁负责雷达启动。
+- 设备身份类状态面不再直接暴露启动模式配置。
 
 对 bridge 来说，各启动模式的含义如下：
 
@@ -206,9 +210,10 @@ HTTP OTA 专属参数：
 
 ## host 模式与 bridge 模式边界
 
-- `startup_mode=host` 表示主机接管启动，不是“auto 模式外加一个 raw topic”。
-- `startup_mode=auto` 表示由 ESP 负责 bridge 的雷达启动与配置 bring-up。
-- `mmwk/{mac}/raw/cmd` 仅在 host 模式下可用。
+- `start_mode=host` 表示保存下来的默认策略是由主机接管启动，不是“auto 模式外加一个 raw topic”。
+- `start_mode=auto` 表示保存下来的默认策略是由 ESP 负责 bridge 的雷达启动与配置 bring-up。
+- `fw.boot_mode=host` 表示当前这次雷达会话实际上走的是 host 启动路径。
+- `mmwk/{mac}/raw/cmd` 仅在当前雷达会话运行于 host 模式时可用。
 - bridge/auto 模式下，MQTT raw 平面是只出不进的。
 - `mmwk/{mac}/raw/cmd` 与 MCP 的 `mmwk/{mac}/device/cmd` 是两条不同通道。
 - 对真实应用、服务、仪表盘和 AI Agent，优先推荐 MQTT；UART 更适合工厂初始化、刷写、bring-up、台架调试和故障兜底。
@@ -241,7 +246,7 @@ HTTP OTA 专属参数：
 - 在当前 PRO 真机验证里，独立的 UART 命令反复开关串口后，设备可能重新回到启动窗口。只要 MQTT 控制已经 ready，后续 `device hi`、`radar status`、`radar version` 都优先建议走 MQTT。
 - `device hi` 应在 `name` / `version` 中返回当前 ESP 固件身份。
 - 如果 `device hi` 里仍然显示 `ip = 0.0.0.0`，请把它视为设备网络还没 ready 到可以做 MQTT raw capture。此时 `collect` 可能会先短暂等待，然后仍然在 broker 连接阶段失败。
-- `device hi.fw.default`、`device hi.fw.running`、`device hi.fw.switch`、`device hi.fw.mode` 是 bridge 管理多固件会话时的标准固件状态字段。
+- `device hi.fw.default`、`device hi.fw.running`、`device hi.fw.switch`、`device hi.fw.boot_mode` 是 bridge 管理多固件会话时的标准固件状态字段。
 - 其中 `radar_fw`、`radar_fw_version`、`radar_cfg` 反映的是当前会话真实运行中的雷达元信息条目；直刷、OTA 或运行态切换成功后，它们不会继续固定在 `fw.default`。
 - `radar_fw`、`radar_fw_version`、`radar_cfg` 是 `fw.running` 的旧兼容别名。
 - `fw.switch.persist=true` 且 `fw.switch.temp=false` 表示当前 bridge 构建支持持久化默认固件切换，但还没有对外提供已验证的运行时 SPI 临时切换能力。

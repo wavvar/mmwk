@@ -73,8 +73,8 @@ pip install -r requirements.txt
 ./mmwk_cli.sh device hi -p /dev/cu.usbserial-0001
 ```
 
-期望 `device hi` 返回的字段包括 `name`、`board`、`version`、`id`、`startup_mode`、`supported_modes`，以及在 MQTT 已配置时返回的 `mqtt_uri`、`client_id`、`raw_data_topic`、`raw_resp_topic`。其中 `name` / `version` 是 ESP 固件身份的标准字段。
-`startup_mode` 表示当前保存/当前配置的默认模式，`supported_modes` 表示当前 profile 暴露的能力列表。BRIDGE 报告 `["auto", "host"]`，HUB 报告 `["auto"]`。
+期望 `device hi` 返回的字段包括 `name`、`board`、`version`、`id`，以及在 MQTT 已配置时返回的 `mqtt_uri`、`client_id`、`raw_data_topic`、`raw_resp_topic`。其中 `name` / `version` 是 ESP 固件身份的标准字段。
+启动所有权现在改为由雷达面暴露：`radar status` 返回 `start_mode` 与 `supported_start_modes`，`fw.boot_mode` 则表示当前运行态的雷达 boot path。BRIDGE 报告 `["auto", "host"]`，HUB 报告 `["auto"]`。
 
 ### 2. 刷写雷达固件与配置
 
@@ -180,12 +180,15 @@ MQTT `client_id` 固定绑定 Wi-Fi STA MAC，格式为 12 位小写十六进制
 
 ### 启动所有权契约
 
-- `startup_mode` 表示当前保存/当前配置的默认模式。
-- `supported_modes` 表示当前 profile 支持的启动模式列表。
+- `start_mode` 表示当前保存/当前配置的默认模式。
+- `supported_start_modes` 表示当前 profile 支持的启动模式列表。
+- `fw.boot_mode` 表示当前运行时观察到的雷达 boot path（`flash`、`host`、`uart`、`spi`）。
 - 对 BRIDGE，`auto` 表示 ESP 接管雷达 bring-up，`host` 表示主机接管雷达 bring-up。
 - 对 HUB，目前只支持 `auto`。
-- `device startup --mode auto|host` 会持久化默认启动策略。
-- `radar status --set start --mode auto|host` 只是当前雷达服务的一次性启动请求。
+- `radar start --mode auto|host` 会先持久化新的默认模式，再按该模式重启当前雷达服务。
+- 不带 `--mode` 的 `radar start` 会按已保存的 `start_mode` 启动。
+- `radar stop` 只停止当前雷达服务，不会改写 `start_mode`。
+- `radar status` 现在是只读查询，不再接受 `--set`。
 - `raw_auto` 只控制 raw 平面的自动启动，不决定由谁负责雷达启动。
 - 在 bridge `host` 下，ESP 仍然暴露 raw 传输面，但不会在启动期自动下发雷达配置。
 
@@ -248,14 +251,15 @@ flowchart LR
 | `device hi` | 读取设备身份与已发布元数据 |
 | `device reboot` | 重启设备 |
 | `device ota` | 升级 ESP 固件 |
-| `device startup` | 设置雷达启动模式 |
 | `device agent` | 配置 agent 服务 |
 | `device heartbeat` | 配置心跳 |
 | `radar ota` | HTTP OTA 升级雷达固件 |
 | `radar flash` | UART 分块升级雷达固件 |
+| `radar start` | 持久化可选启动模式并启动/重启当前雷达服务 |
+| `radar stop` | 停止当前雷达服务，但不改写已保存模式 |
 | `radar reconf` | 在不重新刷 firmware 的前提下重配置运行时雷达契约 |
 | `radar cfg` | 回读雷达 cfg 文本（默认 file cfg，可选 hub `--gen`） |
-| `radar status` | 查询或设置雷达状态 |
+| `radar status` | 只读查询雷达状态、`start_mode` 与 `supported_start_modes` |
 | `radar version` | 查询雷达固件版本 |
 | `radar raw` | 配置原始透传 |
 | `radar debug` | 调试信息 |
@@ -272,6 +276,8 @@ flowchart LR
 ```bash
 ./mmwk_cli.sh device hi -p /dev/cu.usbserial-0001
 ./mmwk_cli.sh radar status -p /dev/cu.usbserial-0001
+./mmwk_cli.sh radar start --mode auto -p /dev/cu.usbserial-0001
+./mmwk_cli.sh radar stop -p /dev/cu.usbserial-0001
 ./mmwk_cli.sh radar version -p /dev/cu.usbserial-0001
 ./mmwk_cli.sh radar reconf --welcome --no-verify -p /dev/cu.usbserial-0001
 ./mmwk_cli.sh radar reconf --welcome --no-verify --clear-cfg -p /dev/cu.usbserial-0001
@@ -325,6 +331,8 @@ flowchart LR
 eval $(./server.sh env)
 ./mmwk_cli.sh device ota --url "$MMWK_SERVER_DEVICE_OTA_URL" -p /dev/cu.usbserial-0001
 ```
+
+启用 `--device-ota` 时，`server.sh` 会优先查找 legacy 顶层路径 `firmwares/esp/<board>/mmwk_sensor_bridge_full.bin`。如果这个文件不存在，它会自动回退到最新发布的 `firmwares/esp/<board>/mmwk_sensor_bridge/v*/ota.zip`，解出 OTA `.bin`，并通过 `MMWK_SERVER_DEVICE_OTA_*` 导出最终解析出的路径和 URL。
 
 **说明：**
 - MQTT 默认使用端口 `1883`。
@@ -443,7 +451,7 @@ OTA 后第一次上电时，ESP 侧可能还在等待雷达 app 真正启动完�
 - 每次执行完 `radar reconf` 后，都要先等 `radar status` 返回 `running`，再去依赖 `radar version` 或任何 late-attach `collect` 流程。
 
 相关启动模式行为：
-- BRIDGE 会通过 `device hi` 和 `mgmt.device` 暴露 `startup_mode` 与 `supported_modes`。
+- BRIDGE 会在雷达相关状态面暴露 `supported_start_modes: ["auto", "host"]`，设备面不再暴露启动模式配置。
 - BRIDGE 支持 `["auto", "host"]`；HUB 支持 `["auto"]`。
 - 在 bridge `host` 且 `raw_auto=1` 时，会自动启动 `mmwk/{mac}/raw/data`、`mmwk/{mac}/raw/resp` 和 `mmwk/{mac}/raw/cmd`。
 

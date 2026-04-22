@@ -6,11 +6,11 @@ Wavvar MMWK（mmWave Kit）是一个面向产品化的毫米波雷达传感器�
 
 ## 特性
 
-- **雷达开发快速起步**：默认的 [**BRIDGE 模式**](./docs/zh-cn/bridge.md) 会把 MMWK 变成透明网关，让你可以通过 MQTT（CLIv1 默认，MCPv1 兼容）将原始雷达数据直接流式传输到上层应用或 AI Agent，几分钟内就能开始原型验证。
+- **雷达开发快速起步**：默认的 [**BRIDGE 模式**](./docs/zh-cn/bridge.md) 会把 MMWK 变成透明网关，让你可以通过 MQTT（[CLIv1](./docs/CLIv1_CN.md) 默认，[MCPv1](./docs/zh-cn/mcpv1.md) 兼容）将原始雷达数据直接流式传输到上层应用或 AI Agent，几分钟内就能开始原型验证。
 - **兼容 TI 固件**：可直接运行标准 TI 雷达二进制，无需修改。你可以使用完整的 TI 雷达生态，在 TI EVM 上开发，最终零迁移部署到 MMWK。
 - **双 MCU 架构**：将雷达处理（TI C674x）与应用逻辑（ESP32/ESP32S3）分离，在保证实时雷达性能的同时，保留复杂联网、AI 逻辑和自定义应用开发能力。
 - **灵活的数据管线**：支持 BRIDGE、HUB、RAW 等多种运行模式，可按场景在透明转发和板载智能处理之间切换。
-- **AI 原生支持**：设备端通过 UART 和 MQTT 内置标准 CLI JSON 控制协议（CLIv1），主机端提供对大语言模型高度友好的 CLI 工具；同时保留 MCP/JSON-RPC 2.0 的兼容层，供显式指定 `--protocol mcp` 的调用方使用。
+- **AI 原生支持**：设备端通过 UART 和 MQTT 内置标准 CLI JSON 控制协议（[CLIv1](./docs/CLIv1_CN.md)），主机端提供对大语言模型高度友好的 CLI 工具；同时保留 [MCP/JSON-RPC 2.0](./docs/zh-cn/mcpv1.md) 的兼容层，供显式指定 `--protocol mcp` 的调用方使用。
 - **完整工具链**：包含开源 CLI、集成测试和文档，降低开发门槛，并提供从开发到部署的参考实现。
 - **面向量产与部署**：具备 OTA、标准化配置管理和经过现场验证的可靠性，适合量产与大规模部署。
 - **生态与定制能力**：支持 200Hz 高频雷达固件、人员跟踪、生命体征等多类应用，也支持云平台和移动端的全栈定制。
@@ -37,18 +37,18 @@ ESP 的 Flash 分区中包含 NVS（设备设置）、PHY 初始化数据、出�
 
 Name | ESP | Audio | Radar | LED | 4G/LTE Support
 --- | --- | --- | --- | --- | ---
-MINI | ESP32 | No | IWR6843AoP | 1 | No
-PRO | ESP32S3 | Optional | IWR6843AoP | 1 | No
-RPI | ESP32S3 | Yes | IWRL6432AoP | 1 | No
-CFH | ESP32S3 | Yes | IWR6843AoP | 1 | No
+[MINI](./modules/mini_cn.md) | ESP32 | No | IWR6843AoP | 1 | No
+[PRO](./modules/pro_cn.md) | ESP32S3 | Optional | IWR6843AoP | 1 | No
+[RPI](./modules/rpx_cn.md#3-rpi-6432-感知模块) | ESP32S3 | Yes | IWRL6432AoP | 1 | No
+[CFH](./modules/rpx_cn.md#2-6843-系列感知模块) | ESP32S3 | Yes | IWR6843AoP | 1 | No
 IOT | ESP32S3 | No | IWR6843AoP | 1 | Yes
-WDR | ESP32S3 | Yes | IWRL6432AoP | 2 | Optional
+[WDR](./modules/mdr_cn.md) | ESP32S3 | Yes | IWRL6432AoP | 2 | Optional
 
 这里的 `LED` 特指雷达芯片侧 LED，其 IO 继承自 TI 参考例程，必须由雷达固件控制。
 
 所有板卡还包含一个由 ESP 控制的按键和一个由 ESP 控制的 LED。
 
-如果你需要的是产品线级别的硬件背景，而不只是 bridge 工作流说明，那么独立 `6843` 产品分支与 `RPI` 平台可继续阅读 [RPX 模块使用指南](./modules/rpx_cn.md)，`WDR/MDR` 的控制板与雷达板组合关系可继续阅读 [MDR 模块简介](./modules/mdr_cn.md) 和 [ML6432Ax 系列介绍](./modules/ml6432ax_cn.md)。
+如果你需要的是产品线级别的硬件背景，而不只是 [bridge 工作流说明](./docs/zh-cn/bridge.md)，建议先看 [模组产品总览](./modules/README_CN.md)。RPX 线现在已经有 [MINI 模组简介](./modules/mini_cn.md) 和 [PRO 模组简介](./modules/pro_cn.md) 两份独立文档；[RPI](./modules/rpx_cn.md#3-rpi-6432-感知模块) 和 [CFH](./modules/rpx_cn.md#2-6843-系列感知模块) 仍放在 [RPX 模块使用指南](./modules/rpx_cn.md) 中。`WDR/MDR` 的控制板与雷达板路径可继续阅读 [MDR 模块简介](./modules/mdr_cn.md)、[WDR-M 主控承载板简介](./modules/wdr-m_cn.md)、[WDR-4G 通信板简介](./modules/wdr-4g_cn.md)、[ML6432A_BO 模组简介](./modules/ml6432a_bo_cn.md) 和 [ML6432A 模组简介](./modules/ml6432a_cn.md)。
 
 双 MCU 架构让用户可以快速评估任意 TI 雷达固件。你可以继续使用 TI 的工具链和开发板完成雷达固件开发与调试，再在 MMWK 的 ESP MCU 上开发应用。像 People Tracking、Vital Signs 这类 TI 现有固件都可以运行在 MMWK 上。
 
@@ -98,10 +98,10 @@ MMWK 支持你把自己的软件和硬件带入生态：
 MMWK 默认以 [BRIDGE 模式](./docs/zh-cn/bridge.md) 运行。请先根据设备当前状态选择入口：
 
 1. **[出厂刷机指南](./docs/zh-cn/flash.md)**：如果板卡是空片或已被擦除，请先从这里完成第一次 ESP bridge 烧录。
-2. **[MMWK Sensor BRIDGE Mode](./docs/zh-cn/bridge.md)**：如果设备已经在运行 bridge 固件，并且你想跑通第一次端到端 bring-up，包括雷达刷写和数据采集，请从这里开始。
+2. **[MMWK Sensor BRIDGE 模式](./docs/zh-cn/bridge.md)**：如果设备已经在运行 bridge 固件，并且你想跑通第一次端到端 bring-up，包括雷达刷写和数据采集，请从这里开始。
 3. **[设备 OTA 指南](./docs/zh-cn/ota.md)**：如果设备已经在运行 bridge 固件，而你只需要做 ESP OTA 更新，请直接看这里。
 
-[MMWK Bridge 模式](./docs/zh-cn/bridge.md) 是 bridge 模式的规范起步入口，会继续把你分流到出厂刷机、雷达刷写加采集、ESP OTA，以及更深入的 bridge 参考文档。
+[MMWK Bridge 模式](./docs/zh-cn/bridge.md) 是 bridge 模式的规范起步入口，会继续把你分流到出厂刷机、雷达刷写加采集、ESP OTA，以及更深入的 [MMWK Sensor BRIDGE 参考](./docs/zh-cn/bridge-reference.md)。
 
 ## 工具
 
@@ -140,7 +140,7 @@ MMWK 默认以 [BRIDGE 模式](./docs/zh-cn/bridge.md) 运行。请先根据设�
 - **双传输**：UART（本地）与 MQTT（远程）
 - **固件更新**：支持 HTTP OTA 和 UART 分块传输
 - **运行时重配置**：支持 `radar reconf`，可在不重新刷写 firmware 的前提下切换运行时 `welcome` / `verify` / cfg 行为
-- **启动契约发现**：`device hi` 和 `mgmt.device` 会暴露 `startup_mode` 与 `supported_modes`；BRIDGE 支持 `["auto", "host"]`，HUB 支持 `["auto"]`
+- **启动契约发现**：`radar status` 和 `mgmt.radar_runtime` 会暴露 `start_mode` 与 `supported_start_modes`；`fw.boot_mode` 则表示当前运行态真实使用的雷达 boot path。BRIDGE 支持 `["auto", "host"]`，HUB 支持 `["auto"]`
 - **设备控制**：握手、雷达启停、WiFi/MQTT 配置、固件分区管理
 - **零配置 shell 包装脚本**：`./mmwk_cli/mmwk_cli.sh` 是 macOS/Linux 下的默认入口；如果你要直接调用 Python，请先进入 `mmwk_cli` 目录，再使用 `PYTHONPATH=scripts python3 -m mmwk_cli`
 - **内置本地服务助手**：`./mmwk_cli/server.sh` 提供开箱即用的本地 MQTT Broker 与 HTTP 文件服务，辅助 OTA 升级与数据采集

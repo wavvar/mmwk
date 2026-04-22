@@ -412,7 +412,7 @@ def _execute_trigger_radar_restart(
 
                 if raw_enable_ok:
                     try:
-                        mcp.call_tool("radar", {"action": "status", "set": "stop"}, timeout=config.timeout)
+                        mcp.call_tool("radar", {"action": "stop"}, timeout=config.timeout)
                         status_stop_ok = True
                     except Exception as exc:
                         logger.error(f"Failed to stop radar service for trigger=radar-restart: {exc}")
@@ -422,7 +422,7 @@ def _execute_trigger_radar_restart(
                     try:
                         mcp.call_tool(
                             "radar",
-                            {"action": "status", "set": "start", "mode": "auto"},
+                            {"action": "start", "mode": "auto"},
                             timeout=config.timeout,
                         )
                         status_start_ok = True
