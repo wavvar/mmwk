@@ -11,7 +11,10 @@
 - [4.1 USB Type-C Interface Reference](#41-usb-type-c-interface-reference)
 - [4.2 Status LED Interface Reference](#42-status-led-interface-reference)
 - [4.3 Key Interface Reference](#43-key-interface-reference)
-- [4.4 External Radar Interface Description](#44-external-radar-interface-description)
+- [4.4 Audio Schematic Description](#44-audio-schematic-description)
+- [4.4.1 Audio Playback and Amplifier Path](#441-audio-playback-and-amplifier-path)
+- [4.4.2 Microphone Capture Path](#442-microphone-capture-path)
+- [4.5 External Radar Interface Description](#45-external-radar-interface-description)
 - [5. Interconnect and Board-Level Reference Diagrams](#5-interconnect-and-board-level-reference-diagrams)
 - [6. Related Documents](#6-related-documents)
 
@@ -53,6 +56,7 @@
 |  | PSRAM | 8 MB |
 |  | Flash Storage | 8 MB (main MCU) |
 |  | I/O and Indicators | 1x status LED, 1x key |
+|  | Audio Capability | Supports `I2S` / `I2C` audio codec control, `2x MIC` inputs, and `1x` speaker output |
 |  | External Radar (Optional) | External radar chip / radar board connected into the WDR system through the interface |
 |  | Cellular Network (Optional) | External WDR-4G add-on (see Note 1) |
 
@@ -79,7 +83,7 @@ Both radar-board variants use the same radar-side interface definition. If only 
 
 ## 4. Interface Description
 
-The main interfaces on the `WDR-M` board include `USB Type-C`, the status `LED`, key input, and the external radar access method.
+The main interfaces on the `WDR-M` board include `USB Type-C`, the status `LED`, key input, the audio path, and the external radar access method.
 
 ### 4.1 USB Type-C Interface Reference
 
@@ -108,7 +112,56 @@ The `WDR-M` board provides a key input, which can be used for local control or i
   <p style="margin: 4px 0 0 0;">Figure 3. Key reference on WDR-M</p>
 </div>
 
-### 4.4 External Radar Interface Description
+### 4.4 Audio Schematic Description
+
+Based on the newly added schematics, `WDR-M` reserves a complete audio subsystem. The main controller configures the audio devices over `I2C` and carries digital audio data over `I2S`. At a high level, the design is divided into two parts:
+
+- A codec and power-amplifier path for speaker playback
+- A multi-channel capture path for microphone input
+
+### 4.4.1 Audio Playback and Amplifier Path
+
+`wdr-m-audio1.png` shows the playback-side design of `WDR-M`. In this schematic, `ES8311` is used as the audio codec. It is configured from `ESP32-S3` over `I2C` (`SCL` / `SDA`), while playback data is transferred over `I2S` (`MCLK` / `SCLK` / `LRCK` / `DIN`).
+
+<div style="text-align: center; margin: 10px 0;">
+  <img src="./img/MDR/wdr-m-audio1.png" alt="WDR-M audio playback and amplifier path schematic" width="92%" style="display: block; margin: 0 auto;" />
+  <p style="margin: 4px 0 0 0;">Figure 4. WDR-M audio playback and amplifier path schematic</p>
+</div>
+
+The main functional blocks in this path are summarized below:
+
+| Functional Block | Description |
+| --- | --- |
+| `ES8311` audio codec | Handles conversion between digital audio and analog audio. The schematic annotation `I2C ADDRESS: 0011 000` indicates its configured control address |
+| Analog output | `OUTP` / `OUTN` pass through coupling and filtering stages to form `DAC_AOUTLP` / `DAC_AOUTLN`, which are then sent to the downstream amplifier |
+| `NS4150` amplifier | Further amplifies the codec output and drives the speaker interface through `PA_OUTL+` / `PA_OUTL-` |
+| Speaker interface | `P1` in the schematic is the speaker connection point, suitable for external speakers used for prompts or voice playback |
+| Amplifier control | `ESP32_AU_PA_CTL_IO17` is routed to the amplifier control pin, allowing the main controller to enable or disable playback |
+
+The `AEC` reference network shown at the bottom of the schematic indicates that the design has already considered feeding playback reference signals into the audio-processing path, which is useful for later echo-cancellation or voice-interaction integration.
+
+### 4.4.2 Microphone Capture Path
+
+`wdr-m-audio2.png` shows the recording-side design of `WDR-M`. In this schematic, `ES7210` is used as the audio `ADC` / microphone front end. The main controller configures it over `I2C` and reads captured audio data back over `I2S` (`MCLK` / `SCLK` / `LRCK` / `DOUT`).
+
+<div style="text-align: center; margin: 10px 0;">
+  <img src="./img/MDR/wdr-m-audio2.png" alt="WDR-M microphone capture path schematic" width="92%" style="display: block; margin: 0 auto;" />
+  <p style="margin: 4px 0 0 0;">Figure 5. WDR-M microphone capture path schematic</p>
+</div>
+
+This path exposes the following board-level capabilities:
+
+| Functional Block | Description |
+| --- | --- |
+| `ES7210` microphone capture front end | Handles amplification and analog-to-digital conversion for multiple microphone inputs. The schematic annotation `I2C ADDRESS: 1000 000` indicates its configured address |
+| `MICBIAS` supply | `MICBIAS12` and `MICBIAS34` are provided in the schematic to bias front-end microphones such as electret microphones |
+| Microphone connectors | The current schematic clearly shows two connectors, `MIC1` and `MIC2`, each receiving differential audio input |
+| Expanded input channels | `MIC3` / `MIC4` are retained as differential signal nets in the schematic, showing that the design still leaves room for additional capture channels |
+| Main-controller data return | Captured digital audio is output through `SDOUT1/TDMOUT` to the `ESP32-S3` `I2S` receive side for local recognition, uplink, or algorithm processing |
+
+From a system-integration perspective, these two schematics together show that `WDR-M` is not only the main control and interconnect board of the radar system, but also has the hardware foundation for voice prompts, sound capture, and voice-interaction oriented features.
+
+### 4.5 External Radar Interface Description
 
 The `WDR-M` board does not integrate a radar chip locally. The radar function is connected as an external board. During system integration, the external radar board works together with `WDR-M` and the `4G Cat1` communication board. At the document level, `WDR-M` mainly retains the controller-side and interface-side description and does not expand on onboard radar parameters.
 
@@ -118,12 +171,12 @@ Both the `4G Cat1` communication board and the radar board connect to `WDR-M` th
 
 <div style="text-align: center; margin: 10px 0;">
   <img src="./img/MDR/mdr-m-to-radar-board-connection.png" alt="MDR-M to radar board connection reference" width="85%" style="display: block; margin: 0 auto;" />
-  <p style="margin: 4px 0 0 0;">Figure 4. WDR-M to radar board connection reference</p>
+  <p style="margin: 4px 0 0 0;">Figure 6. WDR-M to radar board connection reference</p>
 </div>
 
 <div style="text-align: center; margin: 10px 0;">
   <img src="./img/MDR/mdr-m-to-cat1-board-connection.png" alt="MDR-M to Cat1 communication board connection reference" width="85%" style="display: block; margin: 0 auto;" />
-  <p style="margin: 4px 0 0 0;">Figure 5. WDR-M to 4G Cat1 communication board connection reference</p>
+  <p style="margin: 4px 0 0 0;">Figure 7. WDR-M to 4G Cat1 communication board connection reference</p>
 </div>
 
 These references are suitable for checking plug-in direction, tracing `UART` or `USB` related signals, or reviewing how the communication board and radar board connect into `WDR-M`.
