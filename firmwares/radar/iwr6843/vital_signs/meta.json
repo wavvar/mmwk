@@ -1,0 +1,10 @@
+{
+  "fws": [
+    {
+      "firmware": "vital_signs_tracking_6843AOP_demo.bin",
+      "version": "IWR6843AOP Vital Signs with People Tracking",
+      "config": "vital_signs_AOP_2m.cfg",
+      "welcome": true
+    }
+  ]
+}
