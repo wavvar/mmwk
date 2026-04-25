@@ -12,9 +12,9 @@ cd ./mmwk_cli
 
 ## What It Does
 
-- Push Wi-Fi credentials with `network config`
+- Push Wi-Fi credentials with `network wifi`
 - Push MQTT settings with `network mqtt`
-- Optionally reboot the device with `device reboot`
+- Optionally reboot the device with `node reboot`
 - Optionally start or reuse `server.sh` and feed its local broker URI back into the device
 
 This tool can talk to the device over UART or over an existing MQTT control path.
@@ -54,13 +54,14 @@ Use this when the device is already online and you want to re-point it without o
 
 - `--transport uart|mqtt`: current control path used to push settings
 - `--ssid` / `--password`: Wi-Fi credentials
-- `--mqtt-uri`: stored broker URI
+- `--mqtt-uri` / `--mqtt-user` / `--mqtt-pass`: stored broker and auth settings
+- `--device-id`, plus optional `--cmd-topic` / `--resp-topic`: tell `mmwk_cfg.sh` how to reach the current MQTT control path
 - `--server-local`: start or reuse `server.sh` and use its resolved broker URI
-- `--server-state-dir`: choose which `server.sh` state dir to reuse
+- `--server-state-dir`, `--server-serve-dir`, `--server-upload-dir`, `--server-host-ip`, `--server-target-ip`, `--server-mqtt-port`, `--server-http-port`: control how `server.sh` is started or reused
 - `--reboot`: reboot after writing settings
 
 ## Notes
 
 - If you use `--server-local`, do not also pass `--mqtt-uri`; the tool resolves the broker from `server.sh`.
-- MQTT topics are fixed to `mmwk/{mac}/device/cmd`, `mmwk/{mac}/device/resp`, and `mmwk/{mac}/raw/...`; `mmwk_cfg.sh` does not accept topic or client-id overrides.
+- Device-side MQTT identity and canonical topics are fixed to the Wi-Fi STA MAC. `--device-id`, `--cmd-topic`, and `--resp-topic` only help `mmwk_cfg.sh` reach the current MQTT control path; they do not rewrite the stored topic identity.
 - If you skip `--reboot`, the tool still writes the settings, but the device may not use them until the next reboot.

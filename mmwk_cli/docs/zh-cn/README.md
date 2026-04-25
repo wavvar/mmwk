@@ -1,8 +1,8 @@
 # MMWK CLI Shell Wrapper
 
-本文档介绍 [`./mmwk_cli.sh`](../../mmwk_cli.sh)。它是推荐在 **macOS** 和 **Linux** 上使用的 MMWK bridge/hub 控制入口。该 shell 包装脚本会自动引导 [`scripts/mmwk_cli/`](../../scripts/mmwk_cli/) 中的 Python CLI，并通过 UART（串口）和 MQTT 暴露同一套命令面，默认走标准 CLI JSON，必要时可回退到 MCP。
+本文档介绍 [`./mmwk_cli.sh`](../../mmwk_cli.sh)。它是推荐在 **macOS** 和 **Linux** 上使用的 MMWK bridge/hub 控制入口。该 shell 包装脚本会自动引导 [`scripts/mmwk_cli/`](../../scripts/mmwk_cli/) 中的 Python CLI，并通过 UART（串口）和 MQTT 暴露同一套命令面，默认走标准 CLI JSON；在配套的 MCP 固件版本下，也支持 MCP 协议。
 
-`mmwk_cli.sh` 现在默认使用标准 CLI JSON 协议。迁移期内，如果调用方省略 `--protocol`，CLI 会打印 warning，提示你升级到显式的 `--protocol cli`。只有兼容性回退场景才建议使用 `--protocol mcp`。
+`mmwk_cli.sh` 现在默认使用标准 CLI JSON 协议。大多数 MMWK 固件版本也默认内置 CLI 控制协议。部分固件版本还提供 MCP 支持；如需 MCP 版本，请联系我们获取对应固件版本。使用这类固件版本配合 `mmwk_cli.sh` 时，请显式指定 `--protocol mcp`。
 
 ## 原始语义契约
 
@@ -55,6 +55,14 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
+## Surface 更新（2026-04-13）
+
+- `bridge` 和 `hub` 现在共享一套 sensor runtime core，但二者仍然是编译期 profile。
+- hub 唯一新增的公开面是 `scene`，以及那些只有在 requested sensor set 通过 support check 后才会暴露出来的额外 sensor endpoint/event。
+- 能力发现统一收敛到 `endpoint list` 和 `proto list|status|manifest`。
+- 原始录制/配置统一收敛到 `radar raw status`、`radar raw config get|set --json ...`、`radar raw start|stop|trigger`。
+- `scene` 仅 hub 支持；bridge 上直接调用 `scene` 会返回 unknown tool。
+
 ---
 
 ## 快速开始
@@ -70,16 +78,16 @@ pip install -r requirements.txt
 
 ```bash
 ./mmwk_cli.sh --help
-./mmwk_cli.sh device hi -p /dev/cu.usbserial-0001
+./mmwk_cli.sh node info -p /dev/cu.usbserial-0001
 ```
 
-期望 `device hi` 返回的字段包括 `name`、`board`、`version`、`id`，以及在 MQTT 已配置时返回的 `mqtt_uri`、`client_id`、`raw_data_topic`、`raw_resp_topic`。其中 `name` / `version` 是 ESP 固件身份的标准字段。
-启动所有权现在改为由雷达面暴露：`radar status` 返回 `start_mode` 与 `supported_start_modes`，`fw.boot_mode` 则表示当前运行态的雷达 boot path。BRIDGE 报告 `["auto", "host"]`，HUB 报告 `["auto"]`。
+期望 `node info` 返回的字段包括 `name`、`board`、`version`、`id`，以及在 MQTT 已配置时返回的 `uri`、`client_id`、`raw_data_topic`、`raw_resp_topic`。其中 `name` / `version` 是 ESP 固件身份的标准字段。
+启动所有权现在改为由雷达面暴露：`radar status` 返回 `mode` 与 `modes`，`fw.boot_mode` 则表示当前运行态的雷达 boot path。BRIDGE 报告 `["auto", "host"]`，HUB 报告 `["auto"]`。
 
 ### 2. 刷写雷达固件与配置
 
 ```bash
-./mmwk_cli.sh radar flash \
+./mmwk_cli.sh radar fw flash \
   --fw ../firmwares/radar/iwr6843/oob/out_of_box_6843_aop.bin \
   --cfg ../firmwares/radar/iwr6843/oob/out_of_box_6843_aop.cfg \
   -p /dev/cu.usbserial-0001
@@ -88,24 +96,28 @@ pip install -r requirements.txt
 ### 3. 确认刷写已生效
 
 ```bash
-./mmwk_cli.sh radar version -p /dev/cu.usbserial-0001
+./mmwk_cli.sh radar fw version -p /dev/cu.usbserial-0001
 ./mmwk_cli.sh radar status -p /dev/cu.usbserial-0001
-./mmwk_cli.sh device hi -p /dev/cu.usbserial-0001
+./mmwk_cli.sh node info -p /dev/cu.usbserial-0001
 ```
 
-对 `radar flash`、`radar ota`、`radar reconf`，以及 factory / baseline 恢复路径后的第一次上电，都要持续轮询 `radar status`，直到返回 `running`。不要用固定 sleep 替代这个 gate。
+对 `radar fw flash`、`radar fw ota`、`radar config apply`，以及 factory / baseline 恢复路径后的第一次上电，都要持续轮询 `radar status`，直到返回 `running`。不要用固定 sleep 替代这个 gate。
 
 ### 4. 配置 Wi-Fi 与 MQTT
 
 ```bash
-./mmwk_cli.sh network config --ssid YOUR_SSID --password YOUR_PASSWORD -p /dev/cu.usbserial-0001
-./mmwk_cli.sh network mqtt --mqtt-uri mqtt://192.168.1.100:1883 -p /dev/cu.usbserial-0001
-./mmwk_cli.sh device reboot -p /dev/cu.usbserial-0001
+./mmwk_cli.sh network wifi --ssid YOUR_SSID --pass YOUR_PASSWORD -p /dev/cu.usbserial-0001
+./mmwk_cli.sh network mqtt --uri mqtt://192.168.1.100:1883 -p /dev/cu.usbserial-0001
+./mmwk_cli.sh node reboot -p /dev/cu.usbserial-0001
 ```
 
-对于 fresh bridge，先配置 Wi-Fi，再执行 `network mqtt`、重启，并通过 `device hi` 或 `network status` 验证。应把 `state=connected && ip_ready=true` 视为 ready 契约。`device hi` 仍适合看身份和已发布元数据，但不应作为主要运行时就绪信号。缺失 bridge agent key 时，默认值就是 `mqtt_en=1`、`raw_auto=1`，这就是正常 fresh-bridge bring-up 路径。
+配网 AP 名称遵循 `MMWK-[板][应用]-[MAC后两字节]`。默认 Wi-Fi 为 `MMWK / mmwk123456`。
 
-只有在手动 override 或排障时，才需要执行 `device agent --mqtt-en 1 --raw-auto 1`。
+只有出厂态下 portal 允许修改 MQTT。bridge 在非出厂态下只读显示 MQTT，密码固定显示为 `********`。hub 在非出厂态下隐藏 MQTT 配置。
+
+对于 fresh bridge，先配置 Wi-Fi，再执行 `network mqtt`、重启，并通过 `node info` 或 `network status` 验证。应把 `state=connected && ready=true` 视为网络 ready 契约，把 `mqtt_state=connected` 视为 MQTT ready 契约。`node info` 仍适合看身份和已发布元数据，但不应作为主要运行时就绪信号。缺失 bridge agent key 时，默认值就是 `mqtt=1`、`raw_auto=1`，这就是正常 fresh-bridge bring-up 路径。
+
+只有在手动 override 或排障时，才需要执行 `node agent --mqtt 1 --raw-auto 1`。
 
 ### 5. 采集并验证数据
 
@@ -118,14 +130,14 @@ pip install -r requirements.txt
 
 当传入 `-p/--port` 时，`collect` 会先通过 UART 做自动发现，并等待设备重新拿到非零运行时 IP 后再 arm MQTT raw capture。这样可以降低设备刚重启或雷达刚 restart 时，因为 Wi-Fi / MQTT 仍在重连而丢掉启动阶段 `raw_resp` 的概率。
 
-对 `radar flash`、`radar ota`、`radar reconf`，以及 factory / baseline 恢复路径后的第一次上电，先把 `radar status = running` 当成显式 ready gate，再去做纯 MQTT 的 late-attach 采集。如果你把 `collect -p` 当成这段恢复窗口的启动证明路径，就要要求 `cmd_resp.log` 非空。
+对 `radar fw flash`、`radar fw ota`、`radar config apply`，以及 factory / baseline 恢复路径后的第一次上电，先把 `radar status = running` 当成显式 ready gate，再去做纯 MQTT 的 late-attach 采集。如果你把 `collect -p` 当成这段恢复窗口的启动证明路径，就要要求 `cmd_resp.log` 非空。
 
 默认这条带 `-p/--port` 的 `collect` 路径应视为严格的启动期采集路径。如果你的采集窗口就是从 reboot、OTA 恢复或其他 fresh startup/welcome 阶段开始，`raw_resp` 就必须是必需项，`cmd_resp.log` 也应非空。
 
-如果你要拿到 OTA/config 阶段本身的 welcome、cfg 逐行回应和后续命令口输出，不要等 OTA 结束后再跑 `collect`，而是直接在 `radar ota` 时开启 raw capture：
+如果你要拿到 OTA/config 阶段本身的 welcome、cfg 逐行回应和后续命令口输出，不要等 OTA 结束后再跑 `collect`，而是直接在 `radar fw ota` 时开启 raw capture：
 
 ```bash
-./mmwk_cli.sh radar ota --fw ./radar.bin --cfg ./radar.cfg \
+./mmwk_cli.sh radar fw ota --fw ./radar.bin --cfg ./radar.cfg \
   --raw-resp-output ./ota_cmd_resp.log \
   -p /dev/cu.usbserial-0001
 ```
@@ -136,8 +148,10 @@ pip install -r requirements.txt
 
 ### 外挂工具
 
-`collect` 仍然是官方命令。下面这两个 helper 都挂在 `mmwk_cli.sh` 之外，工作目录应为 `mmwk_cli` 目录。
+`collect` 仍然是官方命令。下面这些 helper 都挂在 `mmwk_cli.sh` 之外，工作目录应为 `mmwk_cli` 目录。
 
+- [Radar Task Tools](radar-task-tools.md)：当你想直接走任务级工作流时，使用 `./tools/config.sh init|update|list` 与 `./tools/collect.sh` 完成基于注册表的 UART 配置、网络更新和 MQTT raw 采集。
+- [通过 Bridge 开发雷达](bridge-ti-radar-debug.md)：面向 6843 和 6432 的端到端 bridge 开发说明，包含 `config.sh init|update|list` 与 `collect.sh` 的使用顺序。
 - [MMWK CFG](mmwk-cfg.md)：当你需要通过 UART 或现有 MQTT 控制链路下发 Wi-Fi / MQTT 设置，或者希望脚本自动启动 / 复用 `server.sh` 本地 broker 时，使用 `./tools/mmwk_cfg.sh`。
 - [MMWK RAW](mmwk-raw.md)：当你明确需要控制面与 raw 采集都只走 pure MQTT 时，使用 `./tools/mmwk_raw.sh`。
 
@@ -157,7 +171,7 @@ pip install -r requirements.txt
 
 ### Device ID
 
-设备的硬件唯一标识，可通过 `device hi` 获取。
+设备的硬件唯一标识，可通过 `node info` 获取。
 
 ### MQTT Client ID
 
@@ -172,7 +186,8 @@ MQTT `client_id` 固定绑定 Wi-Fi STA MAC，格式为 12 位小写十六进制
 ### MQTT 通道职责
 
 - `network mqtt`：配置 broker / 鉴权，设备控制 topic 固定为 `mmwk/{mac}/device/...`
-- `radar raw`：配置雷达透传通道，raw topic 固定为 `mmwk/{mac}/raw/...`
+- MQTT raw 透传平面固定发布到 `mmwk/{mac}/raw/...`；host 模式下会额外派生 `raw/cmd`
+- 公开的 `radar raw` 命令族只负责录制器状态/配置和录制触发；`collect` / `mmwk_raw` 负责订阅 MQTT raw topic
 - `raw_resp` 对应 `on_cmd_data` 的启动 trim 后命令口输出，`raw_data` 对应 `on_radar_data` 的数据口原始字节
 - bridge/auto 模式下 MQTT raw 平面是只出不进的，只对外发布 `mmwk/{mac}/raw/data` 和 `mmwk/{mac}/raw/resp`；host 模式下才会额外开放 `mmwk/{mac}/raw/cmd`
 - `on_cmd_resp`、`on_radar_frame` 属于应用层回调，与 raw capture 不同
@@ -180,14 +195,14 @@ MQTT `client_id` 固定绑定 Wi-Fi STA MAC，格式为 12 位小写十六进制
 
 ### 启动所有权契约
 
-- `start_mode` 表示当前保存/当前配置的默认模式。
-- `supported_start_modes` 表示当前 profile 支持的启动模式列表。
+- `mode` 表示当前保存/当前配置的默认模式。
+- `modes` 表示当前 profile 支持的启动模式列表。
 - `fw.boot_mode` 表示当前运行时观察到的雷达 boot path（`flash`、`host`、`uart`、`spi`）。
 - 对 BRIDGE，`auto` 表示 ESP 接管雷达 bring-up，`host` 表示主机接管雷达 bring-up。
 - 对 HUB，目前只支持 `auto`。
 - `radar start --mode auto|host` 会先持久化新的默认模式，再按该模式重启当前雷达服务。
-- 不带 `--mode` 的 `radar start` 会按已保存的 `start_mode` 启动。
-- `radar stop` 只停止当前雷达服务，不会改写 `start_mode`。
+- 不带 `--mode` 的 `radar start` 会按已保存的 `mode` 启动。
+- `radar stop` 只停止当前雷达服务，不会改写 `mode`。
 - `radar status` 现在是只读查询，不再接受 `--set`。
 - `raw_auto` 只控制 raw 平面的自动启动，不决定由谁负责雷达启动。
 - 在 bridge `host` 下，ESP 仍然暴露 raw 传输面，但不会在启动期自动下发雷达配置。
@@ -203,11 +218,11 @@ MQTT `client_id` 固定绑定 Wi-Fi STA MAC，格式为 12 位小写十六进制
 CLI 配置方式：
 
 ```bash
-./mmwk_cli.sh network config --ssid "MyWiFi" --password "MyPass" -p /dev/cu.usbserial-0001
+./mmwk_cli.sh network wifi --ssid "MyWiFi" --pass "MyPass" -p /dev/cu.usbserial-0001
 ./mmwk_cli.sh network status -p /dev/cu.usbserial-0001
 ```
 
-应把 `network status` 视为主要运行时 ready 契约。`state=connected && ip_ready=true` 表示设备已具备网络可用性；`prov_waiting`、`retry_backoff`、`failed` 等状态则说明当前仍未就绪的原因。
+应把 `network status` 视为主要运行时 ready 契约。`state=connected && ready=true` 表示设备已具备网络可用性；`prov_waiting`、`retry_backoff`、`failed` 等状态则说明当前仍未就绪的原因。`mqtt_state` 与之分离，固定表示 MQTT transport 的 `disconnected | connecting | connected`，MQTT 相关流程应基于它而不是任何 LED 推导信号。
 
 ---
 
@@ -231,9 +246,10 @@ flowchart LR
 - **MCPv1**：兼容/参考层，仅在 MCP 客户端明确需要该协议形态时使用
 
 ### UART（本地）
+在 POSIX 主机上，普通 UART 打开现在默认保持设备当前运行态，不再因为单次命令而额外复位；只有你明确传 `--reset` 时，CLI 才会通过 DTR/RTS 做硬件重启。如果某台主机必须回退旧行为，可设置 `MMWK_CLI_UART_NORESET_BACKEND=pyserial`。
 
 ```bash
-./mmwk_cli.sh radar flash --fw fw.bin -p /dev/cu.usbserial-0001 --baudrate 921600 --reset
+./mmwk_cli.sh radar fw flash --fw fw.bin -p /dev/cu.usbserial-0001 --baudrate 921600 --reset
 ```
 
 ### MQTT（远程）
@@ -244,46 +260,89 @@ flowchart LR
 
 ---
 
+## 兼容 facade
+
+- 公开标准入口固定为 `node`、`proto`、`endpoint`、`scene`、`radar.fw`、`radar.diag`、`radar.raw`，以及下文的 `network` / `collect` 流程。
+- `entity` 仅用于兼容。`device.catalog` 仅用于兼容。`device.proto` 仅用于兼容。它们只保留在显式兼容 shim 中，不属于公开 help/discovery。
+- 对多传感器设备，子 endpoint 拥有测量真值、事件真值和状态真值。组合 endpoint 只做聚合或编排，例如 `area`、`safety`、`vitals`、`maintenance` 和 hub 专属的 `scene`。
+- `scene` 是 hub 专属的组合 facade，用来表达拓扑、能力选择和编排；它不会替代 endpoint 的真值归属，也不会变成第二语义中心。
+- 使用 `endpoint list --json` 和 `endpoint describe` 查看面向 Matter 的目录字段，包括 `endpoint_key`、`parent_endpoint_key`、`parts`、`endpoint_family`、`semantic_class`、`truth_source`、`canonical_device_type` 和 `cluster_families`。
+
+---
+
 ## 命令参考
 
 | Command | 说明 |
 |---------|------|
-| `device hi` | 读取设备身份与已发布元数据 |
-| `device reboot` | 重启设备 |
-| `device ota` | 升级 ESP 固件 |
-| `device agent` | 配置 agent 服务 |
-| `device heartbeat` | 配置心跳 |
-| `radar ota` | HTTP OTA 升级雷达固件 |
-| `radar flash` | UART 分块升级雷达固件 |
+| `node info` | 读取设备身份与已发布元数据 |
+| `node reboot` | 重启设备 |
+| `node ota` | 升级 ESP 固件 |
+| `node agent` | 配置 agent 服务 |
+| `node heartbeat` | 配置心跳 |
+| `endpoint list` | 查看当前 profile / effective sensor set 的面向 Matter 的 endpoint 目录 |
+| `proto list/status/manifest` | 查看节点公开协议目录 |
+| `radar fw ota` | HTTP OTA 升级雷达固件 |
+| `radar fw flash` | UART / MQTT 分块升级雷达固件 |
 | `radar start` | 持久化可选启动模式并启动/重启当前雷达服务 |
 | `radar stop` | 停止当前雷达服务，但不改写已保存模式 |
-| `radar reconf` | 在不重新刷 firmware 的前提下重配置运行时雷达契约 |
-| `radar cfg` | 回读雷达 cfg 文本（默认 file cfg，可选 hub `--gen`） |
-| `radar status` | 只读查询雷达状态、`start_mode` 与 `supported_start_modes` |
-| `radar version` | 查询雷达固件版本 |
-| `radar raw` | 配置原始透传 |
-| `radar debug` | 调试信息 |
-| `fw list/set/del/download` | 固件分区管理 |
-| `record start/stop/trigger` | 录制控制 |
-| `collect` | 采集 `raw_data` / `raw_resp` |
-| `entity/adapter/scene/policy` | 能力优先接口 |
-| `network config/mqtt/prov/status/ntp` | 网络配置，其中 `network status` 用于查询 `state` / `sta_ip` / `ip_ready` |
-| `tools` | 列出 MCP 工具 |
-| `help` | 列出设备支持命令 |
+| `radar config apply` | 在不重新刷 firmware 的前提下重配置运行时雷达契约 |
+| `radar config read` | 回读雷达 cfg 文本（默认 file cfg，可选 hub `--gen`） |
+| `radar status` | 只读查询雷达状态、`mode` 与 `modes` |
+| `radar fw version` | 查询雷达固件版本 |
+| `radar raw status` | 查看 radar raw 录制器状态 |
+| `radar raw config get/set --json` | 读取或修改 radar raw 录制器配置 |
+| `radar raw start/stop/trigger` | 控制 radar raw 录制器生命周期 |
+| `radar diag` | 查看或设置雷达诊断信息 |
+| `radar fw list/set/switch/del/download` | 管理设备上的固件分区 |
+| `collect` | 采集 `raw_data` / `raw_resp` 并保存到主机 |
+| `endpoint list/describe/read/config get/config set` | 查看面向 Matter 的 endpoint 目录与运行时状态（`endpoint list --json` / `endpoint describe` 会暴露 `endpoint_key`、`parent_endpoint_key`、`parts`、`truth_source` 等语义字段） |
+| `scene read/set/apply/wait` | hub 专属的 scene 编排与配置接口 |
+| `network wifi/mqtt/prov/status/ntp` | 网络配置，其中 `network status` 用于查询 `state` / `ip` / `ready` / `mqtt_state` |
 
 ### 命令示例
 
 ```bash
-./mmwk_cli.sh device hi -p /dev/cu.usbserial-0001
+# --- Node ---
+./mmwk_cli.sh node info -p /dev/cu.usbserial-0001
+./mmwk_cli.sh endpoint list -p /dev/cu.usbserial-0001
+./mmwk_cli.sh proto list -p /dev/cu.usbserial-0001
+./mmwk_cli.sh node reboot -p /dev/cu.usbserial-0001
+./mmwk_cli.sh node agent --mqtt 1 --raw-auto 1 -p /dev/cu.usbserial-0001
+
+# --- Radar ---
 ./mmwk_cli.sh radar status -p /dev/cu.usbserial-0001
 ./mmwk_cli.sh radar start --mode auto -p /dev/cu.usbserial-0001
 ./mmwk_cli.sh radar stop -p /dev/cu.usbserial-0001
-./mmwk_cli.sh radar version -p /dev/cu.usbserial-0001
-./mmwk_cli.sh radar reconf --welcome --no-verify -p /dev/cu.usbserial-0001
-./mmwk_cli.sh radar reconf --welcome --no-verify --clear-cfg -p /dev/cu.usbserial-0001
-./mmwk_cli.sh radar cfg -p /dev/cu.usbserial-0001
-./mmwk_cli.sh radar cfg --gen -p /dev/cu.usbserial-0001
-./mmwk_cli.sh network mqtt --mqtt-uri mqtt://broker.local -p /dev/cu.usbserial-0001
+./mmwk_cli.sh radar fw version -p /dev/cu.usbserial-0001
+./mmwk_cli.sh radar config apply --welcome --no-verify -p /dev/cu.usbserial-0001
+./mmwk_cli.sh radar config read -p /dev/cu.usbserial-0001
+./mmwk_cli.sh radar raw status -p /dev/cu.usbserial-0001
+./mmwk_cli.sh radar raw config set --json '{"auto_upload": true, "max_duration_sec": 30}' -p /dev/cu.usbserial-0001
+./mmwk_cli.sh radar raw trigger --event factory_test --duration-s 15 -p /dev/cu.usbserial-0001
+
+# --- 固件目录 ---
+./mmwk_cli.sh radar fw list -p /dev/cu.usbserial-0001
+./mmwk_cli.sh radar fw set --index 0 -p /dev/cu.usbserial-0001
+./mmwk_cli.sh radar fw del --index 1 -p /dev/cu.usbserial-0001
+./mmwk_cli.sh radar fw download --source http://example.com/fw.bin --name oob --fw-version 1.0.0 --size 524288 -p /dev/cu.usbserial-0001
+
+# --- 录制 ---
+./mmwk_cli.sh radar raw start --uri http://192.168.1.100:8080/upload -p /dev/cu.usbserial-0001
+./mmwk_cli.sh radar raw stop -p /dev/cu.usbserial-0001
+./mmwk_cli.sh radar raw trigger --event MANUAL --duration-s 10 -p /dev/cu.usbserial-0001
+./mmwk_cli.sh collect --duration 12 --data-output ./data_resp.sraw --resp-output ./cmd_resp.log -p /dev/cu.usbserial-0001
+
+# --- Endpoints ---
+./mmwk_cli.sh endpoint list -p /dev/cu.usbserial-0001
+./mmwk_cli.sh endpoint list --json -p /dev/cu.usbserial-0001
+./mmwk_cli.sh endpoint describe mgmt.device -p /dev/cu.usbserial-0001
+./mmwk_cli.sh endpoint read mgmt.device -p /dev/cu.usbserial-0001
+./mmwk_cli.sh endpoint config get radar.raw -p /dev/cu.usbserial-0001
+./mmwk_cli.sh endpoint config set radar.raw --config-json '{"auto_upload": true}' -p /dev/cu.usbserial-0001
+./mmwk_cli.sh scene read -p /dev/cu.usbserial-0001   # 仅 hub
+
+# --- Network ---
+./mmwk_cli.sh network mqtt --uri mqtt://broker.local -p /dev/cu.usbserial-0001
 ./mmwk_cli.sh collect --duration 12 --data-output ./data_resp.sraw --resp-output ./cmd_resp.log -p /dev/cu.usbserial-0001
 ```
 
@@ -295,7 +354,7 @@ flowchart LR
 
 ```bash
 ./mmwk_cli.sh --help
-./mmwk_cli.sh device hi -p /dev/cu.usbserial-0001
+./mmwk_cli.sh node info -p /dev/cu.usbserial-0001
 ```
 
 ### 本地 Server 辅助脚本 (`server.sh`)
@@ -328,8 +387,8 @@ flowchart LR
 仅用于已经运行 bridge 固件的设备升级整个 ESP 固件流水线时：
 ```bash
 ./server.sh run --device-ota --device-ota-board mini --host-ip 192.168.4.8
-eval $(./server.sh env)
-./mmwk_cli.sh device ota --url "$MMWK_SERVER_DEVICE_OTA_URL" -p /dev/cu.usbserial-0001
+eval "$(./server.sh env)"
+./mmwk_cli.sh node ota --url "$MMWK_SERVER_DEVICE_OTA_URL" -p /dev/cu.usbserial-0001
 ```
 
 启用 `--device-ota` 时，`server.sh` 会优先查找 legacy 顶层路径 `firmwares/esp/<board>/mmwk_sensor_bridge_full.bin`。如果这个文件不存在，它会自动回退到最新发布的 `firmwares/esp/<board>/mmwk_sensor_bridge/v*/ota.zip`，解出 OTA `.bin`，并通过 `MMWK_SERVER_DEVICE_OTA_*` 导出最终解析出的路径和 URL。
@@ -339,14 +398,14 @@ eval $(./server.sh env)
 - HTTP 默认从 `--serve-dir` 对外提供文件，端口 `8380`。
 - 如果没有显式传入 `--serve-dir`，`server.sh` 会对外提供它启动时的当前工作目录。
 - `server.sh status` 会同时检查 PID 存活和实际 TCP 端口监听状态。
-- `server.sh env` 会输出可直接复用的主机 IP、MQTT URI 和 HTTP Base URL，方便传给 `network mqtt`、`radar ota`、`device ota` 和 `collect`。
+- `server.sh env` 会输出可直接复用的主机 IP、MQTT URI 和 HTTP Base URL，方便传给 `network mqtt`、`radar fw ota`、`node ota` 和 `collect`。
 - 仅适用于已运行 bridge 固件的 OTA 流程请看 [Bridge 设备 OTA 指南](../../../docs/zh-cn/ota.md)，出厂刷机请看 [Bridge 出厂烧录指南](../../../docs/zh-cn/flash.md)。
 - 该助手脚本仅面向本地开发、本地刷机和数据采集工作流设计。
 
 ### 高级用法：直接调用 Python
 
 ```bash
-PYTHONPATH=scripts python3 -m mmwk_cli device hi -p /dev/cu.usbserial-0001
+PYTHONPATH=scripts python3 -m mmwk_cli node info -p /dev/cu.usbserial-0001
 ```
 
 ---
@@ -356,7 +415,9 @@ PYTHONPATH=scripts python3 -m mmwk_cli device hi -p /dev/cu.usbserial-0001
 - **[mmwk_cli.sh](../../mmwk_cli.sh)**：推荐的 macOS/Linux shell 入口
 - **[scripts/mmwk_cli/](../../scripts/mmwk_cli/)**：被包装的 Python 实现
 - **[Wavvar MMWK 标准 CLI 控制协议 V1.0](../../../docs/CLIv1_CN.md)**：默认标准 CLI JSON 协议规范
-- **[Wavvar MMWK MCP 协议规范 V1.3](../../../docs/zh-cn/mcpv1.md)**：MCP/JSON-RPC 兼容协议规范（`--protocol mcp`）
+- **[Wavvar MMWK MCP 协议规范 V1.3](../../../docs/zh-cn/mcpv1.md)**：面向 MCP 固件版本的 MCP/JSON-RPC 协议规范（配套 MCP 固件版本时使用 `--protocol mcp`）
+- **[Radar Task Tools](./radar-task-tools.md)**：在 `mmwk_cli` 目录下执行的任务导向 wrapper，用于 UART 配置、网络 OTA 和 MQTT raw 采集
+- **[通过 Bridge 开发雷达](./bridge-ti-radar-debug.md)**：发布友好的 bridge 开发说明，分别覆盖 6843 和 6432 的推荐板型与具体步骤
 - **[MMWK CFG](./mmwk-cfg.md)**：在 `mmwk_cli` 目录下执行的 Wi-Fi/MQTT 配置辅助流程
 - **[MMWK RAW](./mmwk-raw.md)**：在 `mmwk_cli` 目录下执行的 pure-MQTT raw 采集辅助流程
 - **[firmwares/](../../../firmwares/)**：预编译固件目录
@@ -388,7 +449,7 @@ PYTHONPATH=scripts python3 -m mmwk_cli device hi -p /dev/cu.usbserial-0001
 ### UART 分块传输
 
 ```bash
-./mmwk_cli.sh radar flash \
+./mmwk_cli.sh radar fw flash \
   --fw ../firmwares/radar/iwr6843/oob/out_of_box_6843_aop.bin \
   --cfg ../firmwares/radar/iwr6843/oob/out_of_box_6843_aop.cfg \
   -p /dev/cu.usbserial-0001
@@ -396,14 +457,14 @@ PYTHONPATH=scripts python3 -m mmwk_cli device hi -p /dev/cu.usbserial-0001
 
 版本号行为说明：
 - 当前运行时版本校验是基于文本匹配的：雷达启动后、发送任何配置命令之前，驱动会扫描启动阶段的 CLI/welcome 输出，只要在文本中找到期望版本字符串就认为匹配成功。
-- `radar flash` 和 `radar ota` 都会从固件二进制旁边的 `meta.json` 推断雷达 metadata：`welcome` 加上可选的 `version`。
+- `radar fw flash` 和 `radar fw ota` 都会从固件二进制旁边的 `meta.json` 推断雷达 metadata：`welcome` 加上可选的 `version`。
 - `welcome` 表示该固件是否会输出启动 CLI/welcome 文本，这是固件特征本身。
 - 当 `welcome=true` 时，只要雷达启动阶段输出了任意非空字符串，就算 welcome 成立；它不是固定模板，而且完全可能是多行输出。
-- `welcome` 很重要，因为它同时承担两个作用：一是证明雷达固件确实已经启动并进入启动 CLI；二是提供 MMWK 唯一能保存成 `radar version` 的真实运行时版本字符串。
+- `welcome` 很重要，因为它同时承担两个作用：一是证明雷达固件确实已经启动并进入启动 CLI；二是提供 MMWK 唯一能保存成 `radar fw version` 的真实运行时版本字符串。
 - `version` 表示 welcome 文本里的目标子串。
 - 当启用 `--verify` 时，MMWK 会在整段启动输出里查找版本子串，不要求它出现在某一条固定文本里。
 - `--verify` 会打开版本匹配，并且要求必须提供版本字符串；`--no-verify` 即使 metadata 里有版本也会跳过匹配。
-- 如果没有提供版本，刷机仍然可能成功，但 `radar version` 可能保持为空。
+- 如果没有提供版本，刷机仍然可能成功，但 `radar fw version` 可能保持为空。
 - 如果 `welcome` 声明错了，MMWK 要么会一直等待一个根本不会出现的启动文本，要么会跳过它唯一的运行态启动证明和版本来源。
 - 如果 `welcome=true`，但在超时窗口内始终没有任何启动 CLI/welcome 输出，应直接视为雷达启动失败：固件大概率没有在雷达侧成功启动。此时 `radar status` 会保持 `state=error`，并附带 `details` 字段解释失败原因。
 - 如果你需要定制一个可识别的雷达固件版本号，请让雷达固件的启动 CLI 输出打印出那个目标字符串。
@@ -411,9 +472,9 @@ PYTHONPATH=scripts python3 -m mmwk_cli device hi -p /dev/cu.usbserial-0001
 ### HTTP OTA
 
 ```bash
-./mmwk_cli.sh network config --ssid YOUR_SSID --password YOUR_PASSWORD -p /dev/cu.usbserial-0001
-./mmwk_cli.sh device reboot -p /dev/cu.usbserial-0001
-./mmwk_cli.sh radar ota \
+./mmwk_cli.sh network wifi --ssid YOUR_SSID --pass YOUR_PASSWORD -p /dev/cu.usbserial-0001
+./mmwk_cli.sh node reboot -p /dev/cu.usbserial-0001
+./mmwk_cli.sh radar fw ota \
   --fw ../firmwares/radar/iwr6843/oob/out_of_box_6843_aop.bin \
   --cfg ../firmwares/radar/iwr6843/oob/out_of_box_6843_aop.cfg \
   --http-port 8380 \
@@ -423,7 +484,7 @@ PYTHONPATH=scripts python3 -m mmwk_cli device hi -p /dev/cu.usbserial-0001
 OTA 后第一次上电时，ESP 侧可能还在等待雷达 app 真正启动完成。请持续轮询 `radar status`，直到返回 `running`；不要用固定 sleep 去替代这一步。
 
 版本号行为说明：
-- 对 `radar ota` 来说，显式传入的 `--version`、`--verify`、`--welcome` 会覆盖 `meta.json` 推断结果。
+- 对 `radar fw ota` 来说，显式传入的 `--version`、`--verify`、`--welcome` 会覆盖 `meta.json` 推断结果。
 - `--force` 会强制执行 OTA，即使目标版本已经和设备当前持久化版本一致。
 - 设备侧只有在启用 `--verify` 时，才会通过重启后的启动 CLI/welcome 输出去匹配版本字符串；否则仍然会尊重 `welcome`，但不会做版本匹配。
 - 对 `welcome=true` 来说，这段启动输出只要求“有任意非空字符串”，并且允许是多行文本，不要求固定 banner 格式。
@@ -433,35 +494,35 @@ OTA 后第一次上电时，ESP 侧可能还在等待雷达 app 真正启动完�
 
 ### 方法 C：运行时重配置（不重新刷 firmware）
 
-当雷达固件二进制本身已经正确，只需要切换运行时契约或运行时 cfg 选择时，请使用 `radar reconf`，这样可以 without flashing firmware 再次应用新的运行时约束。
+当雷达固件二进制本身已经正确，只需要切换运行时契约或运行时 cfg 选择时，请使用 `radar config apply`，这样可以 without flashing firmware 再次应用新的运行时约束。
 
 ```bash
-./mmwk_cli.sh radar reconf --welcome --no-verify
-./mmwk_cli.sh radar reconf --welcome --verify --version "1.2.3"
-./mmwk_cli.sh radar reconf --welcome --no-verify --cfg ./runtime.cfg
-./mmwk_cli.sh radar reconf --welcome --no-verify --clear-cfg
+./mmwk_cli.sh radar config apply --welcome --no-verify
+./mmwk_cli.sh radar config apply --welcome --verify --version "1.2.3"
+./mmwk_cli.sh radar config apply --welcome --no-verify --cfg ./runtime.cfg
+./mmwk_cli.sh radar config apply --welcome --no-verify --clear-cfg
 ```
 
 运行时重配置行为：
-- `radar reconf` 只在 bridge 模式下可用；host mode is rejected。
+- `radar config apply` 只在 bridge 模式下可用；host mode is rejected。
 - 默认行为是 `cfg_action=keep`，保留当前运行时 cfg 选择。
 - `--cfg` 对应 `cfg_action=replace`，只上传 cfg 文件，并以 `uart_data action=reconf_done` 收尾。
 - `--clear-cfg` 对应 `cfg_action=clear`，用于移除持久化的运行时 cfg override。
-- 与 `radar flash`、`radar ota` 不同，`radar reconf` 不会重新刷写 firmware。
-- 每次执行完 `radar reconf` 后，都要先等 `radar status` 返回 `running`，再去依赖 `radar version` 或任何 late-attach `collect` 流程。
+- 与 `radar fw flash`、`radar fw ota` 不同，`radar config apply` 不会重新刷写 firmware。
+- 每次执行完 `radar config apply` 后，都要先等 `radar status` 返回 `running`，再去依赖 `radar fw version` 或任何 late-attach `collect` 流程。
 
 相关启动模式行为：
-- BRIDGE 会在雷达相关状态面暴露 `supported_start_modes: ["auto", "host"]`，设备面不再暴露启动模式配置。
+- BRIDGE 会在雷达相关状态面暴露 `modes: ["auto", "host"]`，设备面不再暴露启动模式配置。
 - BRIDGE 支持 `["auto", "host"]`；HUB 支持 `["auto"]`。
 - 在 bridge `host` 且 `raw_auto=1` 时，会自动启动 `mmwk/{mac}/raw/data`、`mmwk/{mac}/raw/resp` 和 `mmwk/{mac}/raw/cmd`。
 
 ### 方法 D：回读当前雷达 CFG
 
-当你只想检查当前雷达 cfg 文本，而不想改 firmware 或运行时契约状态时，请使用 `radar cfg`。
+当你只想检查当前雷达 cfg 文本，而不想改 firmware 或运行时契约状态时，请使用 `radar config read`。
 
 ```bash
-./mmwk_cli.sh radar cfg -p /dev/cu.usbserial-0001
-./mmwk_cli.sh radar cfg --gen -p /dev/cu.usbserial-0001
+./mmwk_cli.sh radar config read -p /dev/cu.usbserial-0001
+./mmwk_cli.sh radar config read --gen -p /dev/cu.usbserial-0001
 ```
 
 回读行为：
@@ -475,7 +536,7 @@ OTA 后第一次上电时，ESP 侧可能还在等待雷达 app 真正启动完�
 ### 通过 MQTT 刷写
 
 ```bash
-./mmwk_cli.sh radar flash \
+./mmwk_cli.sh radar fw flash \
   --fw fw.bin --cfg config.cfg \
   --transport mqtt --broker 192.168.1.100 --device-id dc5475c879c0
 ```
@@ -488,10 +549,10 @@ OTA 后第一次上电时，ESP 侧可能还在等待雷达 app 真正启动完�
 
 `collect` 会自动：
 
-1. 通过 `device hi` 发现 MQTT 信息
+1. 通过 `node info` 发现 MQTT 信息
 2. 当 Wi-Fi / MQTT 仍在恢复时，等待设备重新拿到可用运行时 IP
 3. 查询补充字段
-4. 启用 `radar raw`
+4. 通过 bridge raw bootstrap 路径确保 MQTT raw 透传已就绪
 5. 订阅 `raw_data` 和 `raw_resp`
 6. 把 payload 写入输出文件，其中 `cmd_resp.log` 保留从第一个 printable ASCII 字节开始的命令口文本
 
@@ -502,18 +563,18 @@ OTA 后第一次上电时，ESP 侧可能还在等待雷达 app 真正启动完�
   -p /dev/cu.usbserial-0001
 ```
 
-当采集窗口发生在 reboot、OTA 恢复、`radar reconf` 恢复，或 factory / baseline 恢复路径后的第一次启动期时，请把这条带 `-p` 的路径视为严格启动期采集，并要求 `cmd_resp.log` / `raw_resp` 非空。纯 MQTT 的 late-attach 采集只应在 `radar status` 已经返回 `running` 之后使用。
+当采集窗口发生在 reboot、OTA 恢复、`radar config apply` 恢复，或 factory / baseline 恢复路径后的第一次启动期时，请把这条带 `-p` 的路径视为严格启动期采集，并要求 `cmd_resp.log` / `raw_resp` 非空。纯 MQTT 的 late-attach 采集只应在 `radar status` 已经返回 `running` 之后使用。
 
 ### 方法 B：手工订阅 MQTT
 
 ```bash
-./mmwk_cli.sh network config --ssid YOUR_SSID --password YOUR_PASSWORD -p /dev/cu.usbserial-0001
-./mmwk_cli.sh network mqtt --mqtt-uri mqtt://192.168.1.100:1883 -p /dev/cu.usbserial-0001
-./mmwk_cli.sh device reboot -p /dev/cu.usbserial-0001
-./mmwk_cli.sh radar raw --enable -p /dev/cu.usbserial-0001
+./mmwk_cli.sh network wifi --ssid YOUR_SSID --pass YOUR_PASSWORD -p /dev/cu.usbserial-0001
+./mmwk_cli.sh network mqtt --uri mqtt://192.168.1.100:1883 -p /dev/cu.usbserial-0001
+./mmwk_cli.sh node agent --raw-auto 1 -p /dev/cu.usbserial-0001
+./mmwk_cli.sh node reboot -p /dev/cu.usbserial-0001
 ```
 
-对于 fresh bridge，上述流程就足以建立 MQTT 控制；只有在手动 override 或排障时，才需要执行 `device agent --mqtt-en 1 --raw-auto 1`。
+对于 fresh bridge，上述流程就足以建立 MQTT 控制；只有在手动 override 或排障时，才需要执行 `node agent --mqtt 1 --raw-auto 1`。
 
 ```bash
 mosquitto_sub -h 192.168.1.100 -t 'mmwk/#' -v
@@ -522,17 +583,18 @@ mosquitto_sub -h 192.168.1.100 -t 'mmwk/#' -v
 ### 方法 C：设备侧录制
 
 ```bash
-./mmwk_cli.sh record start --uri http://192.168.1.100:8080/upload -p /dev/cu.usbserial-0001
-./mmwk_cli.sh record trigger --event MANUAL --duration 10 -p /dev/cu.usbserial-0001
-./mmwk_cli.sh record stop -p /dev/cu.usbserial-0001
+./mmwk_cli.sh radar raw start --uri http://192.168.1.100:8080/upload -p /dev/cu.usbserial-0001
+./mmwk_cli.sh radar raw trigger --event MANUAL --duration-s 10 -p /dev/cu.usbserial-0001
+./mmwk_cli.sh radar raw stop -p /dev/cu.usbserial-0001
 ```
 
-### 原始透传控制
+### Radar Raw 录制器
 
 ```bash
-./mmwk_cli.sh radar raw --enable -p /dev/cu.usbserial-0001
-./mmwk_cli.sh radar raw -p /dev/cu.usbserial-0001
-./mmwk_cli.sh radar raw --disable -p /dev/cu.usbserial-0001
+./mmwk_cli.sh radar raw status -p /dev/cu.usbserial-0001
+./mmwk_cli.sh radar raw config get -p /dev/cu.usbserial-0001
+./mmwk_cli.sh radar raw config set --json '{"auto_upload": true, "max_duration_sec": 30}' -p /dev/cu.usbserial-0001
+./mmwk_cli.sh radar raw trigger --event MANUAL --duration-s 10 -p /dev/cu.usbserial-0001
 ```
 
 ---
@@ -544,33 +606,35 @@ mosquitto_sub -h 192.168.1.100 -t 'mmwk/#' -v
 本地 HTTP OTA 端口被占用时，可以改用其他端口：
 
 ```bash
-./mmwk_cli.sh radar ota --fw firmware.bin --http-port 8381 -p /dev/cu.usbserial-0001
+./mmwk_cli.sh radar fw ota --fw firmware.bin --http-port 8381 -p /dev/cu.usbserial-0001
 ```
 
 ### MQTT 不通或采集不到数据
 
 - 检查设备和主机是否都能访问同一个 broker
 - 确认 `network mqtt` 已配置
-- 如果设备携带的是旧持久化值，再检查 `device agent --mqtt-en 1 --raw-auto 1`
-- 确认 `radar raw --enable`
+- 如果设备携带的是旧持久化值，再检查 `node agent --mqtt 1 --raw-auto 1`
+- 优先使用 `collect -p` 做启动期托管采集；如果要恢复 bridge raw 自启动，重新执行 `node agent --raw-auto 1` 并重启
 
 ### 串口权限问题
 
 - Linux：把用户加入 `dialout`
 - macOS：确认没有其他程序占用串口
+- 如果设备卡死或你明确需要重启，再使用 `--reset`
+- 如果 POSIX 主机和默认 no-reset 后端不兼容，可先导出 `MMWK_CLI_UART_NORESET_BACKEND=pyserial`
 
 ### 雷达刷写后仍未运行
 
 - 重新执行 `radar status`
 - 检查 `.bin` 与 `.cfg` 是否匹配
-- `device hi` 显示的是 ESP 侧当前选择/默认的雷达元信息条目，直刷/OTA 后它仍可能保留 bridge 内置 OOB 资产名
-- 如需进一步确认，可执行 `radar version`；但要注意它返回的是从启动 CLI 输出中匹配并保存的版本字符串，如果刷机时没有提供期望版本，它可能为空
+- `node info` 显示的是 ESP 侧当前选择/默认的雷达元信息条目，直刷/OTA 后它仍可能保留 bridge 内置 OOB 资产名
+- 如需进一步确认，可执行 `radar fw version`；但要注意它返回的是从启动 CLI 输出中匹配并保存的版本字符串，如果刷机时没有提供期望版本，它可能为空
 - 如果目标固件声明了 `welcome=true`，但超时前没有任何 welcome 文本，请直接按“雷达启动失败”处理，并查看 `radar status` 返回的 `details` 字段
 - 这里的 welcome 文本指雷达启动阶段输出的任意非空字符串，允许多行，不要求固定格式
 - `details.cmd_bytes_seen` / `details.cmd_bytes_total` 可以帮助判断命令口在启动窗口里到底有没有收到字节、总量大概有多少
 - `details.leading_noise_bytes` 用来解释为什么 `raw_resp` 前面可能先看到 `0x00` / `0xff` 这类前导噪声
 - `details.welcome_preview` 会给出一段可打印的启动预览；设备侧日志也会打印同类 boot observation 摘要
-- 请用 `radar version` + `radar status` 确认刷机后的实时运行镜像
+- 请用 `radar fw version` + `radar status` 确认刷机后的实时运行镜像
 
 ### FAQ：配置文件已经发送，但雷达没有数据返回
 

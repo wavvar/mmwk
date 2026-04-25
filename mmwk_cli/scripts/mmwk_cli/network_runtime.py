@@ -42,7 +42,10 @@ def network_state(payload: dict | list | object) -> str:
 
 
 def network_ip_ready(payload: dict | list | object) -> bool:
-    return normalize_bool(unwrap_tool_payload(payload).get("ip_ready"))
+    data = unwrap_tool_payload(payload)
+    if "ready" in data:
+        return normalize_bool(data.get("ready"))
+    return normalize_bool(data.get("ip_ready"))
 
 
 def network_ready(payload: dict | list | object) -> bool:
@@ -94,7 +97,7 @@ def network_runtime_summary(
         f"device_ip={device_ip or '<none>'}",
         f"state={network_state(status) or '<none>'}",
         f"sta_ip={network_runtime_ip(status) or '<none>'}",
-        f"ip_ready={network_ip_ready(status)}",
+        f"ready={network_ip_ready(status)}",
     ]
 
     if diag:

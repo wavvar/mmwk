@@ -45,33 +45,28 @@ def _derive_cfg_name(path: str) -> str:
 
 def _unwrap_tool_data(payload: dict | list) -> dict:
     if isinstance(payload, dict):
-        data = payload.get("data", payload)
-        if isinstance(data, dict):
-            return data
+        for key in ("data", "config", "state"):
+            nested = payload.get(key)
+            if isinstance(nested, dict):
+                return nested
+        if payload:
+            return payload
     return {}
 
 
 def _build_raw_restore_args(payload: dict | list) -> dict:
     raw = _unwrap_tool_data(payload)
     restore = {
-        "action": "raw",
-        "enabled": bool(raw.get("enabled", False)),
-        # Host-side collect should never leave UART raw mirroring enabled.
-        "uart_enabled": False,
+        "action": "config_set",
+        "config": {
+            "enabled": bool(raw.get("enabled", False)),
+        },
     }
-    for key in ("uri",):
-        value = raw.get(key)
-        if isinstance(value, str) and value:
-            restore[key] = value
     return restore
 
 
 def _build_raw_restore_args_for_trigger_none(payload: dict | list) -> dict:
-    restore = _build_raw_restore_args(payload)
-    raw = _unwrap_tool_data(payload)
-    if isinstance(raw, dict) and "uart_enabled" in raw:
-        restore["uart_enabled"] = bool(raw.get("uart_enabled", False))
-    return restore
+    return _build_raw_restore_args(payload)
 
 
 def _raw_forwarding_is_enabled(payload: dict | list) -> bool:
@@ -190,12 +185,12 @@ class CollectCommand:
             return {}
 
         try:
-            result = self.mcp.call_tool("device", {"action": "hi"}, timeout=timeout)
+            result = self.mcp.call_tool("node", {"action": "info"}, timeout=timeout)
             text = self.mcp.extract_text(result)
             data = json.loads(text)
             return data if isinstance(data, dict) else {}
         except Exception as e:
-            logger.warning(f"Unable to read device hi for auto-discovery: {e}")
+            logger.warning(f"Unable to read node info for auto-discovery: {e}")
             return {}
 
     def _tool_json(self, tool_name: str, arguments: dict, timeout: float) -> dict | list:
@@ -224,7 +219,7 @@ class CollectCommand:
             return ""
 
         for tool_name, tool_args in (
-            ("device", {"action": "hi"}),
+            ("node", {"action": "info"}),
             ("network", {"action": "status"}),
         ):
             try:
@@ -272,6 +267,12 @@ class CollectCommand:
     def _hydrate_hi(self, hi: dict, timeout: float) -> dict:
         """Backfill hi fields from network/agent/fw tools for older firmware."""
         data = dict(hi or {})
+        if data.get("mqtt_uri") and not data.get("uri"):
+            data["uri"] = data.get("mqtt_uri")
+        if data.get("mqtt_en") is not None and "mqtt" not in data:
+            data["mqtt"] = data.get("mqtt_en")
+        if data.get("uart_en") is not None and "uart" not in data:
+            data["uart"] = data.get("uart_en")
         if not self.mcp:
             return data
 
@@ -281,21 +282,30 @@ class CollectCommand:
             cid = net_data.get("cid") or net_data.get("client_id") or data.get("client_id")
             if cid and not data.get("client_id"):
                 data["client_id"] = cid
-            if net_data.get("mqtt_uri") and not data.get("mqtt_uri"):
-                data["mqtt_uri"] = net_data.get("mqtt_uri")
+            uri = net_data.get("uri") or net_data.get("mqtt_uri")
+            if uri and not data.get("uri"):
+                data["uri"] = uri
             if net_data.get("cmd_topic") and not data.get("cmd_topic"):
                 data["cmd_topic"] = net_data.get("cmd_topic")
             if net_data.get("resp_topic") and not data.get("resp_topic"):
                 data["resp_topic"] = net_data.get("resp_topic")
 
-        agent = self._tool_json("device", {"action": "agent"}, timeout)
+        agent = self._tool_json("node", {"action": "agent"}, timeout)
         agent_data = agent.get("data", agent) if isinstance(agent, dict) else {}
         if isinstance(agent_data, dict):
-            for key in ("mqtt_en", "uart_en", "raw_auto"):
-                if key in agent_data and key not in data:
-                    data[key] = agent_data[key]
+            for key, aliases in (
+                ("mqtt", ("mqtt", "mqtt_en")),
+                ("uart", ("uart", "uart_en")),
+                ("raw_auto", ("raw_auto",)),
+            ):
+                if key in data:
+                    continue
+                for alias in aliases:
+                    if alias in agent_data:
+                        data[key] = agent_data[alias]
+                        break
 
-        fw_list = self._tool_json("fw", {"action": "list"}, timeout)
+        fw_list = self._tool_json("radar.fw", {"action": "list"}, timeout)
         entries = fw_list if isinstance(fw_list, list) else fw_list.get("firmwares", [])
         if isinstance(entries, list) and entries:
             first = entries[0] if isinstance(entries[0], dict) else {}
@@ -395,7 +405,7 @@ class CollectCommand:
             return
 
         try:
-            result = self.mcp.call_tool("radar", {"action": "raw"}, timeout=timeout)
+            result = self.mcp.call_tool("radar.raw", {"action": "config_get"}, timeout=timeout)
             payload = self.mcp.extract_text(result)
         except Exception as e:
             logger.warning("Failed to query radar raw forwarding snapshot (%s): %s", label, e)
@@ -414,8 +424,8 @@ class CollectCommand:
             # a new collect window so startup bytes do not get hidden behind
             # stale queued traffic from raw_auto or an earlier collect run.
             self.mcp.call_tool(
-                "radar",
-                {"action": "raw", "enabled": False, "uart_enabled": False},
+                "radar.raw",
+                {"action": "config_set", "config": {"enabled": False}},
                 timeout=timeout,
             )
             logger.info("Temporarily disabled pre-existing radar raw forwarding before collect bootstrap")
@@ -447,7 +457,7 @@ class CollectCommand:
         if self.mcp:
             self._wait_for_device_network_ready(timeout=timeout)
 
-        resolved_broker = broker or hi.get("mqtt_uri") or "localhost"
+        resolved_broker = broker or hi.get("uri") or hi.get("mqtt_uri") or "localhost"
         host, port = _parse_broker_endpoint(resolved_broker, mqtt_port)
         client_id = device_id or hi.get("client_id") or hi.get("id") or "mmwk_collector"
         default_topics = build_mqtt_topics(client_id, include_raw_cmd=True)
@@ -475,13 +485,11 @@ class CollectCommand:
         raw_args = None
         raw_state = {}
         if self.mcp:
-            raw_state = self._tool_json("radar", {"action": "raw"}, timeout=timeout)
+            raw_state = self._tool_json("radar.raw", {"action": "config_get"}, timeout=timeout)
             restore_raw_args = _build_raw_restore_args(raw_state)
             # Bootstrap raw forwarding after MQTT subscriptions are live so the
             # first raw_resp frames are not lost during collect startup.
-            raw_args = {"action": "raw", "enabled": True, "uart_enabled": False}
-            if hi.get("mqtt_uri"):
-                raw_args["uri"] = hi.get("mqtt_uri")
+            raw_args = {"action": "config_set", "config": {"enabled": True}}
 
         result_ok = False
         client = None
@@ -563,7 +571,7 @@ class CollectCommand:
                 else:
                     if self.mcp and raw_args:
                         try:
-                            raw_result = self.mcp.call_tool("radar", raw_args, timeout=timeout)
+                            raw_result = self.mcp.call_tool("radar.raw", raw_args, timeout=timeout)
                             bootstrap_resp_payload = self.mcp.extract_text(raw_result)
                             if bootstrap_resp_payload and bootstrap_resp_payload.strip():
                                 logger.info(
@@ -631,7 +639,7 @@ class CollectCommand:
                         pass
                 if self.mcp and restore_raw_args:
                     try:
-                        self.mcp.call_tool("radar", restore_raw_args, timeout=timeout)
+                        self.mcp.call_tool("radar.raw", restore_raw_args, timeout=timeout)
                     except Exception as e:
                         logger.error(f"Failed to restore radar raw config after collect: {e}")
                         result_ok = False
@@ -663,7 +671,9 @@ class CollectCommand:
             return False
 
         try:
-            raw_state = _unwrap_tool_data(self._required_tool_json("radar", {"action": "raw"}, timeout=timeout))
+            raw_state = _unwrap_tool_data(
+                self._required_tool_json("radar.raw", {"action": "config_get"}, timeout=timeout)
+            )
         except Exception as e:
             logger.error(f"Failed to query radar raw config for trigger=none: {e}")
             return False
@@ -677,7 +687,7 @@ class CollectCommand:
             hi=hi,
         )
 
-        resolved_broker = broker or raw_state.get("uri") or hi.get("mqtt_uri") or "localhost"
+        resolved_broker = broker or raw_state.get("uri") or hi.get("uri") or hi.get("mqtt_uri") or "localhost"
         host, port = _parse_broker_endpoint(resolved_broker, mqtt_port)
 
         for out_path in (data_output, resp_output):
@@ -697,17 +707,7 @@ class CollectCommand:
             resp_output,
         )
 
-        raw_args = {
-            "action": "raw",
-            "enabled": True,
-            "uart_enabled": False,
-        }
-        if broker:
-            raw_args["uri"] = broker
-        elif raw_state.get("uri"):
-            raw_args["uri"] = raw_state.get("uri")
-        elif hi.get("mqtt_uri"):
-            raw_args["uri"] = hi.get("mqtt_uri")
+        raw_args = {"action": "config_set", "config": {"enabled": True}}
 
         result_ok = False
         client = None
@@ -790,7 +790,7 @@ class CollectCommand:
                     result_ok = False
                 else:
                     try:
-                        raw_result = self.mcp.call_tool("radar", raw_args, timeout=timeout)
+                        raw_result = self.mcp.call_tool("radar.raw", raw_args, timeout=timeout)
                         raw_payload = self.mcp.extract_text(raw_result)
                         if raw_payload and raw_payload.strip():
                             logger.info("Radar raw forwarding armed: %s", raw_payload)
@@ -834,7 +834,7 @@ class CollectCommand:
                         pass
                 if restore_raw_args:
                     try:
-                        self.mcp.call_tool("radar", restore_raw_args, timeout=timeout)
+                        self.mcp.call_tool("radar.raw", restore_raw_args, timeout=timeout)
                     except Exception as e:
                         logger.error(f"Failed to restore radar raw config after collect: {e}")
                         restore_failed = True

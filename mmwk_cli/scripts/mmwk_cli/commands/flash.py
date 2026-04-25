@@ -139,7 +139,7 @@ class FlashCommand:
     def _read_agent_state(self) -> dict:
         """Read device agent flags; tolerant to bridge/hub response envelopes."""
         try:
-            resp = self.mcp.call_tool("device", {"action": "agent"}, timeout=8)
+            resp = self.mcp.call_tool("node", {"action": "agent"}, timeout=8)
             text = self.mcp.extract_text(resp)
             payload = json.loads(text)
             if isinstance(payload, dict):
@@ -149,8 +149,16 @@ class FlashCommand:
             if not isinstance(payload, dict):
                 return {}
             out = {}
-            for key in ("mqtt_en", "raw_auto", "uart_en"):
-                val = self._coerce_int01(payload.get(key))
+            for key, aliases in (
+                ("mqtt", ("mqtt", "mqtt_en")),
+                ("raw_auto", ("raw_auto",)),
+                ("uart", ("uart", "uart_en")),
+            ):
+                val = None
+                for alias in aliases:
+                    val = self._coerce_int01(payload.get(alias))
+                    if val is not None:
+                        break
                 if val is not None:
                     out[key] = val
             return out
@@ -168,10 +176,10 @@ class FlashCommand:
         if len(args) == 1:
             return True
         try:
-            self.mcp.call_tool("device", args, timeout=10)
+            self.mcp.call_tool("node", args, timeout=10)
             return True
         except Exception as e:
-            logger.warning(f"Failed to set device agent state {args}: {e}")
+            logger.warning(f"Failed to set node agent state {args}: {e}")
             return False
 
     def _enter_uart_low_load_mode(self) -> dict:
@@ -183,8 +191,8 @@ class FlashCommand:
         if not original:
             return {}
         desired = {}
-        if original.get("mqtt_en") == 1:
-            desired["mqtt_en"] = 0
+        if original.get("mqtt") == 1:
+            desired["mqtt"] = 0
         if original.get("raw_auto") == 1:
             desired["raw_auto"] = 0
         if not desired:
@@ -197,7 +205,7 @@ class FlashCommand:
         if not original:
             return
         restore = {}
-        for key in ("mqtt_en", "raw_auto", "uart_en"):
+        for key in ("mqtt", "raw_auto", "uart"):
             if key in original:
                 restore[key] = original[key]
         if restore and self._set_agent_state(**restore):
@@ -214,9 +222,9 @@ class FlashCommand:
         """
         logger.warning(f"{reason}; attempting device reboot recovery...")
         try:
-            self.mcp.call_tool("device", {"action": "reboot"}, timeout=15)
+            self.mcp.call_tool("node", {"action": "reboot"}, timeout=15)
         except Exception as e:
-            logger.warning(f"Device reboot command failed during recovery: {e}")
+            logger.warning(f"Node reboot command failed during recovery: {e}")
             return False
 
         self._ensure_mcp_ready(wait_sec=min(45, wait_sec))

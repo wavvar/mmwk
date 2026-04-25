@@ -51,9 +51,9 @@ Example values used below:
 - Radar firmware: `<artifact-dir>/vital_signs_tracking_6843AOP_demo.bin`
 - Radar config: `<artifact-dir>/vital_signs_AOP_2m.cfg`
 
-For your own run, do not assume the example MQTT id and topics above. After `network mqtt` plus reboot, use `device hi --transport mqtt` to read the actual `client_id`, control topics, and raw topics, then substitute those values into the later MQTT commands.
+For your own run, do not assume the example MQTT id and topics above. After `network mqtt` plus reboot, use `node info --transport mqtt` to read the actual `client_id`, control topics, and raw topics, then substitute those values into the later MQTT commands.
 
-`collect` remains the official command for the strict startup-aware flow in this document. If you need an external pure-MQTT helper outside `mmwk_cli.sh`, use `./tools/mmwk_raw.sh` from the `mmwk_cli` directory instead. Use `./tools/mmwk_cfg.sh` when you need to push Wi-Fi/MQTT settings first.
+`collect` remains the official command for the strict startup-aware flow in this document. If you want the published task wrappers under `mmwk_cli/tools/`, use `./tools/config.sh` plus `./tools/collect.sh`; see [Radar Task Tools](../../mmwk_cli/docs/en/radar-task-tools.md) and [Develop Radar With Bridge](../../mmwk_cli/docs/en/bridge-ti-radar-debug.md). If you explicitly need the older pure-MQTT helpers outside that registry-backed flow, use `./tools/mmwk_cfg.sh` plus `./tools/mmwk_raw.sh`.
 
 Unless a specific broker override is required, the default MQTT port is `1883`. Earlier `1884` examples in this document were historical local-server residue, not the CLI or `server.sh` default.
 
@@ -65,7 +65,7 @@ From the `mmwk_cli` directory, the external helper supports:
 ./tools/mmwk_raw.sh --trigger device-reboot
 ```
 
-This helper is pure MQTT for both control and raw capture. Use `./tools/mmwk_cfg.sh` when you need to push Wi-Fi/MQTT settings first, and let `./tools/mmwk_raw.sh` consume the resulting broker or `server.sh` state.
+This helper is pure MQTT for both control and raw capture. Use `./tools/mmwk_cfg.sh` when you need to push Wi-Fi/MQTT settings first, and let `./tools/mmwk_raw.sh` consume the resulting broker or `server.sh` state. For the current published wrapper path, prefer `./tools/config.sh` plus `./tools/collect.sh`.
 
 ## 3. Validated Notes and Parameter Meanings
 
@@ -87,20 +87,19 @@ This helper is pure MQTT for both control and raw capture. Use `./tools/mmwk_cfg
 ### 3.2 `mmwk_cli.sh`
 
 - `network mqtt`
-  - Configures the broker URI, client id, and MQTT CLI JSON topics.
-  - On fresh bridge devices, `network mqtt` now only writes broker/auth settings while MQTT topic identity is fixed to the Wi-Fi STA MAC.
-- `device agent --mqtt-en 1 --raw-auto 1`
-  - Missing bridge agent keys now default to `mqtt_en=1` and `raw_auto=1`, so `network mqtt` plus reboot is enough for MQTT control.
-  - In this validation, the fresh baseline already reported `mqtt_en=1` and `raw_auto=1`; the run did not separately prove whether those keys were absent in NVS.
-  - Use `device agent --mqtt-en 1 --raw-auto 1` only as a manual override or troubleshooting command.
+  - Configures broker/auth settings while MQTT topic identity remains fixed to the Wi-Fi STA MAC.
+- `node agent --mqtt 1 --raw-auto 1`
+  - Missing bridge agent keys now default to `mqtt=1` and `raw_auto=1`, so `network mqtt` plus reboot is enough for MQTT control.
+  - In this validation, the fresh baseline already reported `mqtt=1` and `raw_auto=1`; the run did not separately prove whether those keys were absent in NVS.
+  - Use `node agent --mqtt 1 --raw-auto 1` only as a manual override or troubleshooting command.
 - `--transport mqtt`
   - Controls the device over MQTT instead of direct UART CLI JSON transport.
 - `--broker 192.168.4.9 --mqtt-port 1883`
   - Points to the broker provided by the local `server.sh`.
 - `--device-id dc5475c879c0`
-  - Here this is only an example MQTT `client_id` / topic id. In your own run, use the value returned by `device hi --transport mqtt`.
+  - Here this is only an example MQTT `client_id` / topic id. In your own run, use the value returned by `node info --transport mqtt`.
 - `--cmd-topic` / `--resp-topic`
-  - Explicitly pins the device control topics. Use the topics returned by `device hi --transport mqtt` in your own run.
+  - Explicitly pins the device control topics. Use the topics returned by `node info --transport mqtt` in your own run.
 - `--base-url http://192.168.4.9:8380/`
   - Makes the device download OTA files from the local HTTP service.
 - `--welcome`
@@ -131,7 +130,7 @@ Topic split reminder:
 ### 3.3 Important Validated Caveats
 
 - Fresh-device behavior matters.
-  - On current main, a fresh factory image should come up with `mqtt_en=1`, `raw_auto=1`, an empty `mqtt_uri`, `state=prov_waiting`, `ip_ready=false`, and an empty `sta_ip`.
+  - On current main, a fresh factory image should come up with `mqtt=1`, `raw_auto=1`, an empty `uri`, `state=prov_waiting`, `ready=false`, and an empty `ip`.
   - That means `network mqtt` plus reboot is the step that explicitly chooses the private/local broker to use.
   - If you still see a public broker URI on a device, treat that device image as older than current main and reflash before continuing.
 - Pre-OTA radar state may still report `updating`.
@@ -141,15 +140,15 @@ Topic split reminder:
   - During validation, immediate post-reboot UART CLI JSON commands could fail with corrupt JSON because runtime logs were appearing on the command port.
   - Do not run concurrent UART commands against the same port.
   - If a post-reboot UART query fails, retry once with `--reset` or switch to MQTT as soon as MQTT is available.
-- `radar ota` completion timing varies by run.
+- `radar fw ota` completion timing varies by run.
   - In the validated 2026-03-19 run, the CLI timed out first, and follow-up polling still showed `updating` before later returning to `running`.
   - In the validated 2026-04-01 rerun, the CLI automatically extended phase 3 by 30 seconds and returned success after `148.4` seconds even though the OTA-stage `raw_resp` capture remained empty.
   - Do not immediately reflash on timeout, and always follow OTA with the same `radar status = running` ready gate.
 - Radar restart actions need an explicit ready gate.
-  - After `radar flash`, `radar ota`, `radar reconf`, or the first boot after factory / baseline recovery, poll `radar status` until it reports `running`.
+  - After `radar fw flash`, `radar fw ota`, `radar config apply`, or the first boot after factory / baseline recovery, poll `radar status` until it reports `running`.
   - Do not replace that gate with a fixed sleep.
-- `radar version` was not a reliable success check in this validation.
-  - In this environment it returned the same payload as `device hi`, not a separate radar version string.
+- `radar fw version` was not a reliable success check in this validation.
+  - In this environment it returned the same payload as `node info`, not a separate radar firmware version string.
   - Primary success proof should therefore be `radar status = running` plus raw startup bytes in `raw_resp`.
 - `raw_resp` is a startup-trimmed command-port capture.
   - It starts at the first printable ASCII byte instead of preserving the dirty startup prefix.
@@ -185,7 +184,7 @@ Success evidence:
 Commands:
 
 ```bash
-./mmwk_cli/mmwk_cli.sh device hi --reset -p /dev/cu.usbserial-0001
+./mmwk_cli/mmwk_cli.sh node info --reset -p /dev/cu.usbserial-0001
 ./mmwk_cli/mmwk_cli.sh network status --reset -p /dev/cu.usbserial-0001
 ```
 
@@ -193,23 +192,23 @@ Validated baseline:
 
 - Device model: `mmwk_sensor_bridge`
 - Board: `mini`
-- `mqtt_uri = ""` (not configured yet)
-- `mqtt_en = 1`
+- `uri = ""` (not configured yet)
+- `mqtt = 1`
 - `raw_auto = 1`
 - `state = prov_waiting`
-- `ip_ready = false`
-- `sta_ip = ""`
+- `ready = false`
+- `ip = ""`
 
-This is an important fresh-device baseline. The device is still waiting for Wi-Fi provisioning, but fresh bridge defaults already keep `mqtt_en=1` and `raw_auto=1`.
+This is an important fresh-device baseline. The device is still waiting for Wi-Fi provisioning, but fresh bridge defaults already keep `mqtt=1` and `raw_auto=1`.
 
 ### Step 2: Write Wi-Fi Credentials
 
 Command:
 
 ```bash
-./mmwk_cli/mmwk_cli.sh network config \
+./mmwk_cli/mmwk_cli.sh network wifi \
   --ssid ventropic \
-  --password ve12345678 \
+  --pass ve12345678 \
   -p /dev/cu.usbserial-0001
 ```
 
@@ -223,7 +222,7 @@ Command:
 
 ```bash
 ./mmwk_cli/mmwk_cli.sh network mqtt \
-  --mqtt-uri mqtt://192.168.4.9:1883 \
+  --uri mqtt://192.168.4.9:1883 \
   -p /dev/cu.usbserial-0001
 ```
 
@@ -234,7 +233,7 @@ Success evidence:
 Important:
 
 - This step stores the broker settings; MQTT topic identity remains fixed to the Wi-Fi STA MAC.
-- The MQTT `client_id` is now fixed to the Wi-Fi STA MAC. After reboot, use `device hi --transport mqtt` to confirm the derived `client_id` and canonical topics.
+- The MQTT `client_id` is now fixed to the Wi-Fi STA MAC. After reboot, use `node info --transport mqtt` to confirm the derived `client_id` and canonical topics.
 - On a fresh bridge device, rebooting after this step should be enough to make MQTT CLI JSON control usable.
 
 ### Step 4: Optional Manual Override for Older Persisted Agent Settings
@@ -242,9 +241,9 @@ Important:
 Command:
 
 ```bash
-./mmwk_cli/mmwk_cli.sh device agent \
-  --mqtt-en 1 \
-  --uart-en 1 \
+./mmwk_cli/mmwk_cli.sh node agent \
+  --mqtt 1 \
+  --uart 1 \
   --raw-auto 1 \
   --reset \
   -p /dev/cu.usbserial-0001
@@ -261,7 +260,7 @@ Use this only when the device is carrying older persisted values or you are trou
 Command:
 
 ```bash
-./mmwk_cli/mmwk_cli.sh device reboot -p /dev/cu.usbserial-0001
+./mmwk_cli/mmwk_cli.sh node reboot -p /dev/cu.usbserial-0001
 ```
 
 Success evidence:
@@ -273,7 +272,7 @@ Success evidence:
 Command:
 
 ```bash
-./mmwk_cli/mmwk_cli.sh device hi \
+./mmwk_cli/mmwk_cli.sh node info \
   --transport mqtt \
   --broker 192.168.4.9 \
   --mqtt-port 1883 \
@@ -287,8 +286,8 @@ Success evidence:
 - `MQTT connected, subscribing to mmwk/dc5475c879c0/device/resp`
 - Returned:
   - `ip = 192.168.4.8`
-  - `mqtt_uri = mqtt://192.168.4.9:1883`
-  - `mqtt_en = 1`
+  - `uri = mqtt://192.168.4.9:1883`
+  - `mqtt = 1`
   - `raw_auto = 1`
   - `wifi_rssi = -57`
 
@@ -317,7 +316,7 @@ Success evidence:
 Command:
 
 ```bash
-./mmwk_cli/mmwk_cli.sh radar ota \
+./mmwk_cli/mmwk_cli.sh radar fw ota \
   --fw <artifact-dir>/vital_signs_tracking_6843AOP_demo.bin \
   --cfg <artifact-dir>/vital_signs_AOP_2m.cfg \
   --welcome \
@@ -369,15 +368,15 @@ Recommended command:
 Validated observations:
 
 - In the 2026-03-19 timeout case, the validated device still returned `{"state":"updating"}` immediately after timeout, and only later returned `{"state":"running"}` without reflashing.
-- In the 2026-04-01 rerun, `radar ota` itself returned success after the phase-3 grace window, and the immediate follow-up poll already returned `{"state":"running"}`.
+- In the 2026-04-01 rerun, `radar fw ota` itself returned success after the phase-3 grace window, and the immediate follow-up poll already returned `{"state":"running"}`.
 
 Conclusion:
 
-- Always poll `radar status` until it returns `running`, even if `radar ota` itself reported success.
-- If `radar ota` times out, do not immediately reflash.
-- Apply the same explicit `radar status = running` gate after `radar flash`, `radar reconf`, or the first boot after a factory / baseline recovery path.
+- Always poll `radar status` until it returns `running`, even if `radar fw ota` itself reported success.
+- If `radar fw ota` times out, do not immediately reflash.
+- Apply the same explicit `radar status = running` gate after `radar fw flash`, `radar config apply`, or the first boot after a factory / baseline recovery path.
 - Use the later `raw_resp` capture to confirm the radar emitted startup output.
-- Capturing `raw_resp` from the `radar ota` step itself with `--raw-resp-output` is best-effort only. In the 2026-03-19 main validation it captured `2` messages / `128` bytes before timeout, while in the successful 2026-04-01 rerun it stayed empty.
+- Capturing `raw_resp` from the `radar fw ota` step itself with `--raw-resp-output` is best-effort only. In the 2026-03-19 main validation it captured `2` messages / `128` bytes before timeout, while in the successful 2026-04-01 rerun it stayed empty.
 - Treat `radar status = running` plus later post-recovery `raw_resp` startup bytes as the reliable proof path.
 
 ### Step 10: Collect 300 Seconds of `raw_data` and `raw_resp`
@@ -491,20 +490,20 @@ In terminal A:
 In terminal B:
 
 ```bash
-./mmwk_cli/mmwk_cli.sh network config --ssid ventropic --password ve12345678 --reset -p /dev/cu.usbserial-0001
-./mmwk_cli/mmwk_cli.sh network mqtt --mqtt-uri mqtt://192.168.4.9:1883 --reset -p /dev/cu.usbserial-0001
-./mmwk_cli/mmwk_cli.sh device reboot --reset -p /dev/cu.usbserial-0001
-./mmwk_cli/mmwk_cli.sh device hi --transport mqtt --broker 192.168.4.9 --mqtt-port 1883 --device-id dc5475c879c0 --cmd-topic mmwk/dc5475c879c0/device/cmd --resp-topic mmwk/dc5475c879c0/device/resp
-./mmwk_cli/mmwk_cli.sh radar ota --fw <artifact-dir>/vital_signs_tracking_6843AOP_demo.bin --cfg <artifact-dir>/vital_signs_AOP_2m.cfg --welcome --no-verify --raw-resp-output ./ota_cmd_resp.log --transport mqtt --broker 192.168.4.9 --mqtt-port 1883 --device-id dc5475c879c0 --cmd-topic mmwk/dc5475c879c0/device/cmd --resp-topic mmwk/dc5475c879c0/device/resp --base-url http://192.168.4.9:8380/
+./mmwk_cli/mmwk_cli.sh network wifi --ssid ventropic --pass ve12345678 --reset -p /dev/cu.usbserial-0001
+./mmwk_cli/mmwk_cli.sh network mqtt --uri mqtt://192.168.4.9:1883 --reset -p /dev/cu.usbserial-0001
+./mmwk_cli/mmwk_cli.sh node reboot --reset -p /dev/cu.usbserial-0001
+./mmwk_cli/mmwk_cli.sh node info --transport mqtt --broker 192.168.4.9 --mqtt-port 1883 --device-id dc5475c879c0 --cmd-topic mmwk/dc5475c879c0/device/cmd --resp-topic mmwk/dc5475c879c0/device/resp
+./mmwk_cli/mmwk_cli.sh radar fw ota --fw <artifact-dir>/vital_signs_tracking_6843AOP_demo.bin --cfg <artifact-dir>/vital_signs_AOP_2m.cfg --welcome --no-verify --raw-resp-output ./ota_cmd_resp.log --transport mqtt --broker 192.168.4.9 --mqtt-port 1883 --device-id dc5475c879c0 --cmd-topic mmwk/dc5475c879c0/device/cmd --resp-topic mmwk/dc5475c879c0/device/resp --base-url http://192.168.4.9:8380/
 ```
 
 If MQTT control is still disabled because the device is carrying older persisted agent values, run this manual override before rebooting:
 
 ```bash
-./mmwk_cli/mmwk_cli.sh device agent --mqtt-en 1 --raw-auto 1 --reset -p /dev/cu.usbserial-0001
+./mmwk_cli/mmwk_cli.sh node agent --mqtt 1 --raw-auto 1 --reset -p /dev/cu.usbserial-0001
 ```
 
-If `radar ota` times out, or if you want an explicit ready gate before collection:
+If `radar fw ota` times out, or if you want an explicit ready gate before collection:
 
 ```bash
 while true; do
@@ -538,9 +537,9 @@ If an immediate post-reboot UART CLI JSON query fails, retry once with `--reset`
 This validated flow completed successfully on a fresh mini bridge device:
 
 - Local `server.sh` provided MQTT and HTTP successfully, serving the repo-shipped `./firmwares/radar/iwr6843/vital_signs` assets from main.
-- The fresh device was expected to reach MQTT control after `network mqtt` plus reboot, with `device agent --mqtt-en 1 --raw-auto 1` kept only as a manual override / troubleshooting path for older persisted settings.
+- The fresh device was expected to reach MQTT control after `network mqtt` plus reboot, with `node agent --mqtt 1 --raw-auto 1` kept only as a manual override / troubleshooting path for older persisted settings.
 - The pre-OTA MQTT-side `radar status` may already report either `updating` or `running`; both were observed across validations and neither blocked the later OTA flow.
 - The device downloaded `.bin` and `.cfg` over Wi-Fi from the local HTTP service.
-- `radar ota` completion timing varied across repeated validations: the 2026-03-19 run timed out first and later recovered to `running`, while the 2026-04-01 rerun completed in `148.4` seconds after the built-in phase-3 grace. In both cases no reflash was needed.
+- `radar fw ota` completion timing varied across repeated validations: the 2026-03-19 run timed out first and later recovered to `running`, while the 2026-04-01 rerun completed in `148.4` seconds after the built-in phase-3 grace. In both cases no reflash was needed.
 - OTA-stage `raw_resp` capture remained best-effort only: one validated run recorded `2` messages / `128` bytes, while another successful rerun recorded `0` bytes.
 - Repeated 300-second collections completed successfully. Observed `raw_data` ranged from `311546` to `383980` bytes, observed `raw_resp` ranged from `64` to `1924` bytes, and the final `radar status` remained `running`.

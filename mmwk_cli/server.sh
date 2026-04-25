@@ -22,6 +22,9 @@ find_python() {
     for cmd in python3 python; do
         if command -v "$cmd" >/dev/null 2>&1; then
             ver="$("$cmd" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null)" || continue
+            case "$ver" in
+                ''|*[!0-9.]*|*.*.*|.*|*.) continue ;;
+            esac
             major="${ver%%.*}"
             minor="${ver#*.}"
             if [ "$major" -ge 3 ] && [ "$minor" -ge 10 ]; then
@@ -31,6 +34,41 @@ find_python() {
         fi
     done
     return 1
+}
+
+resolve_venv_python() {
+    if [ -n "${VIRTUAL_ENV:-}" ]; then
+        if [ -x "$VIRTUAL_ENV/bin/python" ]; then
+            printf '%s\n' "$VIRTUAL_ENV/bin/python"
+            return 0
+        fi
+        if [ -x "$VIRTUAL_ENV/Scripts/python.exe" ]; then
+            printf '%s\n' "$VIRTUAL_ENV/Scripts/python.exe"
+            return 0
+        fi
+    fi
+
+    if [ -x "$PWD/venv/bin/python" ]; then
+        printf '%s\n' "$PWD/venv/bin/python"
+        return 0
+    fi
+    if [ -x "$PWD/venv/Scripts/python.exe" ]; then
+        printf '%s\n' "$PWD/venv/Scripts/python.exe"
+        return 0
+    fi
+
+    return 1
+}
+
+python_supports_inline_code() {
+    local candidate="${1:-}"
+    local output=""
+
+    [ -n "$candidate" ] || return 1
+    [ -x "$candidate" ] || return 1
+
+    output="$("$candidate" -c 'print("mmwk-inline-ok")' 2>/dev/null || true)"
+    [ "$output" = "mmwk-inline-ok" ]
 }
 
 PYTHON="$(find_python)" || {
@@ -51,6 +89,8 @@ log_warn() {
 }
 
 setup_venv() {
+    local venv_python=""
+
     if [ ! -d venv ]; then
         echo "Creating virtual environment..."
         "$PYTHON" -m venv venv
@@ -62,9 +102,26 @@ setup_venv() {
         . venv/Scripts/activate
     fi
 
+    venv_python="$(resolve_venv_python || true)"
+    if [ -n "$venv_python" ]; then
+        PYTHON="$venv_python"
+    fi
+
+    if [ -n "$venv_python" ] && python_supports_inline_code "$venv_python" && ! "$venv_python" - <<'PY' >/dev/null 2>&1
+import serial  # noqa: F401
+import paho.mqtt.client  # noqa: F401
+PY
+    then
+        rm -f venv/.deps_installed
+    fi
+
     if [ ! -f venv/.deps_installed ] || [ requirements.txt -nt venv/.deps_installed ]; then
+        if [ -z "$venv_python" ] || ! python_supports_inline_code "$venv_python"; then
+            echo "Error: usable venv python not available for dependency installation."
+            exit 1
+        fi
         echo "Installing dependencies..."
-        pip install -q -r requirements.txt
+        "$venv_python" -m pip install -q -r requirements.txt
         touch venv/.deps_installed
     fi
 }
@@ -81,7 +138,7 @@ USAGE:
   ./server.sh env    [--state-dir DIR]
 
 OPTIONS:
-  --state-dir DIR    State/log/pid directory (default: ./output/local_server)
+  --state-dir DIR    State/log/pid directory (default: ./build_output/local_server)
   --serve-dir DIR    Directory exposed by HTTP server (default: current working directory)
   --upload-dir DIR   Directory for HTTP POST upload dumps (default: <state-dir>/uploads)
   --device-ota       Publish bridge OTA artifact
@@ -354,7 +411,7 @@ configure_device_ota_mode() {
 }
 
 if [ -z "$STATE_DIR" ]; then
-    STATE_DIR="${INVOKE_PWD}/output/local_server"
+    STATE_DIR="${INVOKE_PWD}/build_output/local_server"
 fi
 
 STATE_DIR="$(abspath_path "$STATE_DIR" "$INVOKE_PWD")"

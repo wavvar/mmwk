@@ -10,9 +10,9 @@ cd ./mmwk_cli
 
 ## 它负责什么
 
-- 通过 `network config` 下发 Wi-Fi 凭据
+- 通过 `network wifi` 下发 Wi-Fi 凭据
 - 通过 `network mqtt` 下发 MQTT 设置
-- 按需通过 `device reboot` 重启设备
+- 按需通过 `node reboot` 重启设备
 - 按需启动或复用 `server.sh`，并把本地 broker URI 反向写回设备
 
 这个工具既可以走 UART，也可以走现有 MQTT 控制链路。
@@ -52,13 +52,14 @@ cd ./mmwk_cli
 
 - `--transport uart|mqtt`：当前用于下发配置的控制链路
 - `--ssid` / `--password`：Wi-Fi 凭据
-- `--mqtt-uri`：保存到设备里的 broker URI
+- `--mqtt-uri` / `--mqtt-user` / `--mqtt-pass`：保存到设备里的 broker 与鉴权设置
+- `--device-id`，以及可选的 `--cmd-topic` / `--resp-topic`：告诉 `mmwk_cfg.sh` 当前 MQTT 控制链路应该走哪组 topic
 - `--server-local`：启动或复用 `server.sh`，并使用它解析出的 broker URI
-- `--server-state-dir`：指定复用哪一个 `server.sh` state dir
+- `--server-state-dir`、`--server-serve-dir`、`--server-upload-dir`、`--server-host-ip`、`--server-target-ip`、`--server-mqtt-port`、`--server-http-port`：控制 `server.sh` 的启动/复用方式
 - `--reboot`：写完设置后重启设备
 
 ## 说明
 
 - 使用 `--server-local` 时不要再手动传 `--mqtt-uri`；broker 由 `server.sh` 决定。
-- MQTT topics 固定为 `mmwk/{mac}/device/cmd`、`mmwk/{mac}/device/resp` 和 `mmwk/{mac}/raw/...`；`mmwk_cfg.sh` 不再接受 topic 或 client-id override。
+- 设备侧 MQTT 身份和 canonical topics 固定绑定 Wi-Fi STA MAC。`--device-id`、`--cmd-topic`、`--resp-topic` 只用于让 `mmwk_cfg.sh` 接入当前 MQTT 控制链路，不会改写设备保存下来的 topic 身份。
 - 如果你不传 `--reboot`，设置仍会写入，但设备可能要到下一次重启后才真正使用它们。

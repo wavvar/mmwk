@@ -56,23 +56,23 @@ def _create_mqtt_client(client_id: str) -> mqtt.Client:
 
 def _unwrap_tool_data(payload: dict | list) -> dict:
     if isinstance(payload, dict):
-        data = payload.get("data", payload)
-        if isinstance(data, dict):
-            return data
+        for key in ("data", "config", "state"):
+            nested = payload.get(key)
+            if isinstance(nested, dict):
+                return nested
+        if payload:
+            return payload
     return {}
 
 
 def _build_raw_restore_args(payload: dict | list) -> dict:
     raw = _unwrap_tool_data(payload)
     restore = {
-        "action": "raw",
-        "enabled": bool(raw.get("enabled", False)),
-        "uart_enabled": False,
+        "action": "config_set",
+        "config": {
+            "enabled": bool(raw.get("enabled", False)),
+        },
     }
-    for key in ("uri",):
-        value = raw.get(key)
-        if isinstance(value, str) and value:
-            restore[key] = value
     return restore
 
 
@@ -232,7 +232,7 @@ class OtaCommand:
     def _device_runtime_ip(self) -> str:
         for attempt in range(3):
             for tool_name, tool_args in (
-                ("device", {"action": "hi"}),
+                ("node", {"action": "info"}),
                 ("network", {"action": "status"}),
             ):
                 try:
@@ -258,11 +258,11 @@ class OtaCommand:
         device_ip = ""
 
         try:
-            hi_resp = self.mcp.call_tool("device", {"action": "hi"}, timeout=8)
+            hi_resp = self.mcp.call_tool("node", {"action": "info"}, timeout=8)
             hi_data = self._parse_json_dict(self.mcp.extract_text(hi_resp))
             device_ip = network_runtime_ip(hi_data)
         except Exception as exc:
-            return False, False, f"device.hi_error={exc}"
+            return False, False, f"node.info_error={exc}"
 
         try:
             status_resp = self.mcp.call_tool("network", {"action": "status"}, timeout=8)
@@ -355,9 +355,9 @@ class OtaCommand:
                  force: bool = False,
                  progress_interval: int = 5,
                  raw_resp_output: str = None,
-                 raw_capture_broker: str = None,
+                 raw_broker: str = None,
                  raw_resp_topic: str = None,
-                 raw_capture_timeout: float = 10.0) -> bool:
+                 raw_timeout: float = 10.0) -> bool:
         """Start HTTP server and tell device to OTA from it."""
 
         if not os.path.exists(fw_path):
@@ -426,10 +426,10 @@ class OtaCommand:
 
         try:
             if raw_resp_output:
-                raw_state = self._tool_json("radar", {"action": "raw"}, timeout=min(timeout, 10.0))
+                raw_state = self._tool_json("radar.raw", {"action": "config_get"}, timeout=min(timeout, 10.0))
                 restore_raw_args = _build_raw_restore_args(raw_state)
                 raw_cfg = _unwrap_tool_data(raw_state)
-                hi_cfg = self._tool_json("device", {"action": "hi"}, timeout=min(timeout, 10.0))
+                hi_cfg = self._tool_json("node", {"action": "info"}, timeout=min(timeout, 10.0))
                 hi_data = _unwrap_tool_data(hi_cfg)
                 client_id = hi_data.get("client_id") or hi_data.get("id") or "mmwk_ota_capture"
                 default_topics = build_mqtt_topics(client_id, include_raw_cmd=True)
@@ -440,8 +440,9 @@ class OtaCommand:
                     or default_topics["raw_resp_topic"]
                 )
                 resolved_broker = (
-                    raw_capture_broker
+                    raw_broker
                     or raw_cfg.get("uri")
+                    or hi_data.get("uri")
                     or hi_data.get("mqtt_uri")
                     or "localhost"
                 )
@@ -452,21 +453,13 @@ class OtaCommand:
                     port=mqtt_port,
                     resp_topic=resolved_resp_topic,
                     raw_output=raw_resp_output,
-                    subscribe_timeout=raw_capture_timeout,
+                    subscribe_timeout=raw_timeout,
                 )
                 capture_session.start()
 
-                raw_enable_args = {
-                    "action": "raw",
-                    "enabled": True,
-                    "uart_enabled": False,
-                }
-                if raw_cfg.get("uri"):
-                    raw_enable_args["uri"] = raw_cfg.get("uri")
-                elif hi_data.get("mqtt_uri"):
-                    raw_enable_args["uri"] = hi_data.get("mqtt_uri")
+                raw_enable_args = {"action": "config_set", "config": {"enabled": True}}
 
-                self.mcp.call_tool("radar", raw_enable_args, timeout=min(timeout, 10.0))
+                self.mcp.call_tool("radar.raw", raw_enable_args, timeout=min(timeout, 10.0))
                 logger.info(
                     "OTA raw_resp capture armed: broker=%s:%s topic=%s output=%s",
                     host,
@@ -849,7 +842,7 @@ class OtaCommand:
                 )
             if restore_raw_args:
                 try:
-                    self.mcp.call_tool("radar", restore_raw_args, timeout=min(timeout, 10.0))
+                    self.mcp.call_tool("radar.raw", restore_raw_args, timeout=min(timeout, 10.0))
                 except Exception as restore_err:
                     logger.warning(f"Failed to restore radar raw config after OTA capture: {restore_err}")
             if server:

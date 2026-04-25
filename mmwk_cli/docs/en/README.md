@@ -1,8 +1,8 @@
 # MMWK CLI Shell Wrapper
 
-This document is for [`./mmwk_cli.sh`](../../mmwk_cli.sh), the recommended shell entrypoint for controlling and managing MMWK bridge/hub devices on **macOS** and **Linux**. The shell wrapper bootstraps the Python CLI in [`scripts/mmwk_cli/`](../../scripts/mmwk_cli/) and exposes the same command surface over UART (Serial) and MQTT, defaulting to canonical CLI JSON with MCP fallback.
+This document is for [`./mmwk_cli.sh`](../../mmwk_cli.sh), the recommended shell entrypoint for controlling and managing MMWK bridge/hub devices on **macOS** and **Linux**. The shell wrapper bootstraps the Python CLI in [`scripts/mmwk_cli/`](../../scripts/mmwk_cli/) and exposes the same command surface over UART (Serial) and MQTT, defaulting to canonical CLI JSON while also supporting MCP when paired with an MCP-enabled firmware build.
 
-`mmwk_cli.sh` now defaults to the canonical CLI JSON protocol. During migration, callers that omit `--protocol` receive a warning so they can upgrade explicitly to `--protocol cli`. Use `--protocol mcp` only as a compatibility fallback.
+`mmwk_cli.sh` now defaults to the canonical CLI JSON protocol. Most MMWK firmware builds also ship with CLI as the built-in control protocol. Some firmware versions additionally provide MCP support; contact us if you need an MCP-enabled firmware version. When using such a firmware version with `mmwk_cli.sh`, select `--protocol mcp`.
 
 ## Raw Semantics Contract
 
@@ -57,6 +57,15 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
+## Surface Update (2026-04-13)
+
+- `bridge` and `hub` now share one sensor runtime core; they remain compile-time profiles.
+- The hub-only public increment is `scene` plus the extra sensor endpoints/events that appear only after the requested sensor set passes support check.
+- Public capability introspection now uses `endpoint list` and `proto list|status|manifest`.
+- Public raw recorder/config control now uses `radar raw status`, `radar raw config get|set --json ...`, and `radar raw start|stop|trigger`.
+- Legacy discovery roots were removed from public help/discovery; the command reference below reflects the current public surface.
+- `scene` is hub-only. On bridge, direct `scene` calls return unknown tool.
+
 ---
 
 ## Quick Start
@@ -71,16 +80,16 @@ Use this path when you receive a new device and want the shortest end-to-end flo
 Check the shell wrapper and discover device identity:
 ```bash
 ./mmwk_cli.sh --help
-./mmwk_cli.sh device hi -p /dev/cu.usbserial-0001
+./mmwk_cli.sh node info -p /dev/cu.usbserial-0001
 ```
 
-Expected `device hi` fields include `name`, `board`, `version`, `id`, plus, when MQTT is configured, `mqtt_uri`, `client_id`, `raw_data_topic`, and `raw_resp_topic`. Here `name` / `version` are the canonical ESP firmware identity fields.
-Startup ownership is now exposed on radar-facing surfaces instead: `radar status` returns `start_mode` and `supported_start_modes`, while `fw.boot_mode` inside the `fw` object reports the runtime radar boot path. BRIDGE reports `["auto", "host"]`; HUB reports `["auto"]`.
+Expected `node info` fields include `name`, `board`, `version`, `id`, plus, when MQTT is configured, `uri`, `client_id`, `raw_data_topic`, and `raw_resp_topic`. Here `name` / `version` are the canonical ESP firmware identity fields.
+Startup ownership is now exposed on radar-facing surfaces instead: `radar status` returns `mode` and `modes`, while `fw.boot_mode` inside the `fw` object reports the runtime radar boot path. BRIDGE reports `["auto", "host"]`; HUB reports `["auto"]`.
 
 ### 2. Flash Your Radar Firmware + Config (UART, simplest)
 For a fresh device, UART flash is the most direct path because it does not require Wi-Fi first:
 ```bash
-./mmwk_cli.sh radar flash \
+./mmwk_cli.sh radar fw flash \
   --fw ../firmwares/radar/iwr6843/oob/out_of_box_6843_aop.bin \
   --cfg ../firmwares/radar/iwr6843/oob/out_of_box_6843_aop.cfg \
   -p /dev/cu.usbserial-0001
@@ -89,32 +98,36 @@ For a fresh device, UART flash is the most direct path because it does not requi
 The command waits for the device to finish flashing and for the radar to come back to a runnable state.
 
 ### 3. Confirm the Flash Really Landed
-Run these checks after `radar flash` or `radar ota`:
+Run these checks after `radar fw flash` or `radar fw ota`:
 ```bash
-./mmwk_cli.sh radar version -p /dev/cu.usbserial-0001
+./mmwk_cli.sh radar fw version -p /dev/cu.usbserial-0001
 ./mmwk_cli.sh radar status -p /dev/cu.usbserial-0001
-./mmwk_cli.sh device hi -p /dev/cu.usbserial-0001
+./mmwk_cli.sh node info -p /dev/cu.usbserial-0001
 ```
 
 Use the results as follows:
 - `radar status` should report a usable state such as `running`.
-- After `radar flash`, `radar ota`, `radar reconf`, or the first boot after a factory/baseline recovery path, keep polling `radar status` until it returns `running`. Do not replace that gate with a fixed sleep.
-- `device hi` shows the ESP-side selected/default radar metadata entry (`radar_fw`, `radar_cfg`, and related identity fields), which may still be the bridge's bundled OOB asset after a direct flash/OTA.
-- `radar version` returns the version string previously matched from the radar startup CLI output. If flash/OTA was performed without an expected version string, this field may be empty even though flashing succeeded.
-- Use `radar version` + `radar status` to verify the live radar image after flash.
+- After `radar fw flash`, `radar fw ota`, `radar config apply`, or the first boot after a factory/baseline recovery path, keep polling `radar status` until it returns `running`. Do not replace that gate with a fixed sleep.
+- `node info` shows the ESP-side selected/default radar metadata entry (`radar_fw`, `radar_cfg`, and related identity fields), which may still be the bridge's bundled OOB asset after a direct flash/OTA.
+- `radar fw version` returns the version string previously matched from the radar startup CLI output. If flash/OTA was performed without an expected version string, this field may be empty even though flashing succeeded.
+- Use `radar fw version` + `radar status` to verify the live radar image after flash.
 
 ### 4. Configure Wi-Fi + MQTT for Data Collection
-`collect` captures data from MQTT topics. On a fresh device, configure Wi-Fi and MQTT first. Here, `network mqtt` stores the broker/auth settings while the device's MQTT identity and MCP/raw topics are derived from the Wi-Fi STA MAC:
+`collect` captures data from MQTT topics. On a fresh device, configure Wi-Fi and MQTT first. Here, `network mqtt` stores the broker/auth settings while the device's MQTT identity and CLI JSON/raw topics are derived from the Wi-Fi STA MAC:
 ```bash
-./mmwk_cli.sh network config --ssid YOUR_SSID --password YOUR_PASSWORD -p /dev/cu.usbserial-0001
-./mmwk_cli.sh network mqtt --mqtt-uri mqtt://192.168.1.100:1883 -p /dev/cu.usbserial-0001
-./mmwk_cli.sh device reboot -p /dev/cu.usbserial-0001
+./mmwk_cli.sh network wifi --ssid YOUR_SSID --pass YOUR_PASSWORD -p /dev/cu.usbserial-0001
+./mmwk_cli.sh network mqtt --uri mqtt://192.168.1.100:1883 -p /dev/cu.usbserial-0001
+./mmwk_cli.sh node reboot -p /dev/cu.usbserial-0001
 ```
 
-On a fresh bridge device, configure Wi-Fi, run `network mqtt`, reboot, and then verify with `device hi` or `network status`. Treat `state=connected && ip_ready=true` as the ready contract. `device hi` remains useful for identity and published metadata, but it is not the primary runtime readiness signal. Missing bridge agent keys default to `mqtt_en=1` and `raw_auto=1`, so this is the normal fresh-bridge bring-up path.
+Provisioning AP SSID follows `MMWK-[board][app]-[MAC suffix]`. Factory default Wi-Fi is `MMWK / mmwk123456`.
+
+MQTT can be edited in the portal only while the device is still in factory state. After factory onboarding, bridge shows MQTT as read-only with password masked as `********`. After factory onboarding, hub hides MQTT settings from the portal.
+
+On a fresh bridge device, configure Wi-Fi, run `network mqtt`, reboot, and then verify with `node info` or `network status`. Treat `state=connected && ready=true` as the network-ready contract, and `mqtt_state=connected` as the MQTT-ready contract for MQTT-dependent flows. `node info` remains useful for identity and published metadata, but it is not the primary runtime readiness signal. Missing bridge agent keys default to `mqtt=1` and `raw_auto=1`, so this is the normal fresh-bridge bring-up path.
 
 If you are recovering from older persisted settings or troubleshooting a bridge whose MQTT control path was manually disabled, use the explicit agent override path.
-Use `device agent --mqtt-en 1 --raw-auto 1` only for manual override or troubleshooting.
+Use `node agent --mqtt 1 --raw-auto 1` only for manual override or troubleshooting.
 
 ### 5. Collect Data and Verify Both Paths
 The simplest host-side smoke test is:
@@ -127,7 +140,7 @@ The simplest host-side smoke test is:
 
 When `-p/--port` is provided, `collect` first uses UART for discovery and waits for the device to regain a non-zero runtime IP before arming MQTT raw capture. This reduces the chance of losing startup `raw_resp` while Wi-Fi/MQTT is still reconnecting after reboot or radar restart.
 
-After `radar flash`, `radar ota`, `radar reconf`, or the first boot after factory/baseline recovery, treat `radar status = running` as the explicit ready gate before any pure-MQTT late-attach collection. If you use `collect -p` as the startup proof path for that recovery window, require `cmd_resp.log` to be non-empty.
+After `radar fw flash`, `radar fw ota`, `radar config apply`, or the first boot after factory/baseline recovery, treat `radar status = running` as the explicit ready gate before any pure-MQTT late-attach collection. If you use `collect -p` as the startup proof path for that recovery window, require `cmd_resp.log` to be non-empty.
 
 At the end, `collect` prints a summary similar to:
 - `Data topic frames (DATA UART / binary): ...`
@@ -141,7 +154,7 @@ For the basic bring-up scenario, treat this as the minimum pass criteria:
 - `data_resp.sraw` and `cmd_resp.log` are both non-empty.
 - `cmd_resp.log` starts at the first printable ASCII byte and reads as startup-trimmed command-port text.
 
-If `Resp topic frames > 0` but `Data topic frames == 0`, the control path is alive but the radar data path is still not healthy. Re-check `radar status`, `radar raw`, MQTT reachability, and whether the flashed `.cfg` matches the `.bin`.
+If `Resp topic frames > 0` but `Data topic frames == 0`, the control path is alive but the radar data path is still not healthy. Re-check `radar status`, MQTT reachability, `node agent --raw-auto`, and whether the flashed `.cfg` matches the `.bin`.
 
 ---
 
@@ -151,34 +164,35 @@ If `Resp topic frames > 0` but `Data topic frames == 0`, the control path is ali
 
 #### 1. Device ID (Hardware UUID)
 The **Device ID** is a unique, fixed identifier derived from the hardware MAC address (e.g., `240AC4123456`).
-- **Discovery**: Use the `device hi` command.
+- **Discovery**: Use the `node info` command.
 - **Usage**: Stable hardware identity for the board itself.
 
 #### 2. MQTT Client ID / Topic ID
-The MQTT **Client ID** is fixed to the Wi-Fi STA MAC rendered as 12 lowercase hex characters with no separators. It is a read-only derived value exposed by `device hi` and `network mqtt`.
+The MQTT **Client ID** is fixed to the Wi-Fi STA MAC rendered as 12 lowercase hex characters with no separators. It is a read-only derived value exposed by `node info` and `network mqtt`.
 - **Default device command topics**: `mmwk/{mac}/device/cmd` and `mmwk/{mac}/device/resp`
 - **Default raw data topics**: `mmwk/{mac}/raw/data` and `mmwk/{mac}/raw/resp` in every mode; host mode additionally exposes `mmwk/{mac}/raw/cmd`
 - **CLI note**: when using `--transport mqtt`, pass the derived MAC-form `client_id` as `--device-id`.
 
 #### 3. MQTT Channels and Responsibilities
-- `network mqtt` configures the broker connection plus the MCP interaction topics used to control the device: `mmwk/{mac}/device/cmd` and `mmwk/{mac}/device/resp`.
-- `radar raw` reuses the broker connection and publishes to the fixed passthrough topics `mmwk/{mac}/raw/data` and `mmwk/{mac}/raw/resp`. In host mode it also derives the optional `mmwk/{mac}/raw/cmd`.
+- `network mqtt` configures the broker connection plus the CLI JSON interaction topics used by the built-in control plane: `mmwk/{mac}/device/cmd` and `mmwk/{mac}/device/resp`.
+- The MQTT raw passthrough plane publishes to the fixed topics `mmwk/{mac}/raw/data` and `mmwk/{mac}/raw/resp`. In host mode it also derives the optional `mmwk/{mac}/raw/cmd`.
+- Public `radar raw` commands manage recorder/config surfaces, while host-side `collect` and `mmwk_raw` subscribe to the MQTT raw passthrough topics.
 - `raw_data` corresponds to raw data-port bytes from `on_radar_data` and is typically collected as `data_resp.sraw`.
 - `raw_resp` corresponds to startup-trimmed command-port output from `on_cmd_data` and is typically collected as `cmd_resp.log`.
 - `on_cmd_resp` and `on_radar_frame` are application-layer callbacks and are different from raw capture outputs.
-- `raw_cmd` is an optional host-mode MQTT ingress for radar CMD UART passthrough and is distinct from the MCP command topic `mmwk/{mac}/device/cmd`.
+- `raw_cmd` is an optional host-mode MQTT ingress for radar CMD UART passthrough and is distinct from the CLI JSON command topic `mmwk/{mac}/device/cmd`.
 - Recommended practice: real applications, services, dashboards, and agents should integrate through MQTT. UART is mainly for factory setup, initial flashing, bring-up, bench debugging, and emergency fallback.
 
 #### 4. Startup Ownership Contract
 
-- `start_mode` means the saved/configured default mode.
-- `supported_start_modes` means the startup modes supported by the active profile.
+- `mode` means the saved/configured default mode.
+- `modes` means the startup modes supported by the active profile.
 - `fw.boot_mode` means the runtime radar boot path (`flash`, `host`, `uart`, `spi`).
 - In BRIDGE, `auto` means ESP-managed radar bring-up and `host` means host-controlled radar bring-up.
 - In HUB, only `auto` is supported.
 - `radar start --mode auto|host` persists the new default startup policy and then restarts the current radar service in that mode.
-- `radar start` without `--mode` uses the saved `start_mode`.
-- `radar stop` stops the current radar service without rewriting `start_mode`.
+- `radar start` without `--mode` uses the saved `mode`.
+- `radar stop` stops the current radar service without rewriting `mode`.
 - `radar status` is query-only and no longer accepts `--set`.
 - `raw_auto` only controls raw-plane auto-start. It does not decide who owns radar startup.
 - In bridge `host`, the ESP still exposes raw transport, but it does not automatically send radar configuration as part of boot ownership.
@@ -192,7 +206,7 @@ If the device has no saved Wi-Fi credentials, it enters **Provisioning Mode** au
 
 To configure via CLI (UART):
 ```bash
-./mmwk_cli.sh network config --ssid "MyWiFi" --password "MyPass" -p /dev/cu.usbserial-0001
+./mmwk_cli.sh network wifi --ssid "MyWiFi" --pass "MyPass" -p /dev/cu.usbserial-0001
 ```
 
 To inspect runtime provisioning/retry state:
@@ -200,7 +214,7 @@ To inspect runtime provisioning/retry state:
 ./mmwk_cli.sh network status -p /dev/cu.usbserial-0001
 ```
 
-Treat `network status` as the primary runtime readiness contract. `state=connected && ip_ready=true` means the device is network-ready; states such as `prov_waiting`, `retry_backoff`, and `failed` explain why it is not ready yet.
+Treat `network status` as the primary runtime readiness contract. `state=connected && ready=true` means the device is network-ready; states such as `prov_waiting`, `retry_backoff`, and `failed` explain why it is not ready yet. `mqtt_state` is separate: it reports `disconnected | connecting | connected` for the MQTT transport and should be used by MQTT-dependent flows instead of any LED-derived signal.
 
 ---
 
@@ -221,15 +235,16 @@ flowchart LR
 This is the recommended communication model:
 - **UART** is the local service path. Use it for factory provisioning, initial flashing, low-level bring-up, bench debugging, and rescue access when the device is not yet on the network.
 - **MQTT CLI JSON** is the builtin device interaction channel configured by `network mqtt`. It is the right path for real applications to send commands, read status, and manage devices remotely.
-- **MQTT RAW** is the radar passthrough channel configured by `radar raw` or auto-derived when raw forwarding is enabled. In bridge/auto mode it is an output-only radar surface carrying `raw_data` and `raw_resp`; host mode can additionally enable `raw_cmd`.
+- **MQTT RAW** is the radar passthrough channel auto-derived from the device MQTT identity. In bridge/auto mode it is an output-only radar surface carrying `raw_data` and `raw_resp`; host mode can additionally enable `raw_cmd`.
+- **Radar Raw Recorder Surface** is the public `radar raw` command family for recorder state/config and recording triggers.
 - **MCPv1** remains a compatibility/reference layer. Use it only when an MCP client specifically requires that protocol shape.
 - **Application guidance**: if you are building a product feature, service, AI agent, dashboard, or cloud workflow, integrate through MQTT. Do not treat a persistent UART cable as the normal application architecture.
 
 ### UART (Local)
-Primary transport for factory setup, local debugging, and recovery. Supports hardware reset via DTR/RTS.
+Primary transport for factory setup, local debugging, and recovery. On POSIX hosts, ordinary UART opens now preserve the device runtime by default; use `--reset` only when you intentionally want a hardware reboot via DTR/RTS. If a host driver needs the old behavior, set `MMWK_CLI_UART_NORESET_BACKEND=pyserial`.
 ```bash
 # Fast flash with reset
-./mmwk_cli.sh radar flash --fw fw.bin -p /dev/cu.usbserial-0001 --baudrate 921600 --reset
+./mmwk_cli.sh radar fw flash --fw fw.bin -p /dev/cu.usbserial-0001 --baudrate 921600 --reset
 ```
 
 ### MQTT (Remote)
@@ -240,8 +255,18 @@ Recommended transport for real applications, dashboards, automation, and fleet/d
 - **Topics**: `mmwk/{mac}/device/cmd` (input) and `mmwk/{mac}/device/resp` (output).
 - **Configured by**: `network mqtt`
 - **`--device-id` meaning**: pass the derived MAC-form `client_id` used in `mmwk/{mac}/...`.
-- **Raw passthrough relation**: `radar raw` publishes to `mmwk/{mac}/raw/data` and `mmwk/{mac}/raw/resp`. Host mode can additionally derive `mmwk/{mac}/raw/cmd`.
+- **Raw passthrough relation**: the device publishes MQTT raw passthrough traffic to `mmwk/{mac}/raw/data` and `mmwk/{mac}/raw/resp`. Host mode can additionally derive `mmwk/{mac}/raw/cmd`.
 - **Default QoS**: 1 (At least once delivery).
+
+---
+
+## Compatibility Facades
+
+- Canonical public entry names are `node`, `proto`, `endpoint`, `scene`, `radar.fw`, `radar.diag`, `radar.raw`, plus the `network` and `collect` flows documented below.
+- `entity` is compatibility-only. `device.catalog` is compatibility-only. `device.proto` is compatibility-only. They remain only behind explicit compatibility shims and are not part of public help or discovery.
+- For multi-sensor devices, child endpoints own measurements, events, and truth. Composite endpoints only aggregate or orchestrate topology such as `area`, `safety`, `vitals`, `maintenance`, and hub `scene`.
+- `scene` is a hub-only composite facade for topology, capability selection, and orchestration. It does not replace endpoint truth ownership or become a second semantic center.
+- Use `endpoint list --json` and `endpoint describe` to inspect the Matter-oriented registry fields, including `endpoint_key`, `parent_endpoint_key`, `parts`, `endpoint_family`, `semantic_class`, `truth_source`, `canonical_device_type`, and `cluster_families`.
 
 ---
 
@@ -249,98 +274,84 @@ Recommended transport for real applications, dashboards, automation, and fleet/d
 
 | Command | Action Description |
 |---------|---------------------|
-| `device hi` | Handshake: identify model, version, and published metadata |
-| `device reboot` | Reboot the device |
-| `device ota` | Update the ESP firmware via HTTP OTA |
-| `device agent` | Enable/disable built-in agent services |
-| `device heartbeat` | Configure system heartbeat packets |
-| `radar ota` | Update firmware via HTTP download (Fastest) |
-| `radar flash` | Update firmware via JSON chunks (Reliable) |
+| `node info` | Handshake: identify model, version, and published metadata |
+| `node reboot` | Reboot the device |
+| `node ota` | Update the ESP firmware via HTTP OTA |
+| `node agent` | Enable/disable built-in agent services |
+| `node heartbeat` | Configure system heartbeat packets |
+| `endpoint list` | Show the active Matter-oriented endpoint directory for the current profile / effective sensor set |
+| `proto list/status/manifest` | Inspect node public protocol directory |
+| `radar fw ota` | Update firmware via HTTP download (fastest) |
+| `radar fw flash` | Update firmware via JSON chunks (reliable) |
 | `radar start` | Persist an optional start mode and start/restart the radar service |
 | `radar stop` | Stop the current radar service without changing persisted start mode |
-| `radar reconf` | Reconfigure runtime radar contract without flashing firmware |
-| `radar cfg` | Read back radar cfg text (file cfg by default, hub `--gen` optional) |
-| `radar status`| Query radar sensing state, `start_mode`, and `supported_start_modes` |
-| `radar version`| Query running firmware version |
-| `radar raw` | Configure/query raw forwarding topics and enablement |
-| `radar debug` | Inspect or set radar debug counters |
-| `fw list` | List firmware partitions stored on device |
-| `fw set` | Set default boot firmware partition |
-| `fw del` | Delete a firmware partition |
-| `fw download` | Download firmware image to device |
-| `record start` | Start SD Card/Flash recording |
-| `record stop` | Stop recording |
-| `record trigger` | Trigger event recording snippet |
-| `raw record status/start/stop/trigger` | Capability-first raw capture recorder lifecycle |
+| `radar config apply` | Reconfigure the runtime radar contract without flashing firmware |
+| `radar config read` | Read back radar cfg text (file cfg by default, hub `--gen` optional) |
+| `radar status` | Query radar sensing state, `mode`, and `modes` |
+| `radar fw version` | Query running firmware version |
+| `radar raw status` | Show radar raw recorder state |
+| `radar raw config get/set --json` | Read or update radar raw recorder config |
+| `radar raw start/stop/trigger` | Manage radar raw recorder lifecycle |
+| `radar diag` | Inspect or set radar diagnostics |
+| `radar fw list/set/switch/del/download` | Manage firmware partitions stored on device |
 | `collect` | Subscribe `raw_data` / `raw_resp` and save DATA/CMD UART capture files on host |
-| `entity list/describe/read/config get/config set` | Inspect capability entities (use `--json` with `list` for full IoT registry) |
-| `adapter list/status/manifest` | Inspect protocol adapter projections |
-| `scene show/set/apply/wait-ready` | Manage capability-first radar scenes |
-| `policy show/explain/set` | Manage capability-first measurement policies |
-| `network config`| Set Wi-Fi SSID and Password |
-| `network mqtt`| Get/Set MQTT configuration |
-| `network prov`| Control Wi-Fi provisioning (--enable / --disable) |
-| `network status`| Query Wi-Fi runtime state (`state`, `sta_ip`, `ip_ready`) |
-| `network ntp` | Configure NTP time sync |
-| `tools` | List available MCP tools |
-| `help` | List all device-supported commands |
+| `endpoint list/describe/read/config get/config set` | Inspect the Matter-oriented endpoint directory and runtime state (`endpoint list --json` / `endpoint describe` expose `endpoint_key`, `parent_endpoint_key`, `parts`, `truth_source`, and device-type metadata) |
+| `scene read/set/apply/wait` | Manage hub-only scene orchestration and radar config flows |
+| `network wifi/mqtt/prov/status/ntp` | Configure networking; `network status` returns `state`, `ip`, `ready`, and `mqtt_state` |
 
 ### Command Examples
 
 ```bash
-# --- Device ---
-./mmwk_cli.sh device hi -p /dev/cu.usbserial-0001
-./mmwk_cli.sh device reboot -p /dev/cu.usbserial-0001
-./mmwk_cli.sh device ota --fw mmwk_sensor_bridge_full.bin -p /dev/cu.usbserial-0001
-./mmwk_cli.sh device agent --mqtt-en 1 --uart-en 1 -p /dev/cu.usbserial-0001
-./mmwk_cli.sh device heartbeat --interval 60 --fields rssi heap uptime -p /dev/cu.usbserial-0001
+# --- Node ---
+./mmwk_cli.sh node info -p /dev/cu.usbserial-0001
+./mmwk_cli.sh node reboot -p /dev/cu.usbserial-0001
+./mmwk_cli.sh node ota --fw mmwk_sensor_bridge_full.bin -p /dev/cu.usbserial-0001
+./mmwk_cli.sh node agent --mqtt 1 --uart 1 -p /dev/cu.usbserial-0001
+./mmwk_cli.sh node heartbeat --interval 60 --fields rssi heap uptime -p /dev/cu.usbserial-0001
+./mmwk_cli.sh endpoint list -p /dev/cu.usbserial-0001
+./mmwk_cli.sh proto list -p /dev/cu.usbserial-0001
 
 # --- Radar ---
 ./mmwk_cli.sh radar status -p /dev/cu.usbserial-0001
 ./mmwk_cli.sh radar start --mode auto -p /dev/cu.usbserial-0001
 ./mmwk_cli.sh radar stop -p /dev/cu.usbserial-0001
-./mmwk_cli.sh radar version -p /dev/cu.usbserial-0001
-./mmwk_cli.sh radar ota --fw ../firmwares/radar/iwr6843/oob/out_of_box_6843_aop.bin -p /dev/cu.usbserial-0001
-./mmwk_cli.sh radar flash --fw fw.bin --cfg config.cfg -p /dev/cu.usbserial-0001
-./mmwk_cli.sh radar reconf --welcome --no-verify -p /dev/cu.usbserial-0001
-./mmwk_cli.sh radar reconf --welcome --no-verify --clear-cfg -p /dev/cu.usbserial-0001
-./mmwk_cli.sh radar cfg -p /dev/cu.usbserial-0001
-./mmwk_cli.sh radar cfg --gen -p /dev/cu.usbserial-0001
-./mmwk_cli.sh radar raw --enable -p /dev/cu.usbserial-0001
-./mmwk_cli.sh radar debug snapshot -p /dev/cu.usbserial-0001
+./mmwk_cli.sh radar fw version -p /dev/cu.usbserial-0001
+./mmwk_cli.sh radar fw ota --fw ../firmwares/radar/iwr6843/oob/out_of_box_6843_aop.bin -p /dev/cu.usbserial-0001
+./mmwk_cli.sh radar fw flash --fw fw.bin --cfg config.cfg -p /dev/cu.usbserial-0001
+./mmwk_cli.sh radar config apply --welcome --no-verify -p /dev/cu.usbserial-0001
+./mmwk_cli.sh radar config read -p /dev/cu.usbserial-0001
+./mmwk_cli.sh radar raw status -p /dev/cu.usbserial-0001
+./mmwk_cli.sh radar raw config set --json '{"auto_upload": true, "max_duration_sec": 30}' -p /dev/cu.usbserial-0001
+./mmwk_cli.sh radar raw trigger --event factory_test --duration-s 15 -p /dev/cu.usbserial-0001
+./mmwk_cli.sh radar diag snapshot -p /dev/cu.usbserial-0001
 
-# --- Firmware ---
-./mmwk_cli.sh fw list -p /dev/cu.usbserial-0001
-./mmwk_cli.sh fw set --index 0 -p /dev/cu.usbserial-0001
-./mmwk_cli.sh fw del --index 1 -p /dev/cu.usbserial-0001
-./mmwk_cli.sh fw download --source http://example.com/fw.bin --name oob --fw-version 1.0.0 --size 524288 -p /dev/cu.usbserial-0001
+# --- Firmware Catalog ---
+./mmwk_cli.sh radar fw list -p /dev/cu.usbserial-0001
+./mmwk_cli.sh radar fw set --index 0 -p /dev/cu.usbserial-0001
+./mmwk_cli.sh radar fw del --index 1 -p /dev/cu.usbserial-0001
+./mmwk_cli.sh radar fw download --source http://example.com/fw.bin --name oob --fw-version 1.0.0 --size 524288 -p /dev/cu.usbserial-0001
 
-# --- Record ---
-./mmwk_cli.sh record start -p /dev/cu.usbserial-0001
-./mmwk_cli.sh record stop -p /dev/cu.usbserial-0001
-./mmwk_cli.sh record trigger --event MANUAL --duration 10 -p /dev/cu.usbserial-0001
-./mmwk_cli.sh raw record status -p /dev/cu.usbserial-0001
-./mmwk_cli.sh raw record trigger --event factory_test --duration 15 -p /dev/cu.usbserial-0001
+# --- Recording ---
+./mmwk_cli.sh radar raw start --uri http://192.168.1.100:8080/upload -p /dev/cu.usbserial-0001
+./mmwk_cli.sh radar raw stop -p /dev/cu.usbserial-0001
+./mmwk_cli.sh radar raw trigger --event MANUAL --duration-s 10 -p /dev/cu.usbserial-0001
 ./mmwk_cli.sh collect --duration 12 --data-output ./data_resp.sraw --resp-output ./cmd_resp.log -p /dev/cu.usbserial-0001
 
-# --- Capability-First ---
-./mmwk_cli.sh entity list -p /dev/cu.usbserial-0001
-./mmwk_cli.sh entity list --json -p /dev/cu.usbserial-0001
-./mmwk_cli.sh entity describe mgmt.device -p /dev/cu.usbserial-0001
-./mmwk_cli.sh adapter list -p /dev/cu.usbserial-0001
-./mmwk_cli.sh scene show -p /dev/cu.usbserial-0001
-./mmwk_cli.sh policy explain -p /dev/cu.usbserial-0001
+# --- Endpoints ---
+./mmwk_cli.sh endpoint list -p /dev/cu.usbserial-0001
+./mmwk_cli.sh endpoint list --json -p /dev/cu.usbserial-0001
+./mmwk_cli.sh endpoint describe mgmt.device -p /dev/cu.usbserial-0001
+./mmwk_cli.sh endpoint read mgmt.device -p /dev/cu.usbserial-0001
+./mmwk_cli.sh endpoint config get radar.raw -p /dev/cu.usbserial-0001
+./mmwk_cli.sh endpoint config set radar.raw --config-json '{"auto_upload": true}' -p /dev/cu.usbserial-0001
+./mmwk_cli.sh scene read -p /dev/cu.usbserial-0001   # hub only
 
 # --- Network ---
-./mmwk_cli.sh network config --ssid "MyWiFi" --password "MyPass" -p /dev/cu.usbserial-0001
-./mmwk_cli.sh network mqtt --mqtt-uri mqtt://broker.local -p /dev/cu.usbserial-0001
+./mmwk_cli.sh network wifi --ssid "MyWiFi" --pass "MyPass" -p /dev/cu.usbserial-0001
+./mmwk_cli.sh network mqtt --uri mqtt://broker.local -p /dev/cu.usbserial-0001
 ./mmwk_cli.sh network prov --enable -p /dev/cu.usbserial-0001
 ./mmwk_cli.sh network status -p /dev/cu.usbserial-0001
 ./mmwk_cli.sh network ntp --server pool.ntp.org --tz-offset 28800 -p /dev/cu.usbserial-0001
-
-# --- Tools & Help ---
-./mmwk_cli.sh tools -p /dev/cu.usbserial-0001
-./mmwk_cli.sh help -p /dev/cu.usbserial-0001
 ```
 
 ---
@@ -354,8 +365,8 @@ The `mmwk_cli.sh` wrapper script handles virtual environment setup, dependency i
 ./mmwk_cli.sh --help
 
 # All commands are transparently forwarded to the Python CLI
-./mmwk_cli.sh device hi -p /dev/cu.usbserial-0001
-./mmwk_cli.sh radar ota --fw firmware.bin -p /dev/cu.usbserial-0001
+./mmwk_cli.sh node info -p /dev/cu.usbserial-0001
+./mmwk_cli.sh radar fw ota --fw firmware.bin -p /dev/cu.usbserial-0001
 ```
 
 ### Local Server Helper (`server.sh`)
@@ -387,8 +398,8 @@ The `mmwk_cli.sh` wrapper script handles virtual environment setup, dependency i
 If you already have a device running bridge firmware, you can simplify the update process:
 ```bash
 ./server.sh run --device-ota --device-ota-board mini --host-ip 192.168.4.8
-eval $(./server.sh env)
-./mmwk_cli.sh device ota --url "$MMWK_SERVER_DEVICE_OTA_URL" -p /dev/cu.usbserial-0001
+eval "$(./server.sh env)"
+./mmwk_cli.sh node ota --url "$MMWK_SERVER_DEVICE_OTA_URL" -p /dev/cu.usbserial-0001
 ```
 
 When `--device-ota` is used, `server.sh` first looks for the legacy top-level `firmwares/esp/<board>/mmwk_sensor_bridge_full.bin`. If that file is absent, it automatically falls back to the latest published `firmwares/esp/<board>/mmwk_sensor_bridge/v*/ota.zip`, extracts the OTA `.bin`, and exports the resolved path and URL via `MMWK_SERVER_DEVICE_OTA_*`.
@@ -398,7 +409,7 @@ When `--device-ota` is used, `server.sh` first looks for the legacy top-level `f
 - HTTP serves files on `8380` by default.
 - If `--serve-dir` is omitted, `server.sh` serves the current working directory you launched it from.
 - `server.sh status` validates both PID liveness and actual TCP listening state.
-- `server.sh env` prints the resolved host IP, MQTT URI, and HTTP base URL for reuse in `network mqtt`, `radar ota`, `device ota`, and `collect`.
+- `server.sh env` prints the resolved host IP, MQTT URI, and HTTP base URL for reuse in `network mqtt`, `radar fw ota`, `node ota`, and `collect`.
 - For an OTA-only flow for already-running bridge devices, use [Bridge Device OTA Guide](../../../docs/en/ota.md). Factory flashing is covered by [Bridge Factory Flash Guide](../../../docs/en/flash.md).
 - This helper is intended only for local development, local flash, and data collection workflows.
 
@@ -406,7 +417,7 @@ When `--device-ota` is used, `server.sh` first looks for the legacy top-level `f
 
 Use this only if you intentionally want to bypass `./mmwk_cli.sh`:
 ```bash
-PYTHONPATH=scripts python3 -m mmwk_cli device hi -p /dev/cu.usbserial-0001
+PYTHONPATH=scripts python3 -m mmwk_cli node info -p /dev/cu.usbserial-0001
 ```
 
 ---
@@ -416,7 +427,9 @@ PYTHONPATH=scripts python3 -m mmwk_cli device hi -p /dev/cu.usbserial-0001
 - **[mmwk_cli.sh](../../mmwk_cli.sh)**: Recommended macOS/Linux shell wrapper with auto venv management.
 - **[scripts/mmwk_cli/](../../scripts/mmwk_cli/)**: Python implementation wrapped by `mmwk_cli.sh` (CLI entrypoint, transport layer, protocol clients, and flash/OTA commands).
 - **[Wavvar MMWK Canonical CLI Protocol V1.0](../../../docs/CLIv1.md)**: Default canonical CLI JSON protocol specification.
-- **[Wavvar MMWK MCP Protocol Specification V1.3](../../../docs/en/mcpv1.md)**: MCP/JSON-RPC compatibility specification (`--protocol mcp`).
+- **[Wavvar MMWK MCP Protocol Specification V1.3](../../../docs/en/mcpv1.md)**: MCP/JSON-RPC specification for MCP-enabled firmware builds (`--protocol mcp` with the matching MCP firmware version).
+- **[Radar Task Tools](./radar-task-tools.md)**: Task-oriented wrappers for UART setup, network OTA, and MQTT raw collection from the `mmwk_cli` directory.
+- **[Develop Radar With Bridge](./bridge-ti-radar-debug.md)**: Publication-safe bridge-development guide with separate 6843 and 6432 workflows.
 - **[MMWK CFG](./mmwk-cfg.md)**: Helper workflow for Wi-Fi/MQTT configuration from the `mmwk_cli` directory.
 - **[MMWK RAW](./mmwk-raw.md)**: Pure-MQTT raw capture helper workflow from the `mmwk_cli` directory.
 - **[firmwares/](../../../firmwares/)**: Pre-built firmware binaries (ESP bridge + TI radar) for various board models.
@@ -450,17 +463,17 @@ This method transfers firmware over the serial port in Base64-encoded chunks. It
 
 ```bash
 # 1) Flash firmware + config via UART
-./mmwk_cli.sh radar flash \
+./mmwk_cli.sh radar fw flash \
   --fw ../firmwares/radar/iwr6843/oob/out_of_box_6843_aop.bin \
   --cfg ../firmwares/radar/iwr6843/oob/out_of_box_6843_aop.cfg \
   -p /dev/cu.usbserial-0001
 
 # 2) Verify radar status and firmware version
 ./mmwk_cli.sh radar status -p /dev/cu.usbserial-0001
-./mmwk_cli.sh radar version -p /dev/cu.usbserial-0001
+./mmwk_cli.sh radar fw version -p /dev/cu.usbserial-0001
 ```
 
-Keep polling `radar status` until it returns `running` after flash. Apply the same explicit gate after `radar ota`, `radar reconf`, or the first boot after factory/baseline recovery.
+Keep polling `radar status` until it returns `running` after flash. Apply the same explicit gate after `radar fw ota`, `radar config apply`, or the first boot after factory/baseline recovery.
 
 Optional arguments:
 - `--chunk-size <bytes>` — Transfer chunk size (default: 256 for UART, 512 for MQTT)
@@ -473,17 +486,17 @@ Optional arguments:
 
 Version behavior:
 - The runtime version check is text-based. After the radar boots and before any config commands are sent, the driver scans the startup CLI/welcome output and succeeds as soon as it finds the expected version string anywhere in that text.
-- `radar flash` and `radar ota` both infer radar metadata from sibling `meta.json` next to the firmware binary: `welcome` plus optional `version`.
+- `radar fw flash` and `radar fw ota` both infer radar metadata from sibling `meta.json` next to the firmware binary: `welcome` plus optional `version`.
 - `welcome` is the firmware characteristic that tells the device whether startup CLI/welcome output should exist at all.
 - For `welcome=true`, any non-empty startup text counts as welcome. It is not a fixed banner template and it may span multiple lines.
-- `welcome` matters for two reasons: it proves the radar firmware really booted and reached its startup CLI, and it provides the only runtime-visible radar firmware version string that MMWK can persist as `radar version`.
+- `welcome` matters for two reasons: it proves the radar firmware really booted and reached its startup CLI, and it provides the only runtime-visible radar fw version string that MMWK can persist as `radar fw version`.
 - `version` is the substring to look for inside that startup CLI/welcome output.
 - When `--verify` is enabled, MMWK searches for the version substring anywhere in the accumulated startup text. It does not assume a single fixed line.
 - `--verify` enables version matching and requires a version string. `--no-verify` skips that match even if metadata provides one.
-- If no version is provided, flashing can still succeed, but `radar version` may remain empty.
+- If no version is provided, flashing can still succeed, but `radar fw version` may remain empty.
 - If `welcome` is declared incorrectly, MMWK can either wait for a banner that never appears, or skip the only runtime proof/version source it has.
 - If `welcome=true` and no startup CLI/welcome output arrives before timeout, treat that as a radar startup failure: the firmware likely did not boot on the radar. In that case `radar status` keeps `state=error` and includes a `details` object explaining the failure.
-- If you need a custom recognizable radar firmware version, make the radar firmware's startup CLI output include that exact string.
+- If you need a custom recognizable radar fw version, make the radar firmware's startup CLI output include that exact string.
 
 ### Method B: HTTP OTA (WiFi Required, Fastest)
 
@@ -491,11 +504,11 @@ This method starts a local HTTP server on the host and instructs the device to d
 
 ```bash
 # 1) Ensure device is connected to WiFi (if not already)
-./mmwk_cli.sh network config --ssid YOUR_SSID --password YOUR_PASSWORD -p /dev/cu.usbserial-0001
-./mmwk_cli.sh device reboot -p /dev/cu.usbserial-0001  # apply WiFi settings
+./mmwk_cli.sh network wifi --ssid YOUR_SSID --pass YOUR_PASSWORD -p /dev/cu.usbserial-0001
+./mmwk_cli.sh node reboot -p /dev/cu.usbserial-0001  # apply WiFi settings
 
 # 2) Flash firmware via HTTP OTA
-./mmwk_cli.sh radar ota \
+./mmwk_cli.sh radar fw ota \
   --fw ../firmwares/radar/iwr6843/oob/out_of_box_6843_aop.bin \
   --cfg ../firmwares/radar/iwr6843/oob/out_of_box_6843_aop.cfg \
   --http-port 8380 \
@@ -503,7 +516,7 @@ This method starts a local HTTP server on the host and instructs the device to d
 
 # 3) Verify radar status and firmware version
 ./mmwk_cli.sh radar status -p /dev/cu.usbserial-0001
-./mmwk_cli.sh radar version -p /dev/cu.usbserial-0001
+./mmwk_cli.sh radar fw version -p /dev/cu.usbserial-0001
 ```
 
 On the first boot after OTA, the ESP may still be waiting for the radar app to finish starting. Poll `radar status` until it returns `running`; do not replace that check with a fixed sleep.
@@ -511,52 +524,52 @@ On the first boot after OTA, the ESP may still be waiting for the radar app to f
 Optional arguments:
 - `--http-port <port>` — Local HTTP server port (default: 8380)
 - `--base-url <url>` — Use an external HTTP base URL instead of starting a local server
-- `--force` — Force OTA even when the target version already matches the persisted radar version
+- `--force` — Force OTA even when the target version already matches the persisted radar fw version
 - `--version <str>` — Firmware version string
 - `--verify` / `--no-verify` — Enable or skip welcome-text version matching
 - `--welcome` / `--no-welcome` — Declare whether the target firmware emits startup CLI/welcome output
 - `--ota-timeout <sec>` — OTA timeout (default: 120)
 
 Version behavior:
-- For `radar ota`, explicit `--version`, `--verify`, and `--welcome` values override `meta.json` inference.
+- For `radar fw ota`, explicit `--version`, `--verify`, and `--welcome` values override `meta.json` inference.
 - The device only verifies a version when `--verify` is enabled. Otherwise it still honors `welcome`, but skips version matching.
 - The device still uses startup CLI/welcome output after reboot, before any radar config commands are sent, as the verification source.
 - For `welcome=true`, that startup output can be any non-empty string sequence and may span multiple lines. It is not required to match a fixed banner format.
-- That startup CLI/welcome output is important not only for optional matching, but also as the runtime proof that the radar firmware actually booted and as the source of the radar firmware's real version text.
+- That startup CLI/welcome output is important not only for optional matching, but also as the runtime proof that the radar fw actually booted and as the source of the radar fw's real version text.
 - If `welcome=true` and no startup CLI/welcome output arrives before timeout, treat that as a radar startup failure: the firmware likely did not boot on the radar. In that case `radar status` keeps `state=error` and includes a `details` object explaining the failure.
-- If you need a custom recognizable radar firmware version, change the radar firmware's startup CLI output to print the target string.
+- If you need a custom recognizable radar fw version, change the radar firmware's startup CLI output to print the target string.
 
 ### Method C: Runtime Reconfiguration (No Firmware Flash)
 
-Use `radar reconf` when the radar firmware binary is already correct and you only want to change the runtime contract or runtime cfg selection without flashing firmware again.
+Use `radar config apply` when the radar fw binary is already correct and you only want to change the runtime contract or runtime cfg selection without flashing firmware again.
 
 ```bash
-./mmwk_cli.sh radar reconf --welcome --no-verify
-./mmwk_cli.sh radar reconf --welcome --verify --version "1.2.3"
-./mmwk_cli.sh radar reconf --welcome --no-verify --cfg ./runtime.cfg
-./mmwk_cli.sh radar reconf --welcome --no-verify --clear-cfg
+./mmwk_cli.sh radar config apply --welcome --no-verify
+./mmwk_cli.sh radar config apply --welcome --verify --version "1.2.3"
+./mmwk_cli.sh radar config apply --welcome --no-verify --cfg ./runtime.cfg
+./mmwk_cli.sh radar config apply --welcome --no-verify --clear-cfg
 ```
 
 Runtime reconf behavior:
-- `radar reconf` is bridge-only; host mode is rejected.
+- `radar config apply` is bridge-only; host mode is rejected.
 - default behavior is `cfg_action=keep`, which preserves the current runtime cfg selection.
 - `--cfg` maps to `cfg_action=replace`, uploads only the cfg file, and finishes with `uart_data action=reconf_done`.
 - `--clear-cfg` maps to `cfg_action=clear`, which removes the persisted runtime cfg override.
-- unlike `radar flash` and `radar ota`, `radar reconf` does not flash firmware.
-- After any `radar reconf`, wait for `radar status` to return `running` before you rely on `radar version` or any late-attach `collect` flow.
+- unlike `radar fw flash` and `radar fw ota`, `radar config apply` does not flash firmware.
+- After any `radar config apply`, wait for `radar status` to return `running` before you rely on `radar fw version` or any late-attach `collect` flow.
 
 Related startup-mode behavior:
-- BRIDGE reports `supported_start_modes: ["auto", "host"]` on radar-facing status surfaces, while device-facing surfaces no longer expose startup policy.
+- BRIDGE reports `modes: ["auto", "host"]` on radar-facing status surfaces, while device-facing surfaces no longer expose startup policy.
 - BRIDGE supports `["auto", "host"]`; HUB supports `["auto"]`.
 - In bridge `host`, `raw_auto=1` auto-starts `mmwk/{mac}/raw/data`, `mmwk/{mac}/raw/resp`, and `mmwk/{mac}/raw/cmd`.
 
 ### Method D: Read Back the Current Radar CFG
 
-Use `radar cfg` when you want to inspect the current radar cfg text without changing firmware or runtime contract state.
+Use `radar config read` when you want to inspect the current radar cfg text without changing firmware or runtime contract state.
 
 ```bash
-./mmwk_cli.sh radar cfg -p /dev/cu.usbserial-0001
-./mmwk_cli.sh radar cfg --gen -p /dev/cu.usbserial-0001
+./mmwk_cli.sh radar config read -p /dev/cu.usbserial-0001
+./mmwk_cli.sh radar config read --gen -p /dev/cu.usbserial-0001
 ```
 
 Readback behavior:
@@ -572,7 +585,7 @@ Readback behavior:
 Both methods also work over MQTT instead of UART. Add `--transport mqtt` and provide broker details:
 
 ```bash
-./mmwk_cli.sh radar flash \
+./mmwk_cli.sh radar fw flash \
   --fw fw.bin --cfg config.cfg \
   --transport mqtt --broker 192.168.1.100 --device-id dc5475c879c0 \
   --mqtt-delay 0.05
@@ -584,12 +597,12 @@ Both methods also work over MQTT instead of UART. Add `--transport mqtt` and pro
 
 ### Method A: Host-Side MQTT Collection (via `collect` Command)
 
-The `collect` command is the simplest way to capture both radar data-port raw bytes and command-port output on the host. When a UART port is specified, it auto-discovers all MQTT parameters from the device via `device hi`, enables raw forwarding, subscribes to the appropriate topics, and saves payloads to local files. `cmd_resp.log` keeps the startup-trimmed command-port text stream, starting from the first printable ASCII byte.
+The `collect` command is the simplest way to capture both radar data-port raw bytes and command-port output on the host. When a UART port is specified, it auto-discovers all MQTT parameters from the device via `node info`, uses the bridge raw bootstrap path to ensure MQTT raw passthrough is active, subscribes to the appropriate topics, and saves payloads to local files. `cmd_resp.log` keeps the startup-trimmed command-port text stream, starting from the first printable ASCII byte.
 
 Before using it on a fresh device, make sure the board can actually reach a Wi-Fi network and MQTT broker (see the Quick Start section above).
 
 Treat this default `-p/--port` flow as the strict startup-aware path. If your collection window starts at reboot, OTA recovery, or any other fresh startup/welcome phase, keep `raw_resp` mandatory and expect `cmd_resp.log` to be non-empty.
-After `radar flash`, `radar ota`, `radar reconf`, or the first boot after factory/baseline recovery, use `radar status = running` as the explicit ready gate before any pure-MQTT late-attach collect window.
+After `radar fw flash`, `radar fw ota`, `radar config apply`, or the first boot after factory/baseline recovery, use `radar status = running` as the explicit ready gate before any pure-MQTT late-attach collect window.
 
 ```bash
 # One-liner: auto-discover config and collect for 12 seconds
@@ -600,10 +613,10 @@ After `radar flash`, `radar ota`, `radar reconf`, or the first boot after factor
 ```
 
 What happens under the hood:
-1. Sends `device hi` over UART to discover MQTT broker, client ID, and topic configuration
+1. Sends `node info` over UART to discover MQTT broker, client ID, and topic configuration
 2. Waits for the device to regain a usable runtime IP when Wi-Fi/MQTT is still recovering
-3. Queries `device agent` and `fw list` to backfill any missing fields
-4. Sends `radar raw --enable` to bootstrap raw data forwarding on the device
+3. Queries `node agent` and `radar fw list` to backfill any missing fields
+4. Uses the bridge raw bootstrap path to make sure MQTT raw passthrough is active on the device
 5. Connects to the MQTT broker and subscribes to `mmwk/{mac}/raw/data` and `mmwk/{mac}/raw/resp`
 6. Writes received payloads to the output files for the specified duration, keeping `cmd_resp.log` as startup-trimmed command-port text
 
@@ -614,10 +627,10 @@ Recommended smoke-test criteria after the run:
 - `cmd_resp.log` exists and starts at the first printable ASCII byte
 - `cmd_resp.log` is readable as startup-trimmed command-port text
 
-If you need end-to-end evidence for the OTA/config stage itself, use `radar ota` with raw capture enabled before the OTA command is sent:
+If you need end-to-end evidence for the OTA/config stage itself, use `radar fw ota` with raw capture enabled before the OTA command is sent:
 
 ```bash
-./mmwk_cli.sh radar ota --fw ./radar.bin --cfg ./radar.cfg \
+./mmwk_cli.sh radar fw ota --fw ./radar.bin --cfg ./radar.cfg \
   --raw-resp-output ./ota_cmd_resp.log \
   -p /dev/cu.usbserial-0001
 ```
@@ -641,10 +654,12 @@ If the radar has already been running for a while and you are only attaching lat
 
 `collect` remains the official command. The helper scripts below stay outside `mmwk_cli.sh`, and the working directory is the `mmwk_cli` directory.
 
+- [Radar Task Tools](radar-task-tools.md): use `./tools/config.sh init|update|list` plus `./tools/collect.sh` when you want registry-backed UART setup, network update, and MQTT raw collection.
+- [Develop Radar With Bridge](bridge-ti-radar-debug.md): end-to-end bridge-development guide for choosing the right board and running `config.sh init|update|list` plus `collect.sh` on 6843- and 6432-series radar.
 - [MMWK CFG](mmwk-cfg.md): use `./tools/mmwk_cfg.sh` when you need to push Wi-Fi/MQTT settings over UART or an existing MQTT control path, or when you want the script to start or reuse `server.sh` for a local broker.
 - [MMWK RAW](mmwk-raw.md): use `./tools/mmwk_raw.sh` when you intentionally need pure MQTT for both control and raw capture.
 
-Do not treat either helper as a replacement for the strict startup-aware `collect -p` flow.
+Do not treat these helpers as a replacement for the strict startup-aware `collect -p` flow.
 
 ### Method B: Manual MQTT Subscription
 
@@ -652,16 +667,17 @@ If you prefer direct MQTT subscriptions, configure the device first via UART and
 
 **Step 1: Configure WiFi and MQTT** (if not already done)
 ```bash
-./mmwk_cli.sh network config --ssid YOUR_SSID --password YOUR_PASSWORD -p /dev/cu.usbserial-0001
-./mmwk_cli.sh network mqtt --mqtt-uri mqtt://192.168.1.100:1883 -p /dev/cu.usbserial-0001
-./mmwk_cli.sh device reboot -p /dev/cu.usbserial-0001
+./mmwk_cli.sh network wifi --ssid YOUR_SSID --pass YOUR_PASSWORD -p /dev/cu.usbserial-0001
+./mmwk_cli.sh network mqtt --uri mqtt://192.168.1.100:1883 -p /dev/cu.usbserial-0001
+./mmwk_cli.sh node reboot -p /dev/cu.usbserial-0001
 ```
 
-On fresh bridge devices this is enough to bring up MQTT control. Use `device agent --mqtt-en 1 --raw-auto 1` only for manual override or troubleshooting when persisted agent values need repair.
+On fresh bridge devices this is enough to bring up MQTT control. Use `node agent --mqtt 1 --raw-auto 1` only for manual override or troubleshooting when persisted agent values need repair.
 
-**Step 2: Enable raw data forwarding** (auto-enabled on boot when `raw_auto=1`, which is the BRIDGE default)
+**Step 2: Ensure raw passthrough auto-start is enabled** (fresh bridge defaults to `raw_auto=1`)
 ```bash
-./mmwk_cli.sh radar raw --enable -p /dev/cu.usbserial-0001
+./mmwk_cli.sh node agent --raw-auto 1 -p /dev/cu.usbserial-0001
+./mmwk_cli.sh node reboot -p /dev/cu.usbserial-0001
 ```
 
 **Step 3: Subscribe with Mosquitto (or any MQTT client)**
@@ -683,28 +699,31 @@ For on-device recording (writes to SD card / flash and uploads via HTTP):
 ./mmwk_cli.sh radar status -p /dev/cu.usbserial-0001
 
 # 2) Start recording (uri must be a reachable HTTP URL)
-./mmwk_cli.sh record start --uri http://192.168.1.100:8080/upload -p /dev/cu.usbserial-0001
+./mmwk_cli.sh radar raw start --uri http://192.168.1.100:8080/upload -p /dev/cu.usbserial-0001
 
 # 3) (Optional) Trigger an event snippet
-./mmwk_cli.sh record trigger --event MANUAL --duration 10 -p /dev/cu.usbserial-0001
+./mmwk_cli.sh radar raw trigger --event MANUAL --duration-s 10 -p /dev/cu.usbserial-0001
 
 # 4) Stop recording
-./mmwk_cli.sh record stop -p /dev/cu.usbserial-0001
+./mmwk_cli.sh radar raw stop -p /dev/cu.usbserial-0001
 ```
 
-### Raw Data Passthrough Control
+### Radar Raw Recorder
 
-Control raw data forwarding separately:
+Use the public `radar raw` surface for recorder state/config and recording triggers:
 
 ```bash
-# Enable raw forwarding
-./mmwk_cli.sh radar raw --enable -p /dev/cu.usbserial-0001
+# Show recorder state
+./mmwk_cli.sh radar raw status -p /dev/cu.usbserial-0001
 
-# Query raw forwarding status
-./mmwk_cli.sh radar raw -p /dev/cu.usbserial-0001
+# Read or update recorder config
+./mmwk_cli.sh radar raw config get -p /dev/cu.usbserial-0001
+./mmwk_cli.sh radar raw config set --json '{"auto_upload": true, "max_duration_sec": 30}' -p /dev/cu.usbserial-0001
 
-# Disable raw forwarding
-./mmwk_cli.sh radar raw --disable -p /dev/cu.usbserial-0001
+# Manage recorder lifecycle
+./mmwk_cli.sh radar raw start --uri http://192.168.1.100:8080/upload -p /dev/cu.usbserial-0001
+./mmwk_cli.sh radar raw trigger --event MANUAL --duration-s 10 -p /dev/cu.usbserial-0001
+./mmwk_cli.sh radar raw stop -p /dev/cu.usbserial-0001
 ```
 
 ---
@@ -712,26 +731,26 @@ Control raw data forwarding separately:
 ## Troubleshooting
 
 ### "Address already in use" (Error 48)
-When using `radar ota`, the CLI starts an HTTP server on port 8380 (or your chosen port). If this port is occupied, use `--http-port <new_port>`.
+When using `radar fw ota`, the CLI starts an HTTP server on port 8380 (or your chosen port). If this port is occupied, use `--http-port <new_port>`.
 
 ### UART Connection Issues
-Ensure no other serial monitor (e.g. `screen`, `minicom`) is holding the port. Use the `--reset` flag if the device is stuck in an unresponsive state.
+Ensure no other serial monitor (e.g. `screen`, `minicom`) is holding the port. Use the `--reset` flag only when the device is stuck or you explicitly need a reboot. If a POSIX host misbehaves with the default no-reset backend, set `MMWK_CLI_UART_NORESET_BACKEND=pyserial` before running the CLI.
 
 ### FAQ: Flash Chunk Timeout / `err=-8` Auto-Retry
-If you see logs like `Chunk N attempt 1 failed ... retrying` or `err=-8` during `radar flash`, this usually means temporary device-side processing pressure.  
+If you see logs like `Chunk N attempt 1 failed ... retrying` or `err=-8` during `radar fw flash`, this usually means temporary device-side processing pressure.
 If the next retry succeeds and the test continues, it is considered recoverable.
 
 When retries happen frequently or finally fail:
 - Re-run after closing all serial tools (`screen`, `minicom`, `idf.py monitor`).
 - Use a stable USB cable/port and avoid hubs.
 - Try a smaller chunk size for manual flash, e.g.:
-  `./mmwk_cli.sh radar flash --chunk-size 512 --fw <fw.bin> --cfg <cfg.cfg> -p <port>`
+  `./mmwk_cli.sh radar fw flash --chunk-size 512 --fw <fw.bin> --cfg <cfg.cfg> -p <port>`
 
 ### FAQ: Config Was Sent but the Radar Returns No Data
-If the radar config file was clearly sent, but you still get no radar data frames back, the most likely cause is a wrong `.cfg` for the radar firmware that is currently running. In that state the radar firmware often accepts the text and then effectively hangs after applying the config.
+If the radar config file was clearly sent, but you still get no radar data frames back, the most likely cause is a wrong `.cfg` for the radar fw that is currently running. In that state the radar fw often accepts the text and then effectively hangs after applying the config.
 
 Check these first:
-- Make sure the `.cfg` matches the exact radar firmware/demo that is booted.
+- Make sure the `.cfg` matches the exact radar fw/demo that is booted.
 - Make sure the board / antenna variant is correct, for example AOP vs non-AOP.
 - Make sure the CLI commands in the config match the firmware's expected command set.
 - Prove the same firmware + config pair works correctly on the radar development board itself before blaming MMWK transport.

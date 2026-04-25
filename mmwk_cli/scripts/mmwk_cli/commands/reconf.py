@@ -15,6 +15,9 @@ class ReconfCommand:
 
     DEFAULT_CHUNK_SIZE = 256
     MQTT_DEFAULT_CHUNK_SIZE = 512
+    INIT_TIMEOUT = 20.0
+    INIT_RETRIES = 3
+    INIT_RETRY_DELAY = 3.0
 
     def __init__(self, mcp):
         self.mcp = mcp
@@ -99,6 +102,48 @@ class ReconfCommand:
 
         return True
 
+    def _initiate_reconf(self, reconf_args: dict, timeout: float) -> bool:
+        overall_deadline = time.time() + max(timeout, self.INIT_TIMEOUT)
+        last_exc = None
+
+        # Probe the radar tool in the same session before sending reconf.
+        self._read_status_payload(timeout=min(5.0, max(1.0, overall_deadline - time.time())))
+
+        for attempt in range(1, self.INIT_RETRIES + 1):
+            remaining = overall_deadline - time.time()
+            if remaining <= 0:
+                break
+
+            try:
+                result = self.mcp.call_tool("radar", reconf_args, timeout=min(self.INIT_TIMEOUT, remaining))
+                logger.info(f"Reconf initiated: {self.mcp.extract_text(result)}")
+                return True
+            except Exception as exc:
+                last_exc = exc
+                if attempt >= self.INIT_RETRIES:
+                    break
+
+                payload, text = self._read_status_payload(timeout=min(5.0, max(1.0, overall_deadline - time.time())))
+                state = _extract_radar_state(payload) or _extract_radar_state(text)
+                if state:
+                    logger.info(f"  [reconf-init] radar state={state!r} after failed init attempt {attempt}/{self.INIT_RETRIES}")
+
+                sleep_for = min(self.INIT_RETRY_DELAY, max(0.5, overall_deadline - time.time()))
+                logger.warning(
+                    "Reconf init attempt %d/%d failed: %s; retrying in %.1fs",
+                    attempt,
+                    self.INIT_RETRIES,
+                    exc,
+                    sleep_for,
+                )
+                time.sleep(sleep_for)
+
+        if last_exc is not None:
+            logger.error(f"Failed to initiate radar reconf: {last_exc}")
+        else:
+            logger.error("Failed to initiate radar reconf before timeout")
+        return False
+
     def execute(self,
                 cfg_path: str = None,
                 clear_cfg: bool = False,
@@ -157,11 +202,7 @@ class ReconfCommand:
             reconf_args["config_size"] = len(cfg_data)
             reconf_args["chunk_size"] = chunk_size
 
-        try:
-            result = self.mcp.call_tool("radar", reconf_args, timeout=20)
-            logger.info(f"Reconf initiated: {self.mcp.extract_text(result)}")
-        except Exception as exc:
-            logger.error(f"Failed to initiate radar reconf: {exc}")
+        if not self._initiate_reconf(reconf_args, timeout):
             return False
 
         if cfg_data is not None:

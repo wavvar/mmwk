@@ -2,6 +2,8 @@
 
 import abc
 import json
+import os
+import socket
 import time
 import threading
 try:
@@ -153,6 +155,125 @@ class RadarTransport(abc.ABC):
             return items
 
 
+def _parse_uart_proxy_endpoint(raw: str):
+    value = (raw or "").strip()
+    if not value:
+        return None
+
+    if value.startswith("tcp://"):
+        value = value[len("tcp://"):]
+
+    host, sep, port_text = value.rpartition(":")
+    if sep != ":" or not host or not port_text:
+        raise ValueError(f"Invalid UART proxy endpoint: {raw!r}")
+
+    try:
+        port = int(port_text, 10)
+    except ValueError as exc:
+        raise ValueError(f"Invalid UART proxy port in endpoint: {raw!r}") from exc
+
+    if port <= 0 or port > 65535:
+        raise ValueError(f"UART proxy port out of range in endpoint: {raw!r}")
+
+    return host, port
+
+
+def _recv_socket_line(sock, timeout: float) -> bytes:
+    deadline = time.time() + max(timeout, 0.1)
+    chunks = bytearray()
+
+    while time.time() < deadline:
+        try:
+            chunk = sock.recv(4096)
+        except socket.timeout:
+            continue
+
+        if not chunk:
+            break
+
+        chunks.extend(chunk)
+        newline_idx = chunks.find(b"\n")
+        if newline_idx != -1:
+            return bytes(chunks[:newline_idx + 1])
+
+    if chunks:
+        return bytes(chunks)
+    raise TimeoutError("Timed out waiting for UART proxy response")
+
+
+class _SocketSerialAdapter:
+    """Socket-backed serial-like client used by the UART proxy."""
+
+    def __init__(self, endpoint, timeout: float):
+        host, port = endpoint
+        self._sock = socket.create_connection((host, port), timeout=timeout)
+        self._sock.settimeout(timeout)
+        self._buffer = bytearray()
+        self.is_open = True
+
+    def readline(self):
+        while self.is_open:
+            newline_idx = self._buffer.find(b"\n")
+            if newline_idx != -1:
+                line = bytes(self._buffer[:newline_idx + 1])
+                del self._buffer[:newline_idx + 1]
+                return line
+
+            try:
+                chunk = self._sock.recv(4096)
+            except socket.timeout:
+                return b""
+
+            if not chunk:
+                if self._buffer:
+                    line = bytes(self._buffer)
+                    self._buffer.clear()
+                    return line
+                self.is_open = False
+                raise ConnectionError("UART proxy socket closed")
+
+            self._buffer.extend(chunk)
+
+        return b""
+
+    def write(self, data):
+        if not self.is_open:
+            raise ConnectionError("UART proxy socket is closed")
+        self._sock.sendall(data)
+        return len(data)
+
+    def flush(self):
+        return None
+
+    def close(self):
+        self.is_open = False
+        try:
+            self._sock.shutdown(socket.SHUT_RDWR)
+        except Exception:
+            pass
+        self._sock.close()
+
+
+def _get_noreset_posix_serial_class():
+    import serial.serialposix as serialposix
+
+    class _NoResetPosixSerial(serialposix.Serial):
+        """POSIX serial backend that skips DTR/RTS updates during open()."""
+
+        def open(self):
+            original_update_dtr = self._update_dtr_state
+            original_update_rts = self._update_rts_state
+            try:
+                self._update_dtr_state = lambda: None
+                self._update_rts_state = lambda: None
+                return super().open()
+            finally:
+                self._update_dtr_state = original_update_dtr
+                self._update_rts_state = original_update_rts
+
+    return _NoResetPosixSerial
+
+
 class UartTransport(RadarTransport):
     """UART serial transport using pyserial."""
 
@@ -162,10 +283,22 @@ class UartTransport(RadarTransport):
         self.port = port
         self.baudrate = baudrate
         self.timeout = timeout
+        self._reset_requested = reset
+        self._serial_backend = ""
         self._io_lock = threading.Lock()
+        self._proxy_data_endpoint = _parse_uart_proxy_endpoint(
+            os.getenv("MMWK_CLI_UART_PROXY_DATA", "")
+        )
+        self._proxy_ctrl_endpoint = _parse_uart_proxy_endpoint(
+            os.getenv("MMWK_CLI_UART_PROXY_CTRL", "")
+        )
+
+        if self._should_use_uart_proxy() and reset:
+            self._proxy_reset()
+
         self._open_serial()
 
-        if reset:
+        if reset and not self._should_use_uart_proxy():
             # Reset ESP32 via DTR/RTS
             self.ser.dtr = False
             self.ser.rts = False
@@ -181,6 +314,82 @@ class UartTransport(RadarTransport):
         self._listener.start()
 
     def _open_serial(self):
+        if self._should_use_uart_proxy():
+            self._open_serial_proxy()
+            return
+        if self._should_use_posix_noreset_backend():
+            self._open_serial_posix_noreset()
+            return
+        self._open_serial_pyserial()
+
+    def _should_use_uart_proxy(self) -> bool:
+        return self._proxy_data_endpoint is not None
+
+    def _should_use_posix_noreset_backend(self) -> bool:
+        backend_hint = os.getenv("MMWK_CLI_UART_NORESET_BACKEND", "").strip().lower()
+
+        if backend_hint == "pyserial":
+            return False
+
+        return (
+            not self._should_use_uart_proxy() and
+            not self._reset_requested and
+            termios is not None and
+            os.name == "posix"
+        )
+
+    def _proxy_reset(self):
+        if not self._proxy_ctrl_endpoint:
+            raise RuntimeError(
+                "MMWK_CLI_UART_PROXY_CTRL is required when --reset is used with UART proxy"
+            )
+
+        host, port = self._proxy_ctrl_endpoint
+        sock = socket.create_connection((host, port), timeout=self.timeout)
+        try:
+            sock.settimeout(self.timeout)
+            request = json.dumps(
+                {"command": "reset", "port": self.port},
+                separators=(",", ":"),
+            ).encode("utf-8") + b"\n"
+            sock.sendall(request)
+            response_raw = _recv_socket_line(sock, self.timeout)
+            try:
+                response = json.loads(response_raw.decode("utf-8", errors="ignore").strip() or "{}")
+            except json.JSONDecodeError as exc:
+                raise RuntimeError(
+                    f"Invalid UART proxy control response: {response_raw!r}"
+                ) from exc
+            if not isinstance(response, dict) or response.get("ok") is not True:
+                raise RuntimeError(
+                    f"UART proxy reset rejected: {response.get('error', response)}"
+                )
+        finally:
+            try:
+                sock.shutdown(socket.SHUT_RDWR)
+            except Exception:
+                pass
+            sock.close()
+        time.sleep(2)
+
+    def _open_serial_proxy(self):
+        self.ser = _SocketSerialAdapter(self._proxy_data_endpoint, self.timeout)
+        self._serial_backend = "proxy"
+
+    def _open_serial_posix_noreset(self):
+        NoResetSerial = _get_noreset_posix_serial_class()
+        ser = NoResetSerial()
+        ser.port = self.port
+        ser.baudrate = self.baudrate
+        ser.timeout = self.timeout
+        ser.dtr = False
+        ser.rts = False
+        ser.open()
+        self._disable_hupcl(ser)
+        self.ser = ser
+        self._serial_backend = "posix"
+
+    def _open_serial_pyserial(self):
         import serial
         ser = serial.Serial()
         ser.port = self.port
@@ -192,6 +401,7 @@ class UartTransport(RadarTransport):
         ser.open()
         self._disable_hupcl(ser)
         self.ser = ser
+        self._serial_backend = "pyserial"
 
     @staticmethod
     def _disable_hupcl(ser):
@@ -219,6 +429,9 @@ class UartTransport(RadarTransport):
             "input/output",
             "ioerror",
             "filenotfounderror",
+            "broken pipe",
+            "connection reset",
+            "connection refused",
         )
         return any(marker in msg for marker in markers)
 

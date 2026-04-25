@@ -98,6 +98,13 @@ def _call_tool_and_print_json(args, tool, payload):
         transport.close()
 
 
+def _endpoint_id_arg(args):
+    endpoint_id = getattr(args, "id", None)
+    if endpoint_id is not None:
+        return endpoint_id
+    return getattr(args, "endpoint", None)
+
+
 def add_transport_args(parser):
     """Add common transport arguments to a parser."""
     group = parser.add_argument_group("Transport")
@@ -168,9 +175,9 @@ def cmd_radar_ota(args):
             force=getattr(args, "force", False),
             progress_interval=getattr(args, 'progress_interval', 5),
             raw_resp_output=getattr(args, "raw_resp_output", None),
-            raw_capture_broker=getattr(args, "raw_capture_broker", None),
+            raw_broker=getattr(args, "raw_broker", None),
             raw_resp_topic=getattr(args, "raw_resp_topic", None),
-            raw_capture_timeout=getattr(args, "raw_capture_timeout", 10.0),
+            raw_timeout=getattr(args, "raw_timeout", 10.0),
         )
         sys.exit(0 if ok else 1)
     finally:
@@ -227,7 +234,7 @@ def cmd_radar_version(args):
         mcp = McpClient(transport)
         mcp.initialize(timeout=args.timeout)
 
-        result = mcp.call_tool("radar", {"action": "version"}, timeout=args.timeout)
+        result = mcp.call_tool("radar.fw", {"action": "version"}, timeout=args.timeout)
         text = mcp.extract_text(result)
         try:
             data = json.loads(text)
@@ -298,33 +305,6 @@ def cmd_radar_stop(args):
         transport.close()
 
 
-def cmd_radar_raw(args):
-    """Handle: mmwk_cli radar raw ..."""
-    transport = _cli_create_transport(args)
-    try:
-        mcp = McpClient(transport)
-        mcp.initialize(timeout=args.timeout)
-
-        radar_args = {"action": "raw"}
-        if args.enable:
-            radar_args["enabled"] = True
-        elif args.disable:
-            radar_args["enabled"] = False
-
-        if args.uri:
-            radar_args["uri"] = args.uri
-
-        result = mcp.call_tool("radar", radar_args, timeout=args.timeout)
-        text = mcp.extract_text(result)
-        try:
-            data = json.loads(text)
-            print(json.dumps(data, indent=2))
-        except Exception:
-            print(text)
-    finally:
-        transport.close()
-
-
 def cmd_radar_debug(args):
     """Handle: mmwk_cli radar debug ..."""
     transport = _cli_create_transport(args)
@@ -343,7 +323,7 @@ def cmd_radar_debug(args):
             print("Error: --packets/--frames are only valid for radar debug set")
             sys.exit(1)
 
-        result = mcp.call_tool("radar", radar_args, timeout=args.timeout)
+        result = mcp.call_tool("radar.diag", radar_args, timeout=args.timeout)
         text = mcp.extract_text(result)
         try:
             data = json.loads(text)
@@ -354,14 +334,14 @@ def cmd_radar_debug(args):
         transport.close()
 
 
-def cmd_device_hi(args):
-    """Handle: mmwk_cli device hi ..."""
+def cmd_node_info(args):
+    """Handle: mmwk_cli node info ..."""
     transport = _cli_create_transport(args)
     try:
         mcp = McpClient(transport)
         mcp.initialize(timeout=args.timeout)
 
-        result = mcp.call_tool("device", {"action": "hi"}, timeout=args.timeout)
+        result = mcp.call_tool("node", {"action": "info"}, timeout=args.timeout)
         text = mcp.extract_text(result)
         try:
             data = json.loads(text)
@@ -372,13 +352,13 @@ def cmd_device_hi(args):
         transport.close()
 
 
-def cmd_device_reboot(args):
-    """Handle: mmwk_cli device reboot ..."""
+def cmd_node_reboot(args):
+    """Handle: mmwk_cli node reboot ..."""
     transport = _cli_create_transport(args)
     try:
         mcp = McpClient(transport)
         mcp.initialize(timeout=15)
-        resp = mcp.call_tool("device", {"action": "reboot"}, timeout=10)
+        resp = mcp.call_tool("node", {"action": "reboot"}, timeout=10)
         text = mcp.extract_text(resp)
         print(text)
     finally:
@@ -422,14 +402,18 @@ def cmd_device_agent(args):
         mcp.initialize(timeout=args.timeout)
 
         dev_args = {"action": "agent"}
-        if args.mqtt_en is not None:
-            dev_args["mqtt_en"] = args.mqtt_en
-        if args.uart_en is not None:
-            dev_args["uart_en"] = args.uart_en
+        if args.mqtt is not None:
+            dev_args["mqtt"] = args.mqtt
+        if args.uart is not None:
+            dev_args["uart"] = args.uart
         if args.raw_auto is not None:
             dev_args["raw_auto"] = args.raw_auto
+        if getattr(args, "uart_split", None) is not None:
+            dev_args["uart_split"] = args.uart_split
+        if getattr(args, "reboot_ms", None) is not None:
+            dev_args["reboot_ms"] = args.reboot_ms
 
-        result = mcp.call_tool("device", dev_args, timeout=args.timeout)
+        result = mcp.call_tool("node", dev_args, timeout=args.timeout)
         text = mcp.extract_text(result)
         try:
             data = json.loads(text)
@@ -451,7 +435,7 @@ def cmd_device_heartbeat(args):
         if args.fields:
             dev_args["fields"] = args.fields
 
-        result = mcp.call_tool("device", dev_args, timeout=args.timeout)
+        result = mcp.call_tool("node", dev_args, timeout=args.timeout)
         text = mcp.extract_text(result)
         try:
             data = json.loads(text)
@@ -469,7 +453,7 @@ def cmd_fw_list(args):
         mcp = McpClient(transport)
         mcp.initialize(timeout=args.timeout)
 
-        result = mcp.call_tool("fw", {"action": "list"}, timeout=args.timeout)
+        result = mcp.call_tool("radar.fw", {"action": "list"}, timeout=args.timeout)
         text = mcp.extract_text(result)
         try:
             data = json.loads(text)
@@ -487,7 +471,29 @@ def cmd_fw_set(args):
         mcp = McpClient(transport)
         mcp.initialize(timeout=args.timeout)
 
-        result = mcp.call_tool("fw", {"action": "set", "index": args.index}, timeout=args.timeout)
+        result = mcp.call_tool("radar.fw", {"action": "set", "index": args.index}, timeout=args.timeout)
+        text = mcp.extract_text(result)
+        try:
+            data = json.loads(text)
+            print(json.dumps(data, indent=2))
+        except Exception:
+            print(text)
+    finally:
+        transport.close()
+
+
+def cmd_radar_fw_switch(args):
+    """Handle: mmwk_cli radar fw switch ..."""
+    transport = _cli_create_transport(args)
+    try:
+        mcp = McpClient(transport)
+        mcp.initialize(timeout=args.timeout)
+
+        payload = {"action": "switch", "index": args.index}
+        if getattr(args, "persist", False):
+            payload["persist"] = True
+
+        result = mcp.call_tool("radar.fw", payload, timeout=args.timeout)
         text = mcp.extract_text(result)
         try:
             data = json.loads(text)
@@ -505,7 +511,7 @@ def cmd_fw_del(args):
         mcp = McpClient(transport)
         mcp.initialize(timeout=args.timeout)
 
-        result = mcp.call_tool("fw", {"action": "del", "index": args.index}, timeout=args.timeout)
+        result = mcp.call_tool("radar.fw", {"action": "del", "index": args.index}, timeout=args.timeout)
         text = mcp.extract_text(result)
         try:
             data = json.loads(text)
@@ -530,7 +536,7 @@ def cmd_fw_download(args):
             "version": args.fw_version,
             "size": args.size,
         }
-        result = mcp.call_tool("fw", fw_args, timeout=args.timeout)
+        result = mcp.call_tool("radar.fw", fw_args, timeout=args.timeout)
         text = mcp.extract_text(result)
         try:
             data = json.loads(text)
@@ -568,25 +574,33 @@ def cmd_record(args):
         transport.close()
 
 
-def cmd_raw_record(args):
-    """Handle: mmwk_cli raw record ..."""
+def cmd_radar_raw(args):
+    """Handle: mmwk_cli radar raw ..."""
     payload = {}
-    if args.action == "status":
+    if args.raw_group == "status":
         payload = {"action": "status"}
-    elif args.action == "start":
-        payload = {"action": "record_start"}
+    elif args.raw_group == "config":
+        if args.raw_config_action == "get":
+            payload = {"action": "config_get"}
+        else:
+            payload = {
+                "action": "config_set",
+                "config": _load_json_object_arg(args.json),
+            }
+    elif args.raw_group == "start":
+        payload = {"action": "start"}
         if getattr(args, "uri", None):
             payload["uri"] = args.uri
-    elif args.action == "stop":
-        payload = {"action": "record_stop"}
-    elif args.action == "trigger":
-        payload = {"action": "record_trigger"}
+    elif args.raw_group == "stop":
+        payload = {"action": "stop"}
+    elif args.raw_group == "trigger":
+        payload = {"action": "trigger"}
         if getattr(args, "event", None):
             payload["event"] = args.event
-        if getattr(args, "duration", None) is not None:
-            payload["duration_sec"] = args.duration
+        if getattr(args, "duration_s", None) is not None:
+            payload["duration_s"] = args.duration_s
 
-    _call_tool_and_print_json(args, "raw_capture", payload)
+    _call_tool_and_print_json(args, "radar.raw", payload)
 
 
 def cmd_collect(args):
@@ -640,15 +654,18 @@ def cmd_network(args):
         mcp.initialize(timeout=args.timeout)
 
         net_args = {"action": args.action}
-        if args.action == "config":
+        if args.action == "wifi":
             net_args["ssid"] = args.ssid
-            net_args["password"] = args.password
+            net_args["pass"] = args.passphrase
         elif args.action == "prov":
             net_args["enable"] = 1 if args.enable else 0
         elif args.action == "mqtt":
-            if args.mqtt_uri is not None: net_args["mqtt_uri"] = args.mqtt_uri
-            if args.mqtt_user is not None: net_args["mqtt_user"] = args.mqtt_user
-            if args.mqtt_pass is not None: net_args["mqtt_pass"] = args.mqtt_pass
+            if args.uri is not None:
+                net_args["uri"] = args.uri
+            if args.user is not None:
+                net_args["user"] = args.user
+            if args.passphrase is not None:
+                net_args["pass"] = args.passphrase
         elif args.action == "ntp":
             if getattr(args, 'server', None): net_args["server"] = args.server
             if getattr(args, 'tz_offset', None) is not None: net_args["tz_offset"] = args.tz_offset
@@ -674,19 +691,24 @@ def cmd_tools_list(args):
 
         tools = mcp.tools_list(timeout=args.timeout)
         for tool in tools:
-            print(f"  {tool.get('name', '?'):12s} — {tool.get('description', '')}")
+            print(f"  {tool.get('name', '?'):14s} — {tool.get('description', '')}")
     finally:
         transport.close()
 
 
-def cmd_entity_list(args):
-    """Handle: mmwk_cli entity list ..."""
+def cmd_endpoint_catalog(args):
+    """Handle: mmwk_cli endpoint list ..."""
+    _call_tool_and_print_json(args, "endpoint", {"action": "list"})
+
+
+def cmd_endpoint_list(args):
+    """Handle: mmwk_cli endpoint list ..."""
     transport = _cli_create_transport(args)
     try:
         mcp = McpClient(transport)
         mcp.initialize(timeout=args.timeout)
 
-        result = mcp.call_tool("catalog", {}, timeout=args.timeout)
+        result = mcp.call_tool("endpoint", {"action": "list"}, timeout=args.timeout)
         text = mcp.extract_text(result)
         try:
             payload = json.loads(text)
@@ -697,26 +719,26 @@ def cmd_entity_list(args):
             print(json.dumps(payload, indent=2))
             return
 
-        entities = payload.get("entities", []) if isinstance(payload, dict) else []
-        for entity in entities:
-            if isinstance(entity, dict):
-                entity_id = entity.get("id")
-                if isinstance(entity_id, str) and entity_id:
-                    print(entity_id)
+        endpoints = payload.get("endpoints", []) if isinstance(payload, dict) else []
+        for endpoint in endpoints:
+            if isinstance(endpoint, dict):
+                endpoint_id = endpoint.get("id")
+                if isinstance(endpoint_id, str) and endpoint_id:
+                    print(endpoint_id)
     finally:
         transport.close()
 
 
-def cmd_entity_describe(args):
-    """Handle: mmwk_cli entity describe ..."""
+def cmd_endpoint_describe(args):
+    """Handle: mmwk_cli endpoint describe ..."""
     transport = _cli_create_transport(args)
     try:
         mcp = McpClient(transport)
         mcp.initialize(timeout=args.timeout)
 
         result = mcp.call_tool(
-            "entity",
-            {"action": "describe", "entity": args.entity},
+            "endpoint",
+            {"action": "describe", "id": _endpoint_id_arg(args)},
             timeout=args.timeout,
         )
         _print_json_payload(mcp.extract_text(result))
@@ -724,16 +746,16 @@ def cmd_entity_describe(args):
         transport.close()
 
 
-def cmd_entity_read(args):
-    """Handle: mmwk_cli entity read ..."""
+def cmd_endpoint_read(args):
+    """Handle: mmwk_cli endpoint read ..."""
     transport = _cli_create_transport(args)
     try:
         mcp = McpClient(transport)
         mcp.initialize(timeout=args.timeout)
 
         result = mcp.call_tool(
-            "entity",
-            {"action": "read_state", "entity": args.entity},
+            "endpoint",
+            {"action": "read", "id": _endpoint_id_arg(args)},
             timeout=args.timeout,
         )
         _print_json_payload(mcp.extract_text(result))
@@ -741,16 +763,16 @@ def cmd_entity_read(args):
         transport.close()
 
 
-def cmd_entity_config_get(args):
-    """Handle: mmwk_cli entity config get ..."""
+def cmd_endpoint_config_get(args):
+    """Handle: mmwk_cli endpoint config get ..."""
     transport = _cli_create_transport(args)
     try:
         mcp = McpClient(transport)
         mcp.initialize(timeout=args.timeout)
 
         result = mcp.call_tool(
-            "entity",
-            {"action": "read_config", "entity": args.entity},
+            "endpoint",
+            {"action": "config_get", "id": _endpoint_id_arg(args)},
             timeout=args.timeout,
         )
         _print_json_payload(mcp.extract_text(result))
@@ -758,34 +780,27 @@ def cmd_entity_config_get(args):
         transport.close()
 
 
-def cmd_entity_config_set(args):
-    """Handle: mmwk_cli entity config set ..."""
+def cmd_endpoint_config_set(args):
+    """Handle: mmwk_cli endpoint config set ..."""
     payload = {
-        "action": "write_config",
-        "entity": args.entity,
+        "action": "config_set",
+        "id": _endpoint_id_arg(args),
         "config": _load_json_object_arg(args.config_json),
     }
-    _call_tool_and_print_json(args, "entity", payload)
+    _call_tool_and_print_json(args, "endpoint", payload)
 
 
-def cmd_adapter_list(args):
-    """Handle: mmwk_cli adapter list ..."""
-    _call_tool_and_print_json(args, "adapter", {"action": "list"})
-
-
-def cmd_adapter_status(args):
-    """Handle: mmwk_cli adapter status ..."""
-    _call_tool_and_print_json(args, "adapter", {"action": "status", "protocol": args.protocol})
-
-
-def cmd_adapter_manifest(args):
-    """Handle: mmwk_cli adapter manifest ..."""
-    _call_tool_and_print_json(args, "adapter", {"action": "manifest", "protocol": args.protocol})
+def cmd_device_proto(args):
+    """Handle: mmwk_cli device proto ..."""
+    payload = {"action": args.proto_action}
+    if getattr(args, "name", None):
+        payload["name"] = args.name
+    _call_tool_and_print_json(args, "proto", payload)
 
 
 def cmd_scene_show(args):
     """Handle: mmwk_cli scene show ..."""
-    _call_tool_and_print_json(args, "scene", {"action": "show"})
+    _call_tool_and_print_json(args, "scene", {"action": "read"})
 
 
 def cmd_scene_set(args):
@@ -802,53 +817,11 @@ def cmd_scene_apply(args):
 def cmd_scene_wait_ready(args):
     """Handle: mmwk_cli scene wait-ready ..."""
     payload = {
-        "action": "wait_ready",
+        "action": "wait",
         "timeout_ms": args.timeout_ms,
         "interval_ms": args.interval_ms,
     }
     _call_tool_and_print_json(args, "scene", payload)
-
-
-def cmd_policy_show(args):
-    """Handle: mmwk_cli policy show ..."""
-    _call_tool_and_print_json(args, "policy", {"action": "show"})
-
-
-def cmd_policy_explain(args):
-    """Handle: mmwk_cli policy explain ..."""
-    _call_tool_and_print_json(args, "policy", {"action": "explain"})
-
-
-def cmd_policy_set(args):
-    """Handle: mmwk_cli policy set ..."""
-    if args.config_json:
-        payload = {"action": "set", "config": _load_json_object_arg(args.config_json)}
-    else:
-        payload = {"action": "set"}
-        if args.profile:
-            payload["profile"] = args.profile
-        if args.summary_ms is not None:
-            payload["summary_interval_ms"] = args.summary_ms
-        if args.report_ms is not None:
-            payload["report_interval_ms"] = args.report_ms
-        if args.tracker_ms is not None:
-            payload["tracker_ms"] = args.tracker_ms
-        if args.vs_ms is not None:
-            payload["vs_ms"] = args.vs_ms
-        if args.presence_ms is not None:
-            payload["presence_ms"] = args.presence_ms
-        if args.quality_threshold is not None:
-            payload["quality_threshold_default"] = args.quality_threshold
-        if args.ecg_chunk_samples is not None:
-            payload["ecg_stream_chunk_samples"] = args.ecg_chunk_samples
-        if args.ecg_buffer_chunks is not None:
-            payload["ecg_stream_buffer_chunks"] = args.ecg_buffer_chunks
-        if args.raw_record_enabled is not None:
-            payload["raw_record_enabled_default"] = args.raw_record_enabled == 1
-        if args.raw_record_max_duration_sec is not None:
-            payload["raw_record_max_duration_sec"] = args.raw_record_max_duration_sec
-
-    _call_tool_and_print_json(args, "policy", payload)
 
 
 def main():
@@ -859,37 +832,33 @@ def main():
     subparsers = parser.add_subparsers(dest="tool", help="Control service namespace")
 
     # -- radar --
-    radar_parser = subparsers.add_parser("radar", help="Radar service control")
-    radar_sub = radar_parser.add_subparsers(dest="action", required=True)
+    radar_parser = subparsers.add_parser("radar", help="Radar capability surface")
+    radar_sub = radar_parser.add_subparsers(dest="radar_domain", required=True)
 
-    # radar flash -- chunk-based transfer
-    flash_parser = radar_sub.add_parser("flash", help="Flash firmware via UART/MQTT (chunk transfer)")
-    flash_parser.add_argument("--fw", required=True, help="Firmware binary file path")
-    flash_parser.add_argument("--cfg", help="Config file path (optional)")
-    flash_parser.add_argument("--chunk-size", type=int, default=None,
-                              help="Transfer chunk size in bytes (default: 256 UART, 512 MQTT)")
-    flash_parser.add_argument("--mqtt-delay", type=float, default=0.05,
-                              help="Inter-chunk delay for MQTT in seconds (default: 0.05)")
-    flash_parser.add_argument("--progress-interval", type=int, default=5,
-                              help="How often (seconds) device reports flash progress (default: 5, 0=disable)")
-    flash_parser.add_argument("--reboot-delay", type=int, default=5,
-                              help="Seconds to wait after flash success before rebooting ESP (default: 5, 0=disable)")
-    flash_parser.add_argument("--version", help="Firmware version string used for optional verification")
-    flash_verify_group = flash_parser.add_mutually_exclusive_group()
-    flash_verify_group.add_argument("--verify", dest="verify", action="store_true", default=None,
-                                    help="Require the welcome text to contain the expected version string")
-    flash_verify_group.add_argument("--no-verify", dest="verify", action="store_false",
-                                    help="Skip version matching even if metadata provides a version")
-    flash_welcome_group = flash_parser.add_mutually_exclusive_group()
-    flash_welcome_group.add_argument("--welcome", dest="welcome", action="store_true", default=None,
-                                     help="Expect this firmware to emit a welcome/startup banner")
-    flash_welcome_group.add_argument("--no-welcome", dest="welcome", action="store_false",
-                                     help="Declare that this firmware does not emit a welcome/startup banner")
-    add_transport_args(flash_parser)
-    flash_parser.set_defaults(func=cmd_radar_flash)
+    radar_status_parser = radar_sub.add_parser("status", help="Query radar status")
+    add_transport_args(radar_status_parser)
+    radar_status_parser.set_defaults(func=cmd_radar_status)
 
-    # radar reconf -- runtime-only contract/cfg reconfigure
-    reconf_parser = radar_sub.add_parser("reconf", help="Reconfigure runtime radar contract without flashing firmware")
+    radar_start_parser = radar_sub.add_parser("start", help="Start or restart radar service")
+    radar_start_parser.add_argument("--mode", choices=["auto", "host"], default=None,
+                                    help="Persist start mode, then start/restart radar service in that mode")
+    add_transport_args(radar_start_parser)
+    radar_start_parser.set_defaults(func=cmd_radar_start)
+
+    radar_stop_parser = radar_sub.add_parser("stop", help="Stop radar service")
+    add_transport_args(radar_stop_parser)
+    radar_stop_parser.set_defaults(func=cmd_radar_stop)
+
+    radar_config_parser = radar_sub.add_parser("config", help="Read or apply radar runtime configuration")
+    radar_config_sub = radar_config_parser.add_subparsers(dest="radar_config_action", required=True)
+
+    cfg_parser = radar_config_sub.add_parser("read", help="Read current radar cfg text")
+    cfg_parser.add_argument("--gen", action="store_true",
+                            help="Read runtime-generated cfg text instead of file cfg")
+    add_transport_args(cfg_parser)
+    cfg_parser.set_defaults(func=cmd_radar_cfg)
+
+    reconf_parser = radar_config_sub.add_parser("apply", help="Apply runtime radar configuration without flashing firmware")
     reconf_cfg_group = reconf_parser.add_mutually_exclusive_group()
     reconf_cfg_group.add_argument("--cfg", help="Runtime config file path to stage and apply")
     reconf_cfg_group.add_argument("--clear-cfg", action="store_true",
@@ -914,8 +883,35 @@ def main():
     add_transport_args(reconf_parser)
     reconf_parser.set_defaults(func=cmd_radar_reconf)
 
-    # radar ota -- HTTP OTA download
-    ota_parser = radar_sub.add_parser("ota", help="Flash firmware via HTTP OTA (device downloads)")
+    radar_fw_parser = radar_sub.add_parser("fw", help="Manage radar firmware lifecycle and slots")
+    radar_fw_sub = radar_fw_parser.add_subparsers(dest="firmware_action", required=True)
+
+    flash_parser = radar_fw_sub.add_parser("flash", help="Flash firmware via UART/MQTT (chunk transfer)")
+    flash_parser.add_argument("--fw", required=True, help="Firmware binary file path")
+    flash_parser.add_argument("--cfg", help="Config file path (optional)")
+    flash_parser.add_argument("--chunk-size", type=int, default=None,
+                              help="Transfer chunk size in bytes (default: 256 UART, 512 MQTT)")
+    flash_parser.add_argument("--mqtt-delay", type=float, default=0.05,
+                              help="Inter-chunk delay for MQTT in seconds (default: 0.05)")
+    flash_parser.add_argument("--progress-interval", type=int, default=5,
+                              help="How often (seconds) device reports flash progress (default: 5, 0=disable)")
+    flash_parser.add_argument("--reboot-delay", type=int, default=5,
+                              help="Seconds to wait after flash success before rebooting ESP (default: 5, 0=disable)")
+    flash_parser.add_argument("--version", help="Firmware version string used for optional verification")
+    flash_verify_group = flash_parser.add_mutually_exclusive_group()
+    flash_verify_group.add_argument("--verify", dest="verify", action="store_true", default=None,
+                                    help="Require the welcome text to contain the expected version string")
+    flash_verify_group.add_argument("--no-verify", dest="verify", action="store_false",
+                                    help="Skip version matching even if metadata provides a version")
+    flash_welcome_group = flash_parser.add_mutually_exclusive_group()
+    flash_welcome_group.add_argument("--welcome", dest="welcome", action="store_true", default=None,
+                                     help="Expect this firmware to emit a welcome/startup banner")
+    flash_welcome_group.add_argument("--no-welcome", dest="welcome", action="store_false",
+                                     help="Declare that this firmware does not emit a welcome/startup banner")
+    add_transport_args(flash_parser)
+    flash_parser.set_defaults(func=cmd_radar_flash)
+
+    ota_parser = radar_fw_sub.add_parser("ota", help="Flash firmware via HTTP OTA (device downloads)")
     ota_parser.add_argument("--fw", required=True, help="Firmware binary file path")
     ota_parser.add_argument("--cfg", help="Config file path (optional)")
     ota_parser.add_argument("--http-port", type=int, default=8380,
@@ -943,15 +939,15 @@ def main():
         help="Capture startup-trimmed command-port response text during OTA to this file (armed before OTA command)",
     )
     ota_parser.add_argument(
-        "--raw-capture-broker",
-        help="MQTT broker URI/host override for OTA raw_resp capture (defaults to radar raw/device hi)",
+        "--raw-broker",
+        help="MQTT broker URI/host override for OTA raw_resp capture (defaults to radar raw/node info)",
     )
     ota_parser.add_argument(
         "--raw-resp-topic",
-        help="MQTT raw_resp topic override for OTA capture (defaults to radar raw/device hi)",
+        help="MQTT raw_resp topic override for OTA capture (defaults to radar raw/node info)",
     )
     ota_parser.add_argument(
-        "--raw-capture-timeout",
+        "--raw-timeout",
         type=float,
         default=10.0,
         help="MQTT subscribe-ready timeout for OTA raw_resp capture in seconds (default: 10)",
@@ -959,68 +955,103 @@ def main():
     add_transport_args(ota_parser)
     ota_parser.set_defaults(func=cmd_radar_ota)
 
-    # radar start
-    start_parser = radar_sub.add_parser("start", help="Start or restart radar service")
-    start_parser.add_argument("--mode", choices=["auto", "host"], default=None,
-                              help="Persist start mode, then start/restart radar service in that mode")
-    add_transport_args(start_parser)
-    start_parser.set_defaults(func=cmd_radar_start)
-
-    # radar stop
-    stop_parser = radar_sub.add_parser("stop", help="Stop radar service")
-    add_transport_args(stop_parser)
-    stop_parser.set_defaults(func=cmd_radar_stop)
-
-    # radar status
-    status_parser = radar_sub.add_parser("status", help="Query radar status")
-    add_transport_args(status_parser)
-    status_parser.set_defaults(func=cmd_radar_status)
-
-    # radar cfg
-    cfg_parser = radar_sub.add_parser("cfg", help="Read current radar cfg text")
-    cfg_parser.add_argument("--gen", action="store_true",
-                            help="Read hub-generated cfg text instead of file cfg")
-    add_transport_args(cfg_parser)
-    cfg_parser.set_defaults(func=cmd_radar_cfg)
-
-    # radar version
-    version_parser = radar_sub.add_parser("version", help="Query running firmware version")
+    version_parser = radar_fw_sub.add_parser("version", help="Query running firmware version")
     add_transport_args(version_parser)
     version_parser.set_defaults(func=cmd_radar_version)
 
+    fw_list_parser = radar_fw_sub.add_parser("list", help="List firmware images")
+    add_transport_args(fw_list_parser)
+    fw_list_parser.set_defaults(func=cmd_fw_list)
+
+    fw_set_parser = radar_fw_sub.add_parser("set", help="Set default boot firmware partition")
+    fw_set_parser.add_argument("--index", type=int, required=True, help="Partition index")
+    add_transport_args(fw_set_parser)
+    fw_set_parser.set_defaults(func=cmd_fw_set)
+
+    fw_switch_parser = radar_fw_sub.add_parser("switch", help="Switch the running firmware image immediately")
+    fw_switch_parser.add_argument("--index", type=int, required=True, help="Partition index")
+    fw_switch_parser.add_argument("--persist", action="store_true",
+                                  help="Also persist the selected firmware as the default boot image")
+    add_transport_args(fw_switch_parser)
+    fw_switch_parser.set_defaults(func=cmd_radar_fw_switch)
+
+    fw_del_parser = radar_fw_sub.add_parser("del", help="Delete a firmware partition")
+    fw_del_parser.add_argument("--index", type=int, required=True, help="Partition index")
+    add_transport_args(fw_del_parser)
+    fw_del_parser.set_defaults(func=cmd_fw_del)
+
+    fw_dl_parser = radar_fw_sub.add_parser("download", help="Download firmware image to device")
+    fw_dl_parser.add_argument("--source", required=True, help="Download source URL")
+    fw_dl_parser.add_argument("--name", required=True, help="Firmware name")
+    fw_dl_parser.add_argument("--fw-version", required=True, help="Firmware version")
+    fw_dl_parser.add_argument("--size", type=int, required=True, help="File size in bytes")
+    add_transport_args(fw_dl_parser)
+    fw_dl_parser.set_defaults(func=cmd_fw_download)
+
     # radar raw
-    radar_raw_parser = radar_sub.add_parser("raw", help="Configure/query radar raw forwarding")
-    raw_toggle = radar_raw_parser.add_mutually_exclusive_group()
-    raw_toggle.add_argument("--enable", action="store_true", help="Enable raw forwarding")
-    raw_toggle.add_argument("--disable", action="store_true", help="Disable raw forwarding")
-    radar_raw_parser.add_argument("--uri", help="Raw MQTT broker URI (omit to reuse device MQTT broker)")
-    add_transport_args(radar_raw_parser)
-    radar_raw_parser.set_defaults(func=cmd_radar_raw)
+    radar_raw_parser = radar_sub.add_parser("raw", help="Inspect raw recorder state, config, and recorder lifecycle")
+    radar_raw_sub = radar_raw_parser.add_subparsers(dest="raw_group", required=True)
 
-    # radar debug
-    debug_parser = radar_sub.add_parser("debug", help="Manage/query radar debug diagnostics")
-    debug_parser.add_argument("op", nargs="?", choices=["set", "get", "snapshot", "reset"], default="snapshot",
-                              help="Debug sub-operation (default: snapshot)")
-    debug_parser.add_argument("--packets", choices=["on", "off"],
-                              help="Enable/disable packet counters (set only)")
-    debug_parser.add_argument("--frames", choices=["on", "off"],
-                              help="Enable/disable frame counters (set only)")
-    add_transport_args(debug_parser)
-    debug_parser.set_defaults(func=cmd_radar_debug)
+    radar_raw_status_parser = radar_raw_sub.add_parser("status", help="Show radar raw recorder status")
+    add_transport_args(radar_raw_status_parser)
+    radar_raw_status_parser.set_defaults(func=cmd_radar_raw)
 
-    # -- device --
-    device_parser = subparsers.add_parser("device", help="Device configuration")
-    device_sub = device_parser.add_subparsers(dest="action", required=True)
+    radar_raw_config_parser = radar_raw_sub.add_parser("config", help="Get or update radar raw config")
+    radar_raw_config_sub = radar_raw_config_parser.add_subparsers(dest="raw_config_action", required=True)
 
-    hi_parser = device_sub.add_parser("hi", help="Device status handshake")
-    add_transport_args(hi_parser)
-    hi_parser.set_defaults(func=cmd_device_hi)
+    radar_raw_config_get_parser = radar_raw_config_sub.add_parser("get", help="Read radar raw config")
+    add_transport_args(radar_raw_config_get_parser)
+    radar_raw_config_get_parser.set_defaults(func=cmd_radar_raw)
 
-    device_reboot_parser = device_sub.add_parser("reboot", help="Reboot the device")
+    radar_raw_config_set_parser = radar_raw_config_sub.add_parser("set", help="Write radar raw config")
+    radar_raw_config_set_parser.add_argument(
+        "--json",
+        required=True,
+        help="JSON object string, @file, or file path containing the raw config patch",
+    )
+    add_transport_args(radar_raw_config_set_parser)
+    radar_raw_config_set_parser.set_defaults(func=cmd_radar_raw)
+
+    radar_raw_start_parser = radar_raw_sub.add_parser("start", help="Arm the raw recorder")
+    radar_raw_start_parser.add_argument("--uri", help="Upload target URI override")
+    add_transport_args(radar_raw_start_parser)
+    radar_raw_start_parser.set_defaults(func=cmd_radar_raw)
+
+    radar_raw_stop_parser = radar_raw_sub.add_parser("stop", help="Stop the raw recorder")
+    add_transport_args(radar_raw_stop_parser)
+    radar_raw_stop_parser.set_defaults(func=cmd_radar_raw)
+
+    radar_raw_trigger_parser = radar_raw_sub.add_parser("trigger", help="Trigger a raw recording window")
+    radar_raw_trigger_parser.add_argument("--event", help="Trigger event name (default: manual)")
+    radar_raw_trigger_parser.add_argument("--duration-s", dest="duration_s", type=int,
+                                          help="Recording duration in seconds (defaults to radar.raw config)")
+    add_transport_args(radar_raw_trigger_parser)
+    radar_raw_trigger_parser.set_defaults(func=cmd_radar_raw)
+
+    # radar diag
+    diag_parser = radar_sub.add_parser("diag", help="Manage/query radar diagnostics")
+    diag_parser.add_argument("op", nargs="?", choices=["set", "get", "snapshot", "reset"], default="snapshot",
+                             help="Diagnostic operation (default: snapshot)")
+    diag_parser.add_argument("--packets", choices=["on", "off"],
+                             help="Enable/disable packet counters (set only)")
+    diag_parser.add_argument("--frames", choices=["on", "off"],
+                             help="Enable/disable frame counters (set only)")
+    add_transport_args(diag_parser)
+    diag_parser.set_defaults(func=cmd_radar_debug)
+
+    # -- node --
+    node_parser = subparsers.add_parser("node", help="Node management surface")
+    node_sub = node_parser.add_subparsers(dest="action", required=True)
+
+    node_info_parser = node_sub.add_parser("info", help="Node status handshake")
+    add_transport_args(node_info_parser)
+    node_info_parser.set_defaults(func=cmd_node_info)
+
+    device_reboot_parser = node_sub.add_parser("reboot", help="Reboot the node")
     add_transport_args(device_reboot_parser)
-    device_reboot_parser.set_defaults(func=cmd_device_reboot)
+    device_reboot_parser.set_defaults(func=cmd_node_reboot)
 
-    device_ota_parser = device_sub.add_parser("ota", help="Update ESP firmware via HTTP OTA (.bin only, supports full app+assets bundle)")
+    device_ota_parser = node_sub.add_parser("ota", help="Update ESP firmware via HTTP OTA (.bin only, supports full app+assets bundle)")
     device_ota_src = device_ota_parser.add_mutually_exclusive_group(required=True)
     device_ota_src.add_argument("--fw", help="Local ESP OTA .bin path (plain app image or *_full.bin bundle)")
     device_ota_src.add_argument("--url", help="Remote ESP OTA .bin URL (plain app image or full bundle)")
@@ -1037,19 +1068,21 @@ def main():
     add_transport_args(device_ota_parser)
     device_ota_parser.set_defaults(func=cmd_device_ota)
 
-    # device agent
-    device_agent_parser = device_sub.add_parser("agent", help="Enable/disable built-in agent services")
-    device_agent_parser.add_argument("--mqtt-en", type=int, choices=[0, 1], default=None,
+    device_agent_parser = node_sub.add_parser("agent", help="Enable/disable built-in agent services")
+    device_agent_parser.add_argument("--mqtt", type=int, choices=[0, 1], default=None,
                                      help="MQTT agent enable (0=off, 1=on)")
-    device_agent_parser.add_argument("--uart-en", type=int, choices=[0, 1], default=None,
+    device_agent_parser.add_argument("--uart", type=int, choices=[0, 1], default=None,
                                      help="UART agent enable (0=off, 1=on)")
     device_agent_parser.add_argument("--raw-auto", type=int, choices=[0, 1], default=None,
                                      help="Auto-enable raw stream on boot (0=off, 1=on)")
+    device_agent_parser.add_argument("--uart-split", dest="uart_split", type=int, choices=[0, 1], default=None,
+                                     help="Split single-UART runtime data after sensorStart (0=off, 1=on)")
+    device_agent_parser.add_argument("--reboot-ms", dest="reboot_ms", type=int, default=None,
+                                     help="Reboot threshold when MQTT stays disconnected")
     add_transport_args(device_agent_parser)
     device_agent_parser.set_defaults(func=cmd_device_agent)
 
-    # device heartbeat
-    device_hb_parser = device_sub.add_parser("heartbeat", help="Configure system heartbeat")
+    device_hb_parser = node_sub.add_parser("heartbeat", help="Configure system heartbeat")
     device_hb_parser.add_argument("--interval", type=int, required=True,
                                   help="Heartbeat period in seconds (0=disable, min 30)")
     device_hb_parser.add_argument("--fields", nargs="+",
@@ -1057,83 +1090,22 @@ def main():
     add_transport_args(device_hb_parser)
     device_hb_parser.set_defaults(func=cmd_device_heartbeat)
 
-    # -- fw --
-    fw_parser = subparsers.add_parser("fw", help="Firmware manager")
-    fw_sub = fw_parser.add_subparsers(dest="action", required=True)
+    proto_parser = subparsers.add_parser("proto", help="Inspect node public protocol directory")
+    proto_sub = proto_parser.add_subparsers(dest="proto_action", required=True)
 
-    fw_list_parser = fw_sub.add_parser("list", help="List firmware images")
-    add_transport_args(fw_list_parser)
-    fw_list_parser.set_defaults(func=cmd_fw_list)
+    proto_list_parser = proto_sub.add_parser("list", help="List node public protocol directory entries")
+    add_transport_args(proto_list_parser)
+    proto_list_parser.set_defaults(func=cmd_device_proto)
 
-    # fw set
-    fw_set_parser = fw_sub.add_parser("set", help="Set default boot firmware partition")
-    fw_set_parser.add_argument("--index", type=int, required=True, help="Partition index")
-    add_transport_args(fw_set_parser)
-    fw_set_parser.set_defaults(func=cmd_fw_set)
+    proto_status_parser = proto_sub.add_parser("status", help="Show public protocol directory status")
+    proto_status_parser.add_argument("name", help="Public protocol directory entry to inspect")
+    add_transport_args(proto_status_parser)
+    proto_status_parser.set_defaults(func=cmd_device_proto)
 
-    # fw del
-    fw_del_parser = fw_sub.add_parser("del", help="Delete a firmware partition")
-    fw_del_parser.add_argument("--index", type=int, required=True, help="Partition index")
-    add_transport_args(fw_del_parser)
-    fw_del_parser.set_defaults(func=cmd_fw_del)
-
-    # fw download
-    fw_dl_parser = fw_sub.add_parser("download", help="Download firmware image to device")
-    fw_dl_parser.add_argument("--source", required=True, help="Download source URL")
-    fw_dl_parser.add_argument("--name", required=True, help="Firmware name")
-    fw_dl_parser.add_argument("--fw-version", required=True, help="Firmware version")
-    fw_dl_parser.add_argument("--size", type=int, required=True, help="File size in bytes")
-    add_transport_args(fw_dl_parser)
-    fw_dl_parser.set_defaults(func=cmd_fw_download)
-
-    # -- record --
-    rec_parser = subparsers.add_parser("record", help="SD Card/Flash recording management")
-    rec_sub = rec_parser.add_subparsers(dest="action", required=True)
-
-    # record start
-    rec_start = rec_sub.add_parser("start", help="Start recording")
-    rec_start.add_argument("--uri", help="Target URI to save recorded data")
-    add_transport_args(rec_start)
-    rec_start.set_defaults(func=cmd_record)
-
-    # record stop
-    rec_stop = rec_sub.add_parser("stop", help="Stop recording")
-    add_transport_args(rec_stop)
-    rec_stop.set_defaults(func=cmd_record)
-
-    # record trigger
-    rec_trigger = rec_sub.add_parser("trigger", help="Trigger event recording snippet")
-    rec_trigger.add_argument("--event", help="Trigger event name (default: MANUAL)")
-    rec_trigger.add_argument("--duration", type=int, help="Recording duration in seconds (default: 10)")
-    add_transport_args(rec_trigger)
-    rec_trigger.set_defaults(func=cmd_record)
-
-    # -- raw --
-    raw_root_parser = subparsers.add_parser("raw", help="Capability-first raw capture management")
-    raw_root_sub = raw_root_parser.add_subparsers(dest="raw_group", required=True)
-
-    raw_record_parser = raw_root_sub.add_parser("record", help="Manage raw capture recorder lifecycle")
-    raw_record_sub = raw_record_parser.add_subparsers(dest="action", required=True)
-
-    raw_record_status = raw_record_sub.add_parser("status", help="Show raw capture recording state")
-    add_transport_args(raw_record_status)
-    raw_record_status.set_defaults(func=cmd_raw_record)
-
-    raw_record_start = raw_record_sub.add_parser("start", help="Arm the raw capture recorder")
-    raw_record_start.add_argument("--uri", help="Upload target URI (defaults to raw.capture config upload_target)")
-    add_transport_args(raw_record_start)
-    raw_record_start.set_defaults(func=cmd_raw_record)
-
-    raw_record_stop = raw_record_sub.add_parser("stop", help="Stop the raw capture recorder")
-    add_transport_args(raw_record_stop)
-    raw_record_stop.set_defaults(func=cmd_raw_record)
-
-    raw_record_trigger = raw_record_sub.add_parser("trigger", help="Trigger a raw capture upload window")
-    raw_record_trigger.add_argument("--event", help="Trigger event name (default: manual)")
-    raw_record_trigger.add_argument("--duration", type=int,
-                                    help="Recording duration in seconds (defaults to raw.capture config)")
-    add_transport_args(raw_record_trigger)
-    raw_record_trigger.set_defaults(func=cmd_raw_record)
+    proto_manifest_parser = proto_sub.add_parser("manifest", help="Show public protocol manifest")
+    proto_manifest_parser.add_argument("name", help="Public protocol directory entry to inspect")
+    add_transport_args(proto_manifest_parser)
+    proto_manifest_parser.set_defaults(func=cmd_device_proto)
 
     # -- collect --
     collect_parser = subparsers.add_parser(
@@ -1173,7 +1145,7 @@ def main():
     collect_parser.add_argument("--resp-topic",
                                 help="MQTT raw_resp topic to subscribe (CMD UART startup-trimmed command-port output)")
     collect_parser.add_argument("--port", "-p",
-                                help="Optional UART serial port for auto-discovery via device hi")
+                                help="Optional UART serial port for auto-discovery via node info")
     collect_parser.add_argument("--baudrate", "-b", type=int, default=115200,
                                 help="UART baudrate when --port is used (default: 115200)")
     collect_parser.add_argument("--reset", action="store_true",
@@ -1184,74 +1156,51 @@ def main():
                                 help="Enable debug logging")
     collect_parser.set_defaults(func=cmd_collect, transport="uart")
 
-    # -- tools --
-    tools_parser = subparsers.add_parser("tools", help="List available MCP tools")
-    add_transport_args(tools_parser)
-    tools_parser.set_defaults(func=cmd_tools_list)
+    # -- endpoint --
+    endpoint_parser = subparsers.add_parser("endpoint", help="Matter-oriented endpoint discovery, state, and config inspection")
+    endpoint_sub = endpoint_parser.add_subparsers(dest="action", required=True)
 
-    # -- entity --
-    entity_parser = subparsers.add_parser("entity", help="Capability entity discovery, state, and config inspection")
-    entity_sub = entity_parser.add_subparsers(dest="action", required=True)
+    endpoint_list_parser = endpoint_sub.add_parser("list", help="List active endpoint ids")
+    endpoint_list_parser.add_argument("--json", action="store_true",
+                                      help="Print full catalog JSON instead of endpoint ids")
+    add_transport_args(endpoint_list_parser)
+    endpoint_list_parser.set_defaults(func=cmd_endpoint_list)
 
-    entity_list_parser = entity_sub.add_parser("list", help="List supported capability entities")
-    entity_list_parser.add_argument("--json", action="store_true",
-                                    help="Print full catalog JSON instead of entity ids")
-    add_transport_args(entity_list_parser)
-    entity_list_parser.set_defaults(func=cmd_entity_list)
+    endpoint_describe_parser = endpoint_sub.add_parser("describe", help="Describe an endpoint")
+    endpoint_describe_parser.add_argument("id", help="Endpoint id, e.g. mgmt.device")
+    add_transport_args(endpoint_describe_parser)
+    endpoint_describe_parser.set_defaults(func=cmd_endpoint_describe)
 
-    entity_describe_parser = entity_sub.add_parser("describe", help="Describe a capability entity")
-    entity_describe_parser.add_argument("entity", help="Capability entity id, e.g. mgmt.device")
-    add_transport_args(entity_describe_parser)
-    entity_describe_parser.set_defaults(func=cmd_entity_describe)
+    endpoint_read_parser = endpoint_sub.add_parser("read", help="Read endpoint state")
+    endpoint_read_parser.add_argument("id", help="Endpoint id, e.g. mgmt.device")
+    add_transport_args(endpoint_read_parser)
+    endpoint_read_parser.set_defaults(func=cmd_endpoint_read)
 
-    entity_read_parser = entity_sub.add_parser("read", help="Read capability entity state")
-    entity_read_parser.add_argument("entity", help="Capability entity id, e.g. mgmt.device")
-    add_transport_args(entity_read_parser)
-    entity_read_parser.set_defaults(func=cmd_entity_read)
+    endpoint_config_parser = endpoint_sub.add_parser("config", help="Read or write endpoint config")
+    endpoint_config_sub = endpoint_config_parser.add_subparsers(dest="config_action", required=True)
 
-    entity_config_parser = entity_sub.add_parser("config", help="Read or write capability entity config")
-    entity_config_sub = entity_config_parser.add_subparsers(dest="config_action", required=True)
+    endpoint_config_get_parser = endpoint_config_sub.add_parser("get", help="Read endpoint config")
+    endpoint_config_get_parser.add_argument("id", help="Endpoint id, e.g. radar.raw")
+    add_transport_args(endpoint_config_get_parser)
+    endpoint_config_get_parser.set_defaults(func=cmd_endpoint_config_get)
 
-    entity_config_get_parser = entity_config_sub.add_parser("get", help="Read capability entity config")
-    entity_config_get_parser.add_argument("entity", help="Capability entity id, e.g. raw.capture")
-    add_transport_args(entity_config_get_parser)
-    entity_config_get_parser.set_defaults(func=cmd_entity_config_get)
-
-    entity_config_set_parser = entity_config_sub.add_parser("set", help="Write capability entity config")
-    entity_config_set_parser.add_argument("entity", help="Capability entity id, e.g. raw.capture")
-    entity_config_set_parser.add_argument(
+    endpoint_config_set_parser = endpoint_config_sub.add_parser("set", help="Write endpoint config")
+    endpoint_config_set_parser.add_argument("id", help="Endpoint id, e.g. radar.raw")
+    endpoint_config_set_parser.add_argument(
         "--config-json",
         required=True,
         help="JSON object string, @file, or file path containing the config patch",
     )
-    add_transport_args(entity_config_set_parser)
-    entity_config_set_parser.set_defaults(func=cmd_entity_config_set)
-
-    # -- adapter --
-    adapter_parser = subparsers.add_parser("adapter", help="Inspect protocol adapter projection status and manifests")
-    adapter_sub = adapter_parser.add_subparsers(dest="action", required=True)
-
-    adapter_list_parser = adapter_sub.add_parser("list", help="List available protocol adapters")
-    add_transport_args(adapter_list_parser)
-    adapter_list_parser.set_defaults(func=cmd_adapter_list)
-
-    adapter_status_parser = adapter_sub.add_parser("status", help="Show adapter status summary")
-    adapter_status_parser.add_argument("protocol", help="Adapter protocol to inspect")
-    add_transport_args(adapter_status_parser)
-    adapter_status_parser.set_defaults(func=cmd_adapter_status)
-
-    adapter_manifest_parser = adapter_sub.add_parser("manifest", help="Show adapter projection manifest")
-    adapter_manifest_parser.add_argument("protocol", help="Adapter protocol to inspect")
-    add_transport_args(adapter_manifest_parser)
-    adapter_manifest_parser.set_defaults(func=cmd_adapter_manifest)
+    add_transport_args(endpoint_config_set_parser)
+    endpoint_config_set_parser.set_defaults(func=cmd_endpoint_config_set)
 
     # -- scene --
-    scene_parser = subparsers.add_parser("scene", help="Capability-first scene management")
+    scene_parser = subparsers.add_parser("scene", help="Scene orchestration and config management")
     scene_sub = scene_parser.add_subparsers(dest="action", required=True)
 
-    scene_show_parser = scene_sub.add_parser("show", help="Show active scene config")
-    add_transport_args(scene_show_parser)
-    scene_show_parser.set_defaults(func=cmd_scene_show)
+    scene_read_parser = scene_sub.add_parser("read", help="Show active scene config")
+    add_transport_args(scene_read_parser)
+    scene_read_parser.set_defaults(func=cmd_scene_show)
 
     scene_set_parser = scene_sub.add_parser("set", help="Apply a scene.v1.config patch")
     scene_set_parser.add_argument(
@@ -1266,7 +1215,7 @@ def main():
     add_transport_args(scene_apply_parser)
     scene_apply_parser.set_defaults(func=cmd_scene_apply)
 
-    scene_wait_parser = scene_sub.add_parser("wait-ready", help="Wait until radar is ready after scene apply")
+    scene_wait_parser = scene_sub.add_parser("wait", help="Wait until radar is ready after scene apply")
     scene_wait_parser.add_argument("--timeout-ms", type=int, default=30000,
                                    help="Timeout in milliseconds (default: 30000)")
     scene_wait_parser.add_argument("--interval-ms", type=int, default=500,
@@ -1274,66 +1223,24 @@ def main():
     add_transport_args(scene_wait_parser)
     scene_wait_parser.set_defaults(func=cmd_scene_wait_ready)
 
-    # -- policy --
-    policy_parser = subparsers.add_parser("policy", help="Capability-first measurement policy management")
-    policy_sub = policy_parser.add_subparsers(dest="action", required=True)
-
-    policy_show_parser = policy_sub.add_parser("show", help="Show active policy config")
-    add_transport_args(policy_show_parser)
-    policy_show_parser.set_defaults(func=cmd_policy_show)
-
-    policy_explain_parser = policy_sub.add_parser("explain", help="Show policy state and effective config")
-    add_transport_args(policy_explain_parser)
-    policy_explain_parser.set_defaults(func=cmd_policy_explain)
-
-    policy_set_parser = policy_sub.add_parser("set", help="Update policy defaults and runtime intervals")
-    policy_set_parser.add_argument(
-        "--config-json",
-        help="JSON object string, @file, or file path containing the policy config patch",
-    )
-    policy_set_parser.add_argument("--profile", choices=["default", "custom"],
-                                   help="Measurement profile shortcut")
-    policy_set_parser.add_argument("--summary-ms", type=int,
-                                   help="Summary interval mapped to legacy vs_ms")
-    policy_set_parser.add_argument("--report-ms", type=int,
-                                   help="Report interval mapped to legacy presence_ms")
-    policy_set_parser.add_argument("--tracker-ms", type=int,
-                                   help="Legacy tracker interval override")
-    policy_set_parser.add_argument("--vs-ms", type=int,
-                                   help="Legacy vital-signs interval override")
-    policy_set_parser.add_argument("--presence-ms", type=int,
-                                   help="Legacy presence interval override")
-    policy_set_parser.add_argument("--quality-threshold", type=int,
-                                   help="Default quality threshold")
-    policy_set_parser.add_argument("--ecg-chunk-samples", type=int,
-                                   help="Default ECG chunk size")
-    policy_set_parser.add_argument("--ecg-buffer-chunks", type=int,
-                                   help="Default ECG buffer chunk count")
-    policy_set_parser.add_argument("--raw-record-enabled", type=int, choices=[0, 1],
-                                   help="Default raw recording enable flag")
-    policy_set_parser.add_argument("--raw-record-max-duration-sec", type=int,
-                                   help="Default raw recording max duration")
-    add_transport_args(policy_set_parser)
-    policy_set_parser.set_defaults(func=cmd_policy_set)
-
     # -- network --
     net_parser = subparsers.add_parser("network", help="Network configuration")
     net_sub = net_parser.add_subparsers(dest="action", required=True)
 
     # network mqtt
     net_mqtt = net_sub.add_parser("mqtt", help="Get/Set MQTT configuration")
-    net_mqtt.add_argument("--mqtt-uri", help="Set MQTT Broker URI")
-    net_mqtt.add_argument("--mqtt-user", help="Set MQTT Username")
-    net_mqtt.add_argument("--mqtt-pass", help="Set MQTT Password")
+    net_mqtt.add_argument("--uri", help="Set MQTT Broker URI")
+    net_mqtt.add_argument("--user", help="Set MQTT Username")
+    net_mqtt.add_argument("--pass", dest="passphrase", help="Set MQTT Password")
     add_transport_args(net_mqtt)
     net_mqtt.set_defaults(func=cmd_network)
 
-    # network config
-    net_cfg = net_sub.add_parser("config", help="Set Wi-Fi credentials")
-    net_cfg.add_argument("--ssid", required=True, help="Wi-Fi SSID")
-    net_cfg.add_argument("--password", required=True, help="Wi-Fi Password")
-    add_transport_args(net_cfg)
-    net_cfg.set_defaults(func=cmd_network)
+    # network wifi
+    net_wifi = net_sub.add_parser("wifi", help="Set Wi-Fi credentials")
+    net_wifi.add_argument("--ssid", required=True, help="Wi-Fi SSID")
+    net_wifi.add_argument("--pass", dest="passphrase", required=True, help="Wi-Fi Password")
+    add_transport_args(net_wifi)
+    net_wifi.set_defaults(func=cmd_network)
 
     # network prov
     net_prov = net_sub.add_parser("prov", help="Control Wi-Fi provisioning")
@@ -1355,11 +1262,6 @@ def main():
     net_ntp.add_argument("--ntp-interval", type=int, help="NTP polling interval in seconds")
     add_transport_args(net_ntp)
     net_ntp.set_defaults(func=cmd_network)
-
-    # -- help --
-    help_parser = subparsers.add_parser("help", help="List all device-supported commands")
-    add_transport_args(help_parser)
-    help_parser.set_defaults(func=cmd_help)
 
     args = parser.parse_args()
     _finalize_protocol_args(args)

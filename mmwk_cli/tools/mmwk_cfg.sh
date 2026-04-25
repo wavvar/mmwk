@@ -135,7 +135,7 @@ CONFIG OPTIONS:
   --mqtt-user USER       MQTT username to store on device
   --mqtt-pass PASS       MQTT password to store on device
   --server-local         Start or reuse server.sh and use its MQTT URI
-  --server-state-dir DIR server.sh state dir (default: ./output/local_server)
+  --server-state-dir DIR server.sh state dir (default: ./build_output/local_server)
   --server-serve-dir DIR server.sh serve dir override
   --server-upload-dir DIR
                         server.sh upload dir override
@@ -397,7 +397,7 @@ ensure_server_local() {
 }
 
 if [ -z "$SERVER_STATE_DIR" ]; then
-    SERVER_STATE_DIR="$INVOKE_PWD/output/local_server"
+    SERVER_STATE_DIR="$INVOKE_PWD/build_output/local_server"
 fi
 SERVER_STATE_DIR="$(abspath_path "$SERVER_STATE_DIR" "$INVOKE_PWD")"
 
@@ -409,20 +409,20 @@ CONFIG_CHANGED=false
 
 if [ "$WIFI_REQUESTED" = true ]; then
     log_info "Applying Wi-Fi settings over $TRANSPORT"
-    run_mmwk_cli network config --ssid "$SSID" --password "$PASSWORD"
+    run_mmwk_cli network wifi --ssid "$SSID" --pass "$PASSWORD"
     CONFIG_CHANGED=true
 fi
 
 if [ "$MQTT_REQUESTED" = true ]; then
     MQTT_CMD=(network mqtt)
     if [ -n "$MQTT_URI" ]; then
-        MQTT_CMD+=(--mqtt-uri "$MQTT_URI")
+        MQTT_CMD+=(--uri "$MQTT_URI")
     fi
     if [ -n "$MQTT_USER" ]; then
-        MQTT_CMD+=(--mqtt-user "$MQTT_USER")
+        MQTT_CMD+=(--user "$MQTT_USER")
     fi
     if [ -n "$MQTT_PASS" ]; then
-        MQTT_CMD+=(--mqtt-pass "$MQTT_PASS")
+        MQTT_CMD+=(--pass "$MQTT_PASS")
     fi
 
     if [ "${#MQTT_CMD[@]}" -le 2 ]; then
@@ -436,7 +436,7 @@ fi
 
 if [ "$REBOOT" = true ]; then
     log_info "Rebooting device over $TRANSPORT"
-    run_mmwk_cli device reboot
+    run_mmwk_cli node reboot
 elif [ "$CONFIG_CHANGED" = true ]; then
     log_info "Configuration updated. Reboot the device to apply Wi-Fi/MQTT changes."
 fi

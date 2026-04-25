@@ -37,12 +37,12 @@ class DeviceOtaCommand:
         diag_data = {}
         device_ip = ""
         try:
-            hi_resp = self.mcp.call_tool("device", {"action": "hi"}, timeout=8)
+            hi_resp = self.mcp.call_tool("node", {"action": "info"}, timeout=8)
             hi_text = self.mcp.extract_text(hi_resp)
             hi_data = self._parse_json_dict(hi_text)
             device_ip = network_runtime_ip(hi_data)
         except Exception as exc:
-            return False, f"device.hi_error={exc}"
+            return False, f"node.info_error={exc}"
 
         try:
             status_resp = self.mcp.call_tool("network", {"action": "status"}, timeout=8)
@@ -94,15 +94,17 @@ class DeviceOtaCommand:
         if not isinstance(msg, str):
             return False
         lower = msg.lower()
+        if "timeout waiting for tool 'node' response" in lower:
+            return True
         if "timeout waiting for tool 'device' response" in lower:
             return True
-        if "timed out" in lower and "device" in lower:
+        if "timed out" in lower and ("node" in lower or "device" in lower):
             return True
         return False
 
     def _device_runtime_ip(self) -> str:
         for tool_name, tool_args in (
-            ("device", {"action": "hi"}),
+            ("node", {"action": "info"}),
             ("network", {"action": "status"}),
         ):
             try:
@@ -117,6 +119,31 @@ class DeviceOtaCommand:
 
         return ""
 
+    def _node_info_runtime_ready(self) -> tuple[bool, str]:
+        try:
+            hi_resp = self.mcp.call_tool("node", {"action": "info"}, timeout=8)
+            hi_text = self.mcp.extract_text(hi_resp)
+            hi_data = self._parse_json_dict(hi_text)
+        except Exception as exc:
+            return False, f"node.info_error={exc}"
+
+        required_fields = ("radar_fw", "radar_fw_version", "radar_cfg")
+        missing_fields = [field for field in required_fields if not str(hi_data.get(field, "")).strip()]
+        if missing_fields:
+            detail = (
+                f"node info incomplete: missing={missing_fields}, "
+                f"boot_mode={hi_data.get('fw', {}).get('boot_mode', '')}, "
+                f"ip={hi_data.get('ip', '')}, "
+                f"uptime_sec={hi_data.get('uptime_sec', '')}"
+            )
+            return False, detail
+
+        return True, (
+            f"radar_fw={hi_data.get('radar_fw', '')}, "
+            f"radar_fw_version={hi_data.get('radar_fw_version', '')}, "
+            f"radar_cfg={hi_data.get('radar_cfg', '')}"
+        )
+
     def _execute_once(self, url: str, served_name: str, server, timeout: float) -> tuple[bool, bool]:
         try:
             # Drop stale OTA notifications from previous runs/retries.
@@ -125,7 +152,7 @@ class DeviceOtaCommand:
             pass
 
         try:
-            result = self.mcp.call_tool("device", {"action": "ota", "url": url}, timeout=45)
+            result = self.mcp.call_tool("node", {"action": "ota", "url": url}, timeout=45)
             result_text = self.mcp.extract_text(result)
             logger.info(f"Device OTA initiated: {result_text}")
             payload = self._parse_json_dict(result_text)
@@ -199,7 +226,12 @@ class DeviceOtaCommand:
         while time.time() < reconnect_deadline:
             try:
                 self.mcp.initialize(timeout=5)
-                self.mcp.call_tool("device", {"action": "hi"}, timeout=10)
+                network_ready_now, network_detail = self._network_runtime_ready()
+                node_ready_now, node_detail = self._node_info_runtime_ready()
+                if not network_ready_now or not node_ready_now:
+                    last_error = f"{network_detail}; {node_detail}"
+                    time.sleep(2)
+                    continue
                 elapsed = time.time() - start_time
                 logger.info(f"Device OTA complete in {elapsed:.1f}s")
                 return True, False

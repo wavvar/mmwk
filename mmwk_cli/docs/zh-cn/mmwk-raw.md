@@ -21,7 +21,7 @@ cd ./mmwk_cli
 
 除非 broker 明确要求其他端口，默认 MQTT 端口应视为 `1883`。
 
-如果没有显式传 `--broker`，同时 `MMWK_SERVER_MQTT_URI` 也没设置，`mmwk_raw.sh` 会自动从 server.sh state 里读取 broker。默认读取 `./output/local_server/server.env`，也可以用 `--server-state-dir` 指到别的 state dir。
+如果没有显式传 `--broker`，同时 `MMWK_SERVER_MQTT_URI` 也没设置，`mmwk_raw.sh` 会自动从 server.sh state 里读取 broker。默认读取 `./build_output/local_server/server.env`，也可以用 `--server-state-dir` 指到别的 state dir。
 
 `mmwk_raw.sh` 仍然需要设备 id。请显式传 `--device-id`，或者自己导出 `MMWK_DEVICE_ID`。
 
@@ -34,7 +34,8 @@ cd ./mmwk_cli
   --broker mqtt://192.168.1.100:1883 \
   --device-id mmwk_demo_01 \
   --data-output ./data_resp.sraw \
-  --resp-output ./cmd_resp.log
+  --resp-output ./cmd_resp.log \
+  --resp-optional
 ```
 
 ### 2. 复用本地 `server.sh` state
@@ -46,7 +47,7 @@ cd ./mmwk_cli
   --port /dev/cu.usbserial-0001 \
   --reboot
 
-./tools/mmwk_raw.sh --server-state-dir ./output/local_server \
+./tools/mmwk_raw.sh --server-state-dir ./build_output/local_server \
   --trigger device-reboot \
   --device-id mmwk_demo_01
 ```
@@ -60,8 +61,18 @@ cd ./mmwk_cli
   --data-output ./data_resp.sraw
 ```
 
+## 关键参数
+
+- `--device-id`：除非你已经导出了 `MMWK_DEVICE_ID`，否则必须显式提供。
+- `--cmd-topic` / `--resp-topic`：当设备没有使用 canonical 默认控制 topic 时，用它们覆盖当前 MQTT 控制面 topic。
+- `--raw-data-topic` / `--raw-resp-topic`：直接覆盖 raw topic。不传时，`mmwk_raw.sh` 会先按 `--device-id` 推导；对于 restart/reboot 触发流程，也会优先读取运行时上报的 raw topic。
+- `--duration`：采集时长，默认 `10` 秒。
+- `--timeout`：MQTT 订阅和控制面准备超时，默认 `10` 秒。
+- `--resp-optional`：只允许和 `--trigger none` 搭配，用于 late-attach 稳态窗口里“这次不强求 fresh startup `raw_resp`”的场景。
+- `--server-state-dir`：默认是 `./build_output/local_server`；当你没有显式传 broker 时，wrapper 会去读取其中的 `server.env`。
+
 ## Trigger 说明
 
 - `trigger=none`：中途 late-attach 的稳态采集；只有这里允许 `--resp-optional`
-- `trigger=radar-restart`：先订阅，再通过 MQTT 重启雷达
-- `trigger=device-reboot`：先订阅，再通过 MQTT 发送 `device reboot`；要求 MQTT 控制链路已经可用，而且 `raw_auto=1`
+- `trigger=radar-restart`：先订阅，再通过 MQTT 重启雷达。如果设备没有使用 canonical 默认控制 topic，请同时传 `--cmd-topic` / `--resp-topic`
+- `trigger=device-reboot`：先订阅，再通过 MQTT 发送 `node reboot`；要求 MQTT 控制链路已经可用，而且 `raw_auto=1`
