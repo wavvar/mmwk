@@ -1,4 +1,4 @@
-# Local `server.sh` + `mmwk_cli.sh` Wi-Fi Flash and 5-Minute Collection Example
+# Local `server.sh` + `run.sh` Wi-Fi Flash and 5-Minute Collection Example
 
 ## Raw Semantics Contract
 
@@ -11,8 +11,8 @@
 
 This example shows how to:
 
-1. Use `./mmwk_cli/server.sh` to provide local MQTT and HTTP services on the host.
-2. Use `./mmwk_cli/mmwk_cli.sh` over Wi-Fi/MQTT to control the device and let it download radar firmware and config from the local HTTP server.
+1. Use `./cli/server.sh` to provide local MQTT and HTTP services on the host.
+2. Use `./cli/run.sh` over Wi-Fi/MQTT to control the device and let it download radar firmware and config from the local HTTP server.
 3. Collect more than 300 seconds of `raw_data` and `raw_resp`.
 
 The following constraints were respected during validation:
@@ -53,19 +53,19 @@ Example values used below:
 
 For your own run, do not assume the example MQTT id and topics above. After `network mqtt` plus reboot, use `node info --transport mqtt` to read the actual `client_id`, control topics, and raw topics, then substitute those values into the later MQTT commands.
 
-`collect` remains the official command for the strict startup-aware flow in this document. If you want the published task wrappers under `mmwk_cli/tools/`, use `./tools/config.sh` plus `./tools/collect.sh`; see [Radar Task Tools](../../mmwk_cli/docs/en/radar-task-tools.md) and [Develop Radar With Bridge](../../mmwk_cli/docs/en/bridge-ti-radar-debug.md). If you explicitly need the older pure-MQTT helpers outside that registry-backed flow, use `./tools/mmwk_cfg.sh` plus `./tools/mmwk_raw.sh`.
+`collect` remains the official command for the strict startup-aware flow in this document. If you want the published task wrappers, use `./cli/config.sh` plus `./cli/collect.sh`; see [Radar Task Tools](../../cli/docs/en/radar-task-tools.md) and [Develop Radar With Bridge](../../cli/docs/en/bridge-ti-radar-debug.md). If you explicitly need pure-MQTT capture outside that registry-backed flow, use `./cli/config.sh set` plus `./cli/collect.sh --trigger ...`.
 
 Unless a specific broker override is required, the default MQTT port is `1883`. Earlier `1884` examples in this document were historical local-server residue, not the CLI or `server.sh` default.
 
-From the `mmwk_cli` directory, the external helper supports:
+From the package root, the direct pure-MQTT helper supports:
 
 ```bash
-./tools/mmwk_raw.sh --trigger none
-./tools/mmwk_raw.sh --trigger radar-restart
-./tools/mmwk_raw.sh --trigger device-reboot
+./cli/collect.sh --trigger none
+./cli/collect.sh --trigger radar-restart
+./cli/collect.sh --trigger device-reboot
 ```
 
-This helper is pure MQTT for both control and raw capture. Use `./tools/mmwk_cfg.sh` when you need to push Wi-Fi/MQTT settings first, and let `./tools/mmwk_raw.sh` consume the resulting broker or `server.sh` state. For the current published wrapper path, prefer `./tools/config.sh` plus `./tools/collect.sh`.
+This helper is pure MQTT for both control and raw capture. Use `./cli/config.sh set` when you need to push Wi-Fi/MQTT settings first, and let `./cli/collect.sh --trigger ...` consume the resulting broker or `server.sh` state. For the registry-backed path, prefer `./cli/config.sh` plus `./cli/collect.sh`.
 
 ## 3. Validated Notes and Parameter Meanings
 
@@ -84,7 +84,7 @@ This helper is pure MQTT for both control and raw capture. Use `./tools/mmwk_cfg
 - `--http-port`
   - Local HTTP listen port. In this example it is `8380`.
 
-### 3.2 `mmwk_cli.sh`
+### 3.2 `run.sh`
 
 - `network mqtt`
   - Configures broker/auth settings while MQTT topic identity remains fixed to the Wi-Fi STA MAC.
@@ -163,7 +163,7 @@ Topic split reminder:
 Command:
 
 ```bash
-./mmwk_cli/server.sh run \
+./cli/server.sh run \
   --state-dir <demo-output-dir>/local_server \
   --serve-dir <artifact-dir> \
   --host-ip 192.168.4.9 \
@@ -184,8 +184,8 @@ Success evidence:
 Commands:
 
 ```bash
-./mmwk_cli/mmwk_cli.sh node info --reset -p /dev/cu.usbserial-0001
-./mmwk_cli/mmwk_cli.sh network status --reset -p /dev/cu.usbserial-0001
+./cli/run.sh node info --reset -p /dev/cu.usbserial-0001
+./cli/run.sh network status --reset -p /dev/cu.usbserial-0001
 ```
 
 Validated baseline:
@@ -206,7 +206,7 @@ This is an important fresh-device baseline. The device is still waiting for Wi-F
 Command:
 
 ```bash
-./mmwk_cli/mmwk_cli.sh network wifi \
+./cli/run.sh network wifi \
   --ssid ventropic \
   --pass ve12345678 \
   -p /dev/cu.usbserial-0001
@@ -221,7 +221,7 @@ Success evidence:
 Command:
 
 ```bash
-./mmwk_cli/mmwk_cli.sh network mqtt \
+./cli/run.sh network mqtt \
   --uri mqtt://192.168.4.9:1883 \
   -p /dev/cu.usbserial-0001
 ```
@@ -241,7 +241,7 @@ Important:
 Command:
 
 ```bash
-./mmwk_cli/mmwk_cli.sh node agent \
+./cli/run.sh node agent \
   --mqtt 1 \
   --uart 1 \
   --raw-auto 1 \
@@ -260,7 +260,7 @@ Use this only when the device is carrying older persisted values or you are trou
 Command:
 
 ```bash
-./mmwk_cli/mmwk_cli.sh node reboot -p /dev/cu.usbserial-0001
+./cli/run.sh node reboot -p /dev/cu.usbserial-0001
 ```
 
 Success evidence:
@@ -272,7 +272,7 @@ Success evidence:
 Command:
 
 ```bash
-./mmwk_cli/mmwk_cli.sh node info \
+./cli/run.sh node info \
   --transport mqtt \
   --broker 192.168.4.9 \
   --mqtt-port 1883 \
@@ -296,7 +296,7 @@ Success evidence:
 Command:
 
 ```bash
-./mmwk_cli/mmwk_cli.sh radar status \
+./cli/run.sh radar status \
   --transport mqtt \
   --broker 192.168.4.9 \
   --mqtt-port 1883 \
@@ -316,7 +316,7 @@ Success evidence:
 Command:
 
 ```bash
-./mmwk_cli/mmwk_cli.sh radar fw ota \
+./cli/run.sh radar fw ota \
   --fw <artifact-dir>/vital_signs_tracking_6843AOP_demo.bin \
   --cfg <artifact-dir>/vital_signs_AOP_2m.cfg \
   --welcome \
@@ -356,7 +356,7 @@ This means:
 Recommended command:
 
 ```bash
-./mmwk_cli/mmwk_cli.sh radar status \
+./cli/run.sh radar status \
   --transport mqtt \
   --broker 192.168.4.9 \
   --mqtt-port 1883 \
@@ -384,7 +384,7 @@ Conclusion:
 Command:
 
 ```bash
-./mmwk_cli/mmwk_cli.sh collect \
+./cli/run.sh collect \
   --duration 300 \
   --broker mqtt://192.168.4.9:1883 \
   --device-id dc5475c879c0 \
@@ -450,7 +450,7 @@ Notes:
 Command:
 
 ```bash
-./mmwk_cli/mmwk_cli.sh radar status \
+./cli/run.sh radar status \
   --transport mqtt \
   --broker 192.168.4.9 \
   --mqtt-port 1883 \
@@ -468,7 +468,7 @@ Success evidence:
 Command:
 
 ```bash
-./mmwk_cli/server.sh stop --state-dir <demo-output-dir>/local_server
+./cli/server.sh stop --state-dir <demo-output-dir>/local_server
 ```
 
 Success evidence:
@@ -480,7 +480,7 @@ Success evidence:
 In terminal A:
 
 ```bash
-./mmwk_cli/server.sh run \
+./cli/server.sh run \
   --serve-dir <artifact-dir> \
   --host-ip 192.168.4.9 \
   --mqtt-port 1883 \
@@ -490,24 +490,24 @@ In terminal A:
 In terminal B:
 
 ```bash
-./mmwk_cli/mmwk_cli.sh network wifi --ssid ventropic --pass ve12345678 --reset -p /dev/cu.usbserial-0001
-./mmwk_cli/mmwk_cli.sh network mqtt --uri mqtt://192.168.4.9:1883 --reset -p /dev/cu.usbserial-0001
-./mmwk_cli/mmwk_cli.sh node reboot --reset -p /dev/cu.usbserial-0001
-./mmwk_cli/mmwk_cli.sh node info --transport mqtt --broker 192.168.4.9 --mqtt-port 1883 --device-id dc5475c879c0 --cmd-topic mmwk/dc5475c879c0/device/cmd --resp-topic mmwk/dc5475c879c0/device/resp
-./mmwk_cli/mmwk_cli.sh radar fw ota --fw <artifact-dir>/vital_signs_tracking_6843AOP_demo.bin --cfg <artifact-dir>/vital_signs_AOP_2m.cfg --welcome --no-verify --raw-resp-output ./ota_cmd_resp.log --transport mqtt --broker 192.168.4.9 --mqtt-port 1883 --device-id dc5475c879c0 --cmd-topic mmwk/dc5475c879c0/device/cmd --resp-topic mmwk/dc5475c879c0/device/resp --base-url http://192.168.4.9:8380/
+./cli/run.sh network wifi --ssid ventropic --pass ve12345678 --reset -p /dev/cu.usbserial-0001
+./cli/run.sh network mqtt --uri mqtt://192.168.4.9:1883 --reset -p /dev/cu.usbserial-0001
+./cli/run.sh node reboot --reset -p /dev/cu.usbserial-0001
+./cli/run.sh node info --transport mqtt --broker 192.168.4.9 --mqtt-port 1883 --device-id dc5475c879c0 --cmd-topic mmwk/dc5475c879c0/device/cmd --resp-topic mmwk/dc5475c879c0/device/resp
+./cli/run.sh radar fw ota --fw <artifact-dir>/vital_signs_tracking_6843AOP_demo.bin --cfg <artifact-dir>/vital_signs_AOP_2m.cfg --welcome --no-verify --raw-resp-output ./ota_cmd_resp.log --transport mqtt --broker 192.168.4.9 --mqtt-port 1883 --device-id dc5475c879c0 --cmd-topic mmwk/dc5475c879c0/device/cmd --resp-topic mmwk/dc5475c879c0/device/resp --base-url http://192.168.4.9:8380/
 ```
 
 If MQTT control is still disabled because the device is carrying older persisted agent values, run this manual override before rebooting:
 
 ```bash
-./mmwk_cli/mmwk_cli.sh node agent --mqtt 1 --raw-auto 1 --reset -p /dev/cu.usbserial-0001
+./cli/run.sh node agent --mqtt 1 --raw-auto 1 --reset -p /dev/cu.usbserial-0001
 ```
 
 If `radar fw ota` times out, or if you want an explicit ready gate before collection:
 
 ```bash
 while true; do
-  ./mmwk_cli/mmwk_cli.sh radar status --transport mqtt --broker 192.168.4.9 --mqtt-port 1883 --device-id dc5475c879c0 --cmd-topic mmwk/dc5475c879c0/device/cmd --resp-topic mmwk/dc5475c879c0/device/resp
+  ./cli/run.sh radar status --transport mqtt --broker 192.168.4.9 --mqtt-port 1883 --device-id dc5475c879c0 --cmd-topic mmwk/dc5475c879c0/device/cmd --resp-topic mmwk/dc5475c879c0/device/resp
   sleep 10
 done
 ```
@@ -515,7 +515,7 @@ done
 After the radar returns `running`:
 
 ```bash
-./mmwk_cli/mmwk_cli.sh collect --duration 300 --broker mqtt://192.168.4.9:1883 --device-id dc5475c879c0 --data-topic mmwk/dc5475c879c0/raw/data --resp-topic mmwk/dc5475c879c0/raw/resp --data-output ./data_resp_300s.sraw --resp-output ./cmd_resp_300s.log -p /dev/cu.usbserial-0001
+./cli/run.sh collect --duration 300 --broker mqtt://192.168.4.9:1883 --device-id dc5475c879c0 --data-topic mmwk/dc5475c879c0/raw/data --resp-topic mmwk/dc5475c879c0/raw/resp --data-output ./data_resp_300s.sraw --resp-output ./cmd_resp_300s.log -p /dev/cu.usbserial-0001
 ```
 
 If an immediate post-reboot UART CLI JSON query fails, retry once with `--reset` instead of assuming the device is broken.

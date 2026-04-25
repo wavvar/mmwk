@@ -21,14 +21,14 @@ For blank/erased devices, see [Factory Flash Guide](./flash.md).
 Use the helper mode `server.sh --device-ota --device-ota-board <board>` to publish bridge OTA artifacts.
 
 ```bash
-cd ./mmwk_cli
+cd ./cli
 ./server.sh run --device-ota --device-ota-board <board> --host-ip <host_ip>
 ```
 
 Then in another terminal:
 
 ```bash
-cd ./mmwk_cli
+cd ./cli
 ./server.sh env
 ```
 
@@ -47,8 +47,8 @@ Resolution behavior:
 
 ```bash
 cd ..
-./mmwk_cli/mmwk_cli.sh node ota --url "$MMWK_SERVER_DEVICE_OTA_URL" -p <port>
-./mmwk_cli/mmwk_cli.sh node info -p <port>
+./cli/run.sh node ota --url "$MMWK_SERVER_DEVICE_OTA_URL" -p <port>
+./cli/run.sh node info -p <port>
 ```
 
 Success criteria:

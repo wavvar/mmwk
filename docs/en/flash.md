@@ -72,7 +72,7 @@ Use this exact extracted file:
 From the `mmwk` project root, verify runtime identity:
 
 ```bash
-./mmwk_cli/mmwk_cli.sh device hi --reset -p <port>
+./cli/run.sh device hi --reset -p <port>
 ```
 
 `device hi` should report the bridge identity. Confirm that `device hi.version` matches the version encoded in the published package path or extracted binary name, for example:

@@ -72,7 +72,7 @@ cd /tmp/mmwk_bridge_factory/factory
 在 `mmwk` 项目根目录下执行：
 
 ```bash
-./mmwk_cli/mmwk_cli.sh device hi --reset -p <port>
+./cli/run.sh device hi --reset -p <port>
 ```
 
 `device hi` 应返回 bridge 身份信息。请确认 `device hi.version` 与发布包路径或解压后文件名里携带的版本一致，例如：

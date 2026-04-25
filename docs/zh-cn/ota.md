@@ -21,14 +21,14 @@
 请使用 `server.sh --device-ota --device-ota-board <board>` 发布 bridge OTA 固件。
 
 ```bash
-cd ./mmwk_cli
+cd ./cli
 ./server.sh run --device-ota --device-ota-board <board> --host-ip <host_ip>
 ```
 
 然后在另一个终端执行：
 
 ```bash
-cd ./mmwk_cli
+cd ./cli
 ./server.sh env
 ```
 
@@ -47,8 +47,8 @@ cd ./mmwk_cli
 
 ```bash
 cd ..
-./mmwk_cli/mmwk_cli.sh node ota --url "$MMWK_SERVER_DEVICE_OTA_URL" -p <port>
-./mmwk_cli/mmwk_cli.sh node info -p <port>
+./cli/run.sh node ota --url "$MMWK_SERVER_DEVICE_OTA_URL" -p <port>
+./cli/run.sh node info -p <port>
 ```
 
 成功标准：

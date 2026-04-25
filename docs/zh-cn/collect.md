@@ -1,4 +1,4 @@
-# 本地 `server.sh` + `mmwk_cli.sh` Wi-Fi 刷机与 5 分钟采集示例
+# 本地 `server.sh` + `run.sh` Wi-Fi 刷机与 5 分钟采集示例
 
 ## 原始语义契约
 
@@ -11,8 +11,8 @@
 
 本示例演示如何：
 
-1. 用 `./mmwk_cli/server.sh` 在本机提供本地 MQTT 和 HTTP。
-2. 用 `./mmwk_cli/mmwk_cli.sh` 通过 Wi-Fi/MQTT 控制设备，并让设备通过本地 HTTP 下载雷达固件与配置。
+1. 用 `./cli/server.sh` 在本机提供本地 MQTT 和 HTTP。
+2. 用 `./cli/run.sh` 通过 Wi-Fi/MQTT 控制设备，并让设备通过本地 HTTP 下载雷达固件与配置。
 3. 连续采集 300 秒以上的 `raw_data` 和 `raw_resp`。
 
 本次验证遵守了以下约束：
@@ -53,19 +53,19 @@
 
 在你自己的运行里，不要假设上面的 MQTT id 和 topic 一定相同。执行完 `network mqtt` 并重启后，请先用 `node info --transport mqtt` 读取实际的 `client_id`、控制 topic 和 raw topic，再把这些值替换到后续 MQTT 命令中。
 
-本文档里的严格启动期流程仍以 `collect` 作为官方命令。如果你要直接使用已发布包里的 task wrapper，请在 `mmwk_cli` 目录下使用 `./tools/config.sh` 加 `./tools/collect.sh`；对应说明见 [Radar Task Tools](../../mmwk_cli/docs/zh-cn/radar-task-tools.md) 和 [通过 Bridge 开发雷达](../../mmwk_cli/docs/zh-cn/bridge-ti-radar-debug.md)。如果你明确需要脱离注册表工作流、并且控制面与 raw 面都只走 pure MQTT 的旧 helper，再使用 `./tools/mmwk_cfg.sh` 加 `./tools/mmwk_raw.sh`。
+本文档里的严格启动期流程仍以 `collect` 作为官方命令。如果你要直接使用已发布包里的 task wrapper，请使用 `./cli/config.sh` 加 `./cli/collect.sh`；对应说明见 [Radar Task Tools](../../cli/docs/zh-cn/radar-task-tools.md) 和 [通过 Bridge 开发雷达](../../cli/docs/zh-cn/bridge-ti-radar-debug.md)。如果你明确需要脱离注册表工作流、并且控制面与 raw 面都只走 pure MQTT，再使用 `./cli/config.sh set` 加 `./cli/collect.sh --trigger ...`。
 
 除非你的 broker 明确要求其他端口，默认 MQTT 端口应视为 `1883`。本文里更早的 `1884` 例子只是历史上的本地 server 示例残留，不是 CLI 或 `server.sh` 的默认值。
 
-在 `mmwk_cli` 目录下，这个外挂 helper 支持：
+在 package root 下，这个 pure-MQTT helper 支持：
 
 ```bash
-./tools/mmwk_raw.sh --trigger none
-./tools/mmwk_raw.sh --trigger radar-restart
-./tools/mmwk_raw.sh --trigger device-reboot
+./cli/collect.sh --trigger none
+./cli/collect.sh --trigger radar-restart
+./cli/collect.sh --trigger device-reboot
 ```
 
-这个 helper 的控制面和 raw 采集都保持 pure MQTT。需要先下发 Wi-Fi / MQTT 设置时，请先使用 `./tools/mmwk_cfg.sh`，再让 `./tools/mmwk_raw.sh` 复用对应 broker 或 `server.sh` state。对于当前公开发布的 wrapper 路径，优先使用 `./tools/config.sh` 加 `./tools/collect.sh`。
+这个 helper 的控制面和 raw 采集都保持 pure MQTT。需要先下发 Wi-Fi / MQTT 设置时，请先使用 `./cli/config.sh set`，再让 `./cli/collect.sh --trigger ...` 复用对应 broker 或 `server.sh` state。对于注册表路径，优先使用 `./cli/config.sh` 加 `./cli/collect.sh`。
 
 ## 3. 关键说明与参数含义
 
@@ -84,7 +84,7 @@
 - `--http-port`
   - 本地 HTTP 监听端口。本示例为 `8380`。
 
-### 3.2 `mmwk_cli.sh`
+### 3.2 `run.sh`
 
 - `network mqtt`
   - 负责写入 broker / 鉴权设置，而 MQTT topic 身份固定绑定 Wi-Fi STA MAC。
@@ -163,7 +163,7 @@
 命令：
 
 ```bash
-./mmwk_cli/server.sh run \
+./cli/server.sh run \
   --state-dir <demo-output-dir>/local_server \
   --serve-dir <artifact-dir> \
   --host-ip 192.168.4.9 \
@@ -184,8 +184,8 @@
 命令：
 
 ```bash
-./mmwk_cli/mmwk_cli.sh node info --reset -p /dev/cu.usbserial-0001
-./mmwk_cli/mmwk_cli.sh network status --reset -p /dev/cu.usbserial-0001
+./cli/run.sh node info --reset -p /dev/cu.usbserial-0001
+./cli/run.sh network status --reset -p /dev/cu.usbserial-0001
 ```
 
 本次验证得到的 fresh-device 基线：
@@ -206,7 +206,7 @@
 命令：
 
 ```bash
-./mmwk_cli/mmwk_cli.sh network wifi \
+./cli/run.sh network wifi \
   --ssid ventropic \
   --pass ve12345678 \
   -p /dev/cu.usbserial-0001
@@ -221,7 +221,7 @@
 命令：
 
 ```bash
-./mmwk_cli/mmwk_cli.sh network mqtt \
+./cli/run.sh network mqtt \
   --uri mqtt://192.168.4.9:1883 \
   -p /dev/cu.usbserial-0001
 ```
@@ -241,7 +241,7 @@
 命令：
 
 ```bash
-./mmwk_cli/mmwk_cli.sh node agent \
+./cli/run.sh node agent \
   --mqtt 1 \
   --uart 1 \
   --raw-auto 1 \
@@ -260,7 +260,7 @@
 命令：
 
 ```bash
-./mmwk_cli/mmwk_cli.sh node reboot -p /dev/cu.usbserial-0001
+./cli/run.sh node reboot -p /dev/cu.usbserial-0001
 ```
 
 成功证明：
@@ -272,7 +272,7 @@
 命令：
 
 ```bash
-./mmwk_cli/mmwk_cli.sh node info \
+./cli/run.sh node info \
   --transport mqtt \
   --broker 192.168.4.9 \
   --mqtt-port 1883 \
@@ -296,7 +296,7 @@
 命令：
 
 ```bash
-./mmwk_cli/mmwk_cli.sh radar status \
+./cli/run.sh radar status \
   --transport mqtt \
   --broker 192.168.4.9 \
   --mqtt-port 1883 \
@@ -316,7 +316,7 @@
 命令：
 
 ```bash
-./mmwk_cli/mmwk_cli.sh radar fw ota \
+./cli/run.sh radar fw ota \
   --fw <artifact-dir>/vital_signs_tracking_6843AOP_demo.bin \
   --cfg <artifact-dir>/vital_signs_AOP_2m.cfg \
   --welcome \
@@ -356,7 +356,7 @@
 推荐命令：
 
 ```bash
-./mmwk_cli/mmwk_cli.sh radar status \
+./cli/run.sh radar status \
   --transport mqtt \
   --broker 192.168.4.9 \
   --mqtt-port 1883 \
@@ -384,7 +384,7 @@
 命令：
 
 ```bash
-./mmwk_cli/mmwk_cli.sh collect \
+./cli/run.sh collect \
   --duration 300 \
   --broker mqtt://192.168.4.9:1883 \
   --device-id dc5475c879c0 \
@@ -450,7 +450,7 @@
 命令：
 
 ```bash
-./mmwk_cli/mmwk_cli.sh radar status \
+./cli/run.sh radar status \
   --transport mqtt \
   --broker 192.168.4.9 \
   --mqtt-port 1883 \
@@ -468,7 +468,7 @@
 命令：
 
 ```bash
-./mmwk_cli/server.sh stop --state-dir <demo-output-dir>/local_server
+./cli/server.sh stop --state-dir <demo-output-dir>/local_server
 ```
 
 成功证明：
@@ -480,7 +480,7 @@
 终端 A：
 
 ```bash
-./mmwk_cli/server.sh run \
+./cli/server.sh run \
   --serve-dir <artifact-dir> \
   --host-ip 192.168.4.9 \
   --mqtt-port 1883 \
@@ -490,24 +490,24 @@
 终端 B：
 
 ```bash
-./mmwk_cli/mmwk_cli.sh network wifi --ssid ventropic --pass ve12345678 --reset -p /dev/cu.usbserial-0001
-./mmwk_cli/mmwk_cli.sh network mqtt --uri mqtt://192.168.4.9:1883 --reset -p /dev/cu.usbserial-0001
-./mmwk_cli/mmwk_cli.sh node reboot --reset -p /dev/cu.usbserial-0001
-./mmwk_cli/mmwk_cli.sh node info --transport mqtt --broker 192.168.4.9 --mqtt-port 1883 --device-id dc5475c879c0 --cmd-topic mmwk/dc5475c879c0/device/cmd --resp-topic mmwk/dc5475c879c0/device/resp
-./mmwk_cli/mmwk_cli.sh radar fw ota --fw <artifact-dir>/vital_signs_tracking_6843AOP_demo.bin --cfg <artifact-dir>/vital_signs_AOP_2m.cfg --welcome --no-verify --raw-resp-output ./ota_cmd_resp.log --transport mqtt --broker 192.168.4.9 --mqtt-port 1883 --device-id dc5475c879c0 --cmd-topic mmwk/dc5475c879c0/device/cmd --resp-topic mmwk/dc5475c879c0/device/resp --base-url http://192.168.4.9:8380/
+./cli/run.sh network wifi --ssid ventropic --pass ve12345678 --reset -p /dev/cu.usbserial-0001
+./cli/run.sh network mqtt --uri mqtt://192.168.4.9:1883 --reset -p /dev/cu.usbserial-0001
+./cli/run.sh node reboot --reset -p /dev/cu.usbserial-0001
+./cli/run.sh node info --transport mqtt --broker 192.168.4.9 --mqtt-port 1883 --device-id dc5475c879c0 --cmd-topic mmwk/dc5475c879c0/device/cmd --resp-topic mmwk/dc5475c879c0/device/resp
+./cli/run.sh radar fw ota --fw <artifact-dir>/vital_signs_tracking_6843AOP_demo.bin --cfg <artifact-dir>/vital_signs_AOP_2m.cfg --welcome --no-verify --raw-resp-output ./ota_cmd_resp.log --transport mqtt --broker 192.168.4.9 --mqtt-port 1883 --device-id dc5475c879c0 --cmd-topic mmwk/dc5475c879c0/device/cmd --resp-topic mmwk/dc5475c879c0/device/resp --base-url http://192.168.4.9:8380/
 ```
 
 如果设备沿用了较旧的持久化 agent 值，导致 MQTT 控制仍未开启，再在重启前执行下面这个手动 override：
 
 ```bash
-./mmwk_cli/mmwk_cli.sh node agent --mqtt 1 --raw-auto 1 --reset -p /dev/cu.usbserial-0001
+./cli/run.sh node agent --mqtt 1 --raw-auto 1 --reset -p /dev/cu.usbserial-0001
 ```
 
 如果 `radar fw ota` timeout，或者你只是想在采集前做一次显式 ready gate：
 
 ```bash
 while true; do
-  ./mmwk_cli/mmwk_cli.sh radar status --transport mqtt --broker 192.168.4.9 --mqtt-port 1883 --device-id dc5475c879c0 --cmd-topic mmwk/dc5475c879c0/device/cmd --resp-topic mmwk/dc5475c879c0/device/resp
+  ./cli/run.sh radar status --transport mqtt --broker 192.168.4.9 --mqtt-port 1883 --device-id dc5475c879c0 --cmd-topic mmwk/dc5475c879c0/device/cmd --resp-topic mmwk/dc5475c879c0/device/resp
   sleep 10
 done
 ```
@@ -515,7 +515,7 @@ done
 等雷达返回 `running` 后：
 
 ```bash
-./mmwk_cli/mmwk_cli.sh collect --duration 300 --broker mqtt://192.168.4.9:1883 --device-id dc5475c879c0 --data-topic mmwk/dc5475c879c0/raw/data --resp-topic mmwk/dc5475c879c0/raw/resp --data-output ./data_resp_300s.sraw --resp-output ./cmd_resp_300s.log -p /dev/cu.usbserial-0001
+./cli/run.sh collect --duration 300 --broker mqtt://192.168.4.9:1883 --device-id dc5475c879c0 --data-topic mmwk/dc5475c879c0/raw/data --resp-topic mmwk/dc5475c879c0/raw/resp --data-output ./data_resp_300s.sraw --resp-output ./cmd_resp_300s.log -p /dev/cu.usbserial-0001
 ```
 
 如果设备刚重启后 UART CLI JSON 查询失败，不要立刻判断设备异常，先用 `--reset` 重试一次。
