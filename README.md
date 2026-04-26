@@ -137,20 +137,23 @@ If you need the MCP compatibility path, any MCP-compatible client — including 
 
 ### MMWK CLI (Open Source)
 
-[mmwk_cli](./mmwk_cli/) is an **open-source** Python CLI that defaults to the canonical CLI JSON protocol, with MCP still available as a compatibility fallback when needed. It is both a ready-to-use management utility and a reference implementation showing how to build custom host applications on top of the MMWK control protocols.
+[mmwk_cli](./cli/) is an **open-source** Python CLI that defaults to the canonical CLI JSON protocol, with MCP still available as a compatibility fallback when needed. It is both a ready-to-use management utility and a reference implementation showing how to build custom host applications on top of the MMWK control protocols.
 
 - **Cross-platform** — Python 3.10+, runs on macOS, Linux, and Windows
 - **Dual transport** — UART (serial) for local access, MQTT for remote management over the network
 - **Firmware updates** — HTTP OTA (fastest) and UART chunk transfer (no WiFi needed)
-- **Runtime reconf** — `radar reconf` switches runtime `welcome` / `verify` / cfg behavior without flashing firmware again
-- **Startup contract discovery** — `radar status` and `mgmt.radar_runtime` expose `start_mode` plus `supported_start_modes`; `fw.boot_mode` inside the `fw` object reports the live radar boot path. BRIDGE supports `["auto", "host"]`, HUB supports `["auto"]`
+- **Runtime config apply** — `radar config apply` switches runtime `welcome` / `verify` / cfg behavior without flashing firmware again
+- **Startup contract discovery** — `radar status` exposes `mode` plus `modes`; `fw.boot_mode` inside the `fw` object reports the live radar boot path. BRIDGE supports `["auto", "host"]`, HUB supports `["auto"]`
+- **Current public facades** — the published CLI now centers on `node`, `proto`, `endpoint`, `scene`, `radar fw`, `radar config`, `radar raw`, `network`, and `collect`
+- **Task wrappers included** — the published package now ships `./cli/config.sh` and `./cli/collect.sh` for registry-backed bridge lab flows
 - **Device control** — Handshake, radar start/stop, WiFi/MQTT configuration, firmware partition management
-- **Zero setup shell wrapper** — `./mmwk_cli/mmwk_cli.sh` bootstraps the CLI on macOS/Linux; direct Python usage remains available as an advanced fallback from the `mmwk_cli` directory via `PYTHONPATH=scripts python3 -m mmwk_cli`
-- **Built-in server helper** — `./mmwk_cli/server.sh` provides a quick local MQTT broker and HTTP file server to assist with firmware OTA and data collection workflows
+- **Zero setup shell wrapper** — `./cli/run.sh` bootstraps the CLI on macOS/Linux; direct Python usage remains available as an advanced fallback from the `cli` directory via `python3 -m mmwk`
+- **Built-in server helper** — `./cli/server.sh` provides a quick local MQTT broker and HTTP file server to assist with firmware OTA and data collection workflows
 - **AI command-line ready** — Designed to be seamlessly used by autonomous AI agents (like Claude) to discover, control, and interact with the sensor
 - **Integration tests included** — End-to-end flash, OTA, and persistence verification test suite
 
-For full usage and command reference, see [CLI README](./mmwk_cli/docs/en/README.md).
+For full usage and command reference, see [CLI README](./cli/docs/en/README.md).
+For task-oriented wrapper flows, see [Radar Task Tools](./cli/docs/en/radar-task-tools.md) and [Develop Radar With Bridge](./cli/docs/en/bridge-ti-radar-debug.md).
 
 
 ## Radar Firmwares

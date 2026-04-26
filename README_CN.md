@@ -134,20 +134,23 @@ MMWK 默认以 [BRIDGE 模式](./docs/zh-cn/bridge.md) 运行。请先根据设�
 
 ### MMWK CLI（开源）
 
-[mmwk_cli](./mmwk_cli/) 是一个 **开源** Python CLI，它默认使用标准 CLI JSON 协议，并在需要时支持回退到 MCP，同时也是构建自定义主机侧应用的参考实现。
+[mmwk_cli](./cli/) 是一个 **开源** Python CLI，它默认使用标准 CLI JSON 协议，并在需要时支持回退到 MCP，同时也是构建自定义主机侧应用的参考实现。
 
 - **跨平台**：Python 3.10+，支持 macOS、Linux、Windows
 - **双传输**：UART（本地）与 MQTT（远程）
 - **固件更新**：支持 HTTP OTA 和 UART 分块传输
-- **运行时重配置**：支持 `radar reconf`，可在不重新刷写 firmware 的前提下切换运行时 `welcome` / `verify` / cfg 行为
-- **启动契约发现**：`radar status` 和 `mgmt.radar_runtime` 会暴露 `start_mode` 与 `supported_start_modes`；`fw.boot_mode` 则表示当前运行态真实使用的雷达 boot path。BRIDGE 支持 `["auto", "host"]`，HUB 支持 `["auto"]`
+- **运行时配置应用**：支持 `radar config apply`，可在不重新刷写 firmware 的前提下切换运行时 `welcome` / `verify` / cfg 行为
+- **启动契约发现**：`radar status` 会暴露 `mode` 与 `modes`；`fw.boot_mode` 则表示当前运行态真实使用的雷达 boot path。BRIDGE 支持 `["auto", "host"]`，HUB 支持 `["auto"]`
+- **当前公开 facade**：已发布 CLI 现在以 `node`、`proto`、`endpoint`、`scene`、`radar fw`、`radar config`、`radar raw`、`network` 与 `collect` 为核心入口
+- **已内置 task wrapper**：已发布包现在自带 `./cli/config.sh` 与 `./cli/collect.sh`，适合基于注册表的 bridge bench/lab 工作流
 - **设备控制**：握手、雷达启停、WiFi/MQTT 配置、固件分区管理
-- **零配置 shell 包装脚本**：`./mmwk_cli/mmwk_cli.sh` 是 macOS/Linux 下的默认入口；如果你要直接调用 Python，请先进入 `mmwk_cli` 目录，再使用 `PYTHONPATH=scripts python3 -m mmwk_cli`
-- **内置本地服务助手**：`./mmwk_cli/server.sh` 提供开箱即用的本地 MQTT Broker 与 HTTP 文件服务，辅助 OTA 升级与数据采集
+- **零配置 shell 包装脚本**：`./cli/run.sh` 是 macOS/Linux 下的默认入口；如果你要直接调用 Python，请先进入 `cli` 目录，再使用 `python3 -m mmwk`
+- **内置本地服务助手**：`./cli/server.sh` 提供开箱即用的本地 MQTT Broker 与 HTTP 文件服务，辅助 OTA 升级与数据采集
 - **AI 命令行支持**：CLI 接口和参数设计对大语言模型（LLM）极其友好，可被 Claude 等自治 AI Agent 直接调用以发现、配置和控制雷达
 - **附带集成测试**：包含端到端刷写、OTA 和持久化验证
 
-完整用法与命令参考见 [CLI README](./mmwk_cli/docs/zh-cn/README.md)。
+完整用法与命令参考见 [CLI README](./cli/docs/zh-cn/README.md)。
+如果你要直接走任务级 wrapper 工作流，请继续阅读 [Radar Task Tools](./cli/docs/zh-cn/radar-task-tools.md) 和 [通过 Bridge 开发雷达](./cli/docs/zh-cn/bridge-ti-radar-debug.md)。
 
 ## 雷达固件
 

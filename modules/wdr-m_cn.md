@@ -9,10 +9,7 @@
 - [4.1 USB Type-C 接口参考](#41-usb-type-c-接口参考)
 - [4.2 状态 LED 接口参考](#42-状态-led-接口参考)
 - [4.3 按键接口参考](#43-按键接口参考)
-- [4.4 音频功能原理图说明](#44-音频功能原理图说明)
-- [4.4.1 音频播放与功放链路](#441-音频播放与功放链路)
-- [4.4.2 麦克风采集链路](#442-麦克风采集链路)
-- [4.5 外挂雷达接口说明](#45-外挂雷达接口说明)
+- [4.4 外挂雷达接口说明](#44-外挂雷达接口说明)
 - [5. 连接关系与板级参考图](#5-连接关系与板级参考图)
 - [6. 相关文档](#6-相关文档)
 
@@ -54,7 +51,6 @@
 |  | PSRAM | 8 MB |
 |  | Flash 存储 | 8 MB（主控 MCU） |
 |  | I/O 与指示器 | 1× 状态 LED、1× 按键 |
-|  | 音频能力 | 支持 `I2S` / `I2C` 音频编解码，`2× MIC` 输入、`1×` 喇叭输出 |
 |  | 外挂雷达(可选) | 雷达芯片 / 雷达板外挂，通过接口接入 WDR 系统 |
 |  | 蜂窝网络（可选）| wdr-g 外挂 （见注 1） |
 
@@ -81,7 +77,7 @@
 
 ## 4. 接口说明
 
-`WDR-M` 板上接口说明主要包括 `USB Type-C`、状态 `LED`、按键输入、音频链路以及外挂雷达接入方式。
+`WDR-M` 板上接口说明主要包括 `USB Type-C`、状态 `LED`、按键输入以及外挂雷达接入方式。
 
 ### 4.1 USB Type-C 接口参考
 
@@ -110,38 +106,7 @@
   <p style="margin: 4px 0 0 0;">图 3 WDR-M 上的按键参考</p>
 </div>
 
-### 4.4 音频功能原理图说明
-
-结合新增原理图可以看到，`WDR-M` 已预留完整的音频子系统，主控侧通过 `I2C` 完成音频器件配置，通过 `I2S` 承载数字音频数据。整体上分为两部分：
-
-- 一条面向扬声器播放的编解码与功放链路
-- 一条面向麦克风输入的多通道采集链路
-
-### 4.4.1 音频播放与功放链路
-
-`wdr-m-audio1.png` 展示了 `WDR-M` 的放音侧设计。图中以 `ES8311` 作为音频编解码器，和 `ESP32-S3` 之间通过 `I2C`（`SCL` / `SDA`）配置、通过 `I2S`（`MCLK` / `SCLK` / `LRCK` / `DIN`）传输播放数据。
-
-<div style="text-align: center; margin: 10px 0;">
-  <img src="./img/MDR/wdr-m-audio1.png" alt="WDR-M 音频播放与功放链路原理图" width="92%" style="display: block; margin: 0 auto;" />
-  <p style="margin: 4px 0 0 0;">图 4 WDR-M 音频播放与功放链路原理图</p>
-</div>
-
-在端口对应关系上，`P1` 为喇叭连接端口。
-
-### 4.4.2 麦克风采集链路
-
-`wdr-m-audio2.png` 展示了 `WDR-M` 的录音侧设计。图中以 `ES7210` 作为音频 `ADC` / 麦克风前端，主控同样通过 `I2C` 进行配置，并通过 `I2S`（`MCLK` / `SCLK` / `LRCK` / `DOUT`）从音频前端读取采集数据。
-
-<div style="text-align: center; margin: 10px 0;">
-  <img src="./img/MDR/wdr-m-audio2.png" alt="WDR-M 麦克风采集链路原理图" width="92%" style="display: block; margin: 0 auto;" />
-  <p style="margin: 4px 0 0 0;">图 5 WDR-M 麦克风采集链路原理图</p>
-</div>
-
-在端口对应关系上，`P2`、`P3` 为麦克风连接端口。
-
-从系统集成角度看，这两张原理图共同说明 `WDR-M` 不仅承担雷达系统主控与互连角色，也具备语音提示、声音采集和语音交互方向的硬件基础。
-
-### 4.5 外挂雷达接口说明
+### 4.4 外挂雷达接口说明
 
 `WDR-M` 板上不集成雷达芯片，雷达部分采用外挂方式接入。系统集成时，外挂雷达板通过 `WDR-M` 与 `4G Cat1` 通信板协同工作；在文档层面，`WDR-M` 主要保留主控与接口侧说明，不单独展开板载雷达参数。
 
@@ -151,12 +116,12 @@
 
 <div style="text-align: center; margin: 10px 0;">
   <img src="./img/MDR/mdr-m-to-radar-board-connection.png" alt="MDR-M 与雷达板连接参考图" width="85%" style="display: block; margin: 0 auto;" />
-  <p style="margin: 4px 0 0 0;">图 6 WDR-M 与雷达板连接参考图</p>
+  <p style="margin: 4px 0 0 0;">图 4 WDR-M 与雷达板连接参考图</p>
 </div>
 
 <div style="text-align: center; margin: 10px 0;">
   <img src="./img/MDR/mdr-m-to-cat1-board-connection.png" alt="MDR-M 与 Cat1 通信板连接参考图" width="85%" style="display: block; margin: 0 auto;" />
-  <p style="margin: 4px 0 0 0;">图 7 WDR-M 与 4G Cat1 通信板连接参考图</p>
+  <p style="margin: 4px 0 0 0;">图 5 WDR-M 与 4G Cat1 通信板连接参考图</p>
 </div>
 
 这些图适合在确认插接方向、追踪 `UART` 或 `USB` 相关信号，或检查通信板与雷达板如何接入 `WDR-M` 时使用。

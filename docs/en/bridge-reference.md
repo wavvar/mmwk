@@ -4,17 +4,17 @@ Use this document when you already know your start path from [MMWK Bridge Mode](
 
 ## Validated Execution Context
 
-- Run the shell examples from `./mmwk_cli` so `./mmwk_cli.sh` and the `../firmwares/...` reference paths resolve exactly as written.
+- Run the shell examples from `./cli` so `./run.sh` and the `../firmwares/...` reference paths resolve exactly as written.
 - Replace `PORT=/dev/cu.usbserial-0001` with your real UART port before you copy the commands.
-- This reference assumes `./mmwk_cli.sh device hi -p "$PORT"` already reports `name = mmwk_sensor_bridge`. If it reports another profile such as `mmwk_sensor_hub`, go back to [MMWK Bridge Mode](./bridge.md) first and switch to the correct path.
-- `mmwk_cli.sh` now defaults to canonical CLI JSON. If an older caller still depends on MCP, add `--protocol mcp` explicitly as a compatibility fallback.
-- This reference does not replace Wi-Fi or MQTT bring-up. Before you run `collect`, `device hi` should already expose bridge MQTT fields such as `mqtt_uri`, `client_id`, `raw_data_topic`, and `raw_resp_topic`, and the device should already have usable runtime networking such as a non-zero `ip`. If those fields are still missing or the device is still at `ip = 0.0.0.0`, return to [MMWK Bridge Mode](./bridge.md) and then [Local `server.sh` + `mmwk_cli.sh` Wi-Fi Flash and 5-Minute Collection Example](./collect.md).
+- This reference assumes `./run.sh device hi -p "$PORT"` already reports `name = mmwk_sensor_bridge`. If it reports another profile such as `mmwk_sensor_hub`, go back to [MMWK Bridge Mode](./bridge.md) first and switch to the correct path.
+- `run.sh` now defaults to canonical CLI JSON. If an older caller still depends on MCP, add `--protocol mcp` explicitly as a compatibility fallback.
+- This reference does not replace Wi-Fi or MQTT bring-up. Before you run `collect`, `device hi` should already expose bridge MQTT fields such as `mqtt_uri`, `client_id`, `raw_data_topic`, and `raw_resp_topic`, and the device should already have usable runtime networking such as a non-zero `ip`. If those fields are still missing or the device is still at `ip = 0.0.0.0`, return to [MMWK Bridge Mode](./bridge.md) and then [Local `server.sh` + `run.sh` Wi-Fi Flash and 5-Minute Collection Example](./collect.md).
 - If you just ran `radar flash`, `radar ota`, `radar reconf`, or the first boot after a factory / baseline recovery path, wait for `radar status` to return `running` before you rely on any late-attach `collect` flow.
 
 Use these validated shell variables in the command examples below:
 
 ```bash
-cd ./mmwk_cli
+cd ./cli
 export PORT=/dev/cu.usbserial-0001
 export FW=../firmwares/radar/iwr6843/vital_signs/vital_signs_tracking_6843AOP_demo.bin
 export CFG=../firmwares/radar/iwr6843/vital_signs/vital_signs_AOP_2m.cfg
@@ -70,8 +70,8 @@ Use the `fw` commands when you want to manage the ESP-side radar firmware catalo
 Examples:
 
 ```bash
-./mmwk_cli.sh fw list -p "$PORT"
-./mmwk_cli.sh fw set --index 0 -p "$PORT"
+./run.sh fw list -p "$PORT"
+./run.sh fw set --index 0 -p "$PORT"
 ```
 
 Contract:
@@ -96,10 +96,10 @@ Use `radar reconf` when you want to change the runtime radar contract without fl
 Examples:
 
 ```bash
-./mmwk_cli.sh radar reconf --welcome --no-verify -p "$PORT"
-./mmwk_cli.sh radar reconf --welcome --verify --version "1.2.3" -p "$PORT"
-./mmwk_cli.sh radar reconf --welcome --no-verify --cfg ./runtime.cfg -p "$PORT"
-./mmwk_cli.sh radar reconf --welcome --no-verify --clear-cfg -p "$PORT"
+./run.sh radar reconf --welcome --no-verify -p "$PORT"
+./run.sh radar reconf --welcome --verify --version "1.2.3" -p "$PORT"
+./run.sh radar reconf --welcome --no-verify --cfg ./runtime.cfg -p "$PORT"
+./run.sh radar reconf --welcome --no-verify --clear-cfg -p "$PORT"
 ```
 
 Contract:
@@ -119,7 +119,7 @@ Use `radar cfg` when you need to read back the current effective radar cfg text 
 Example:
 
 ```bash
-./mmwk_cli.sh radar cfg -p "$PORT"
+./run.sh radar cfg -p "$PORT"
 ```
 
 Contract:
@@ -223,11 +223,11 @@ Use `device agent --mqtt-en 1 --raw-auto 1` only as a manual override or trouble
 Use these commands together after radar flash, OTA, reconf, or the first boot after a factory / baseline recovery path:
 
 ```bash
-./mmwk_cli.sh device hi -p "$PORT" | tee ./bridge_hi.json
-./mmwk_cli.sh device hi --transport mqtt --broker "$BROKER_HOST" --mqtt-port "$MQTT_PORT" --device-id "$DEVICE_ID" --cmd-topic "$CMD_TOPIC" --resp-topic "$RESP_TOPIC"
-./mmwk_cli.sh radar status --transport mqtt --broker "$BROKER_HOST" --mqtt-port "$MQTT_PORT" --device-id "$DEVICE_ID" --cmd-topic "$CMD_TOPIC" --resp-topic "$RESP_TOPIC"
-./mmwk_cli.sh radar version --transport mqtt --broker "$BROKER_HOST" --mqtt-port "$MQTT_PORT" --device-id "$DEVICE_ID" --cmd-topic "$CMD_TOPIC" --resp-topic "$RESP_TOPIC"
-./mmwk_cli.sh collect --duration 12 \
+./run.sh device hi -p "$PORT" | tee ./bridge_hi.json
+./run.sh device hi --transport mqtt --broker "$BROKER_HOST" --mqtt-port "$MQTT_PORT" --device-id "$DEVICE_ID" --cmd-topic "$CMD_TOPIC" --resp-topic "$RESP_TOPIC"
+./run.sh radar status --transport mqtt --broker "$BROKER_HOST" --mqtt-port "$MQTT_PORT" --device-id "$DEVICE_ID" --cmd-topic "$CMD_TOPIC" --resp-topic "$RESP_TOPIC"
+./run.sh radar version --transport mqtt --broker "$BROKER_HOST" --mqtt-port "$MQTT_PORT" --device-id "$DEVICE_ID" --cmd-topic "$CMD_TOPIC" --resp-topic "$RESP_TOPIC"
+./run.sh collect --duration 12 \
   --broker "$BROKER_URI" \
   --device-id "$DEVICE_ID" \
   --data-topic "$RAW_DATA_TOPIC" \
@@ -258,15 +258,15 @@ Interpret the results as follows:
 - In this checklist, `collect --resp-optional` is only for a late-attach steady-state window after `radar status` already proves the radar is running. It is not a startup/welcome proof.
 - If you instead use `collect -p "$PORT"` as the startup-aware proof path after one of those recovery windows, require non-empty `raw_resp` / `cmd_resp.log`.
 - This late-attach runtime check intentionally stays on pure MQTT. Do not add `-p "$PORT"` back here unless you also remove `--resp-optional` and require a non-empty startup `raw_resp`.
-- If you need an external pure-MQTT startup helper instead of the official `collect` command, run `./tools/mmwk_raw.sh` from the `mmwk_cli` directory. It supports `trigger=none`, `trigger=radar-restart`, and `trigger=device-reboot`. Use `./tools/mmwk_cfg.sh` first when you need to push Wi-Fi/MQTT settings or point the device at a local `server.sh` broker.
-- For a strict startup-text proof, follow [Local `server.sh` + `mmwk_cli.sh` Wi-Fi Flash and 5-Minute Collection Example](./collect.md).
+- If you need an external pure-MQTT startup helper instead of the official `collect` command, run `./cli/collect.sh --trigger ...` from the package root. It supports `trigger=none`, `trigger=radar-restart`, and `trigger=device-reboot`. Use `./cli/config.sh set` first when you need to push Wi-Fi/MQTT settings or point the device at a local `server.sh` broker.
+- For a strict startup-text proof, follow [Local `server.sh` + `run.sh` Wi-Fi Flash and 5-Minute Collection Example](./collect.md).
 
 ## Validated Runtime Command Chain
 
-When you want one copyable bridge-reference flow that matches the current implementation, use this runtime-verification chain from `./mmwk_cli`:
+When you want one copyable bridge-reference flow that matches the current implementation, use this runtime-verification chain from `./cli`:
 
 ```bash
-./mmwk_cli.sh device hi -p "$PORT" | tee ./bridge_hi.json
+./run.sh device hi -p "$PORT" | tee ./bridge_hi.json
 
 export BROKER_URI="$(python3 - <<'PY'
 import json
@@ -327,12 +327,12 @@ print(payload["raw_resp_topic"])
 PY
 )"
 
-until ./mmwk_cli.sh device hi --transport mqtt --broker "$BROKER_HOST" --mqtt-port "$MQTT_PORT" --device-id "$DEVICE_ID" --cmd-topic "$CMD_TOPIC" --resp-topic "$RESP_TOPIC"; do
+until ./run.sh device hi --transport mqtt --broker "$BROKER_HOST" --mqtt-port "$MQTT_PORT" --device-id "$DEVICE_ID" --cmd-topic "$CMD_TOPIC" --resp-topic "$RESP_TOPIC"; do
   sleep 3
 done
-./mmwk_cli.sh radar status --transport mqtt --broker "$BROKER_HOST" --mqtt-port "$MQTT_PORT" --device-id "$DEVICE_ID" --cmd-topic "$CMD_TOPIC" --resp-topic "$RESP_TOPIC"
-./mmwk_cli.sh radar version --transport mqtt --broker "$BROKER_HOST" --mqtt-port "$MQTT_PORT" --device-id "$DEVICE_ID" --cmd-topic "$CMD_TOPIC" --resp-topic "$RESP_TOPIC"
-./mmwk_cli.sh collect --duration 12 \
+./run.sh radar status --transport mqtt --broker "$BROKER_HOST" --mqtt-port "$MQTT_PORT" --device-id "$DEVICE_ID" --cmd-topic "$CMD_TOPIC" --resp-topic "$RESP_TOPIC"
+./run.sh radar version --transport mqtt --broker "$BROKER_HOST" --mqtt-port "$MQTT_PORT" --device-id "$DEVICE_ID" --cmd-topic "$CMD_TOPIC" --resp-topic "$RESP_TOPIC"
+./run.sh collect --duration 12 \
   --broker "$BROKER_URI" \
   --device-id "$DEVICE_ID" \
   --data-topic "$RAW_DATA_TOPIC" \
@@ -352,4 +352,4 @@ Interpret this sequence as follows:
 - If you need fresh startup/welcome proof, do not relax this step: start capture at the beginning of the boot/OTA window and require non-empty `raw_resp`.
 - Use the `radar flash`, `radar ota`, and `radar reconf` sections above only when you intentionally want to change firmware, metadata expectations, or runtime contract. After any such advanced step, return to the runtime-verification chain here.
 
-For the full validated bring-up walkthrough, return to [MMWK Bridge Mode](./bridge.md) and continue into [Local `server.sh` + `mmwk_cli.sh` Wi-Fi Flash and 5-Minute Collection Example](./collect.md).
+For the full validated bring-up walkthrough, return to [MMWK Bridge Mode](./bridge.md) and continue into [Local `server.sh` + `run.sh` Wi-Fi Flash and 5-Minute Collection Example](./collect.md).

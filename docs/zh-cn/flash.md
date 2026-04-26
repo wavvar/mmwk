@@ -11,7 +11,7 @@
 
 ## 前置条件
 
-- 以下命令假设当前工作目录为 `mmwk` 项目根目录，也就是同时包含 `firmwares/` 和 `mmwk_cli/` 的那个目录。
+- 以下命令假设当前工作目录为 `mmwk` 项目根目录，也就是同时包含 `firmwares/` 和 `cli/` 的那个目录。
 - 你已经拿到了目标板卡和版本对应的 bridge 发布 zip 包。
 - 选择一种烧录路径：
   - 如果走本地串口擦除加 `factory/flash.sh`，则需要本地已安装 ESP-IDF，且设备串口可用，记为 `<port>`。
@@ -72,7 +72,7 @@ cd /tmp/mmwk_bridge_factory/factory
 在 `mmwk` 项目根目录下执行：
 
 ```bash
-./mmwk_cli/mmwk_cli.sh device hi --reset -p <port>
+./cli/run.sh device hi --reset -p <port>
 ```
 
 `device hi` 应返回 bridge 身份信息。请确认 `device hi.version` 与发布包路径或解压后文件名里携带的版本一致，例如：

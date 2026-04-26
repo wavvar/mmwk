@@ -4,17 +4,17 @@
 
 ## 已验证执行前提
 
-- 请从 `./mmwk_cli` 目录执行下面的 shell 示例，这样 `./mmwk_cli.sh` 和 `../firmwares/...` 这些参考路径才能按文档原样生效。
+- 请从 `./cli` 目录执行下面的 shell 示例，这样 `./run.sh` 和 `../firmwares/...` 这些参考路径才能按文档原样生效。
 - 把 `PORT=/dev/cu.usbserial-0001` 替换成你自己机器上的真实 UART 串口。
-- 这份参考文档默认你先执行 `./mmwk_cli.sh device hi -p "$PORT"`，并且返回 `name = mmwk_sensor_bridge`。如果它返回的是 `mmwk_sensor_hub` 之类的其他 profile，请先回到 [MMWK Bridge 模式](./bridge.md) 重新选择路径。
-- `mmwk_cli.sh` 现在默认走标准 CLI JSON。如果旧调用方还依赖 MCP，请显式加上 `--protocol mcp` 作为兼容回退。
-- 这份参考文档不替代 Wi-Fi / MQTT bring-up。执行 `collect` 之前，`device hi` 应已经能返回 `mqtt_uri`、`client_id`、`raw_data_topic`、`raw_resp_topic` 等 bridge MQTT 字段，并且设备运行时网络也应已经可用，例如 `ip` 不应还是 `0.0.0.0`；如果这些字段还没有，或者设备仍停在 `ip = 0.0.0.0`，请先回到 [MMWK Bridge 模式](./bridge.md)，再进入 [本地 `server.sh` + `mmwk_cli.sh` Wi-Fi 刷机与 5 分钟采集示例](./collect.md)。
+- 这份参考文档默认你先执行 `./run.sh device hi -p "$PORT"`，并且返回 `name = mmwk_sensor_bridge`。如果它返回的是 `mmwk_sensor_hub` 之类的其他 profile，请先回到 [MMWK Bridge 模式](./bridge.md) 重新选择路径。
+- `run.sh` 现在默认走标准 CLI JSON。如果旧调用方还依赖 MCP，请显式加上 `--protocol mcp` 作为兼容回退。
+- 这份参考文档不替代 Wi-Fi / MQTT bring-up。执行 `collect` 之前，`device hi` 应已经能返回 `mqtt_uri`、`client_id`、`raw_data_topic`、`raw_resp_topic` 等 bridge MQTT 字段，并且设备运行时网络也应已经可用，例如 `ip` 不应还是 `0.0.0.0`；如果这些字段还没有，或者设备仍停在 `ip = 0.0.0.0`，请先回到 [MMWK Bridge 模式](./bridge.md)，再进入 [本地 `server.sh` + `run.sh` Wi-Fi 刷机与 5 分钟采集示例](./collect.md)。
 - 如果你刚执行过 `radar flash`、`radar ota`、`radar reconf`，或者刚走完 factory / baseline 恢复路径后的第一次上电，请先等 `radar status` 返回 `running`，再去使用任何 late-attach 的 `collect` 流程。
 
 下面这组 shell 变量已经按当前实现验证过，可以直接复用到后续命令：
 
 ```bash
-cd ./mmwk_cli
+cd ./cli
 export PORT=/dev/cu.usbserial-0001
 export FW=../firmwares/radar/iwr6843/vital_signs/vital_signs_tracking_6843AOP_demo.bin
 export CFG=../firmwares/radar/iwr6843/vital_signs/vital_signs_AOP_2m.cfg
@@ -70,8 +70,8 @@ HTTP OTA 专属参数：
 示例：
 
 ```bash
-./mmwk_cli.sh fw list -p "$PORT"
-./mmwk_cli.sh fw set --index 0 -p "$PORT"
+./run.sh fw list -p "$PORT"
+./run.sh fw set --index 0 -p "$PORT"
 ```
 
 契约：
@@ -96,10 +96,10 @@ HTTP OTA 专属参数：
 示例：
 
 ```bash
-./mmwk_cli.sh radar reconf --welcome --no-verify -p "$PORT"
-./mmwk_cli.sh radar reconf --welcome --verify --version "1.2.3" -p "$PORT"
-./mmwk_cli.sh radar reconf --welcome --no-verify --cfg ./runtime.cfg -p "$PORT"
-./mmwk_cli.sh radar reconf --welcome --no-verify --clear-cfg -p "$PORT"
+./run.sh radar reconf --welcome --no-verify -p "$PORT"
+./run.sh radar reconf --welcome --verify --version "1.2.3" -p "$PORT"
+./run.sh radar reconf --welcome --no-verify --cfg ./runtime.cfg -p "$PORT"
+./run.sh radar reconf --welcome --no-verify --clear-cfg -p "$PORT"
 ```
 
 契约：
@@ -119,7 +119,7 @@ HTTP OTA 专属参数：
 示例：
 
 ```bash
-./mmwk_cli.sh radar cfg -p "$PORT"
+./run.sh radar cfg -p "$PORT"
 ```
 
 契约：
@@ -223,11 +223,11 @@ HTTP OTA 专属参数：
 在雷达刷写、OTA、reconf，或者 factory / baseline 恢复路径后的第一次上电后，建议结合以下命令一起确认：
 
 ```bash
-./mmwk_cli.sh device hi -p "$PORT" | tee ./bridge_hi.json
-./mmwk_cli.sh device hi --transport mqtt --broker "$BROKER_HOST" --mqtt-port "$MQTT_PORT" --device-id "$DEVICE_ID" --cmd-topic "$CMD_TOPIC" --resp-topic "$RESP_TOPIC"
-./mmwk_cli.sh radar status --transport mqtt --broker "$BROKER_HOST" --mqtt-port "$MQTT_PORT" --device-id "$DEVICE_ID" --cmd-topic "$CMD_TOPIC" --resp-topic "$RESP_TOPIC"
-./mmwk_cli.sh radar version --transport mqtt --broker "$BROKER_HOST" --mqtt-port "$MQTT_PORT" --device-id "$DEVICE_ID" --cmd-topic "$CMD_TOPIC" --resp-topic "$RESP_TOPIC"
-./mmwk_cli.sh collect --duration 12 \
+./run.sh device hi -p "$PORT" | tee ./bridge_hi.json
+./run.sh device hi --transport mqtt --broker "$BROKER_HOST" --mqtt-port "$MQTT_PORT" --device-id "$DEVICE_ID" --cmd-topic "$CMD_TOPIC" --resp-topic "$RESP_TOPIC"
+./run.sh radar status --transport mqtt --broker "$BROKER_HOST" --mqtt-port "$MQTT_PORT" --device-id "$DEVICE_ID" --cmd-topic "$CMD_TOPIC" --resp-topic "$RESP_TOPIC"
+./run.sh radar version --transport mqtt --broker "$BROKER_HOST" --mqtt-port "$MQTT_PORT" --device-id "$DEVICE_ID" --cmd-topic "$CMD_TOPIC" --resp-topic "$RESP_TOPIC"
+./run.sh collect --duration 12 \
   --broker "$BROKER_URI" \
   --device-id "$DEVICE_ID" \
   --data-topic "$RAW_DATA_TOPIC" \
@@ -258,15 +258,15 @@ HTTP OTA 专属参数：
 - 在这条清单里，`collect --resp-optional` 只用于 `radar status` 已经证明雷达在运行之后的 late-attach 稳态观察窗口；它不是启动/welcome 证明。
 - 如果你改用 `collect -p "$PORT"` 作为这些恢复窗口的启动期证明路径，就要要求非空 `raw_resp` / `cmd_resp.log`。
 - 这条 late-attach 运行态检查会故意保持 pure MQTT。不要把 `-p "$PORT"` 再加回这一步，除非你同时移除 `--resp-optional`，并重新要求非空启动 `raw_resp`。
-- 如果你需要一个挂在官方 `collect` 命令之外的 pure-MQTT 启动期 helper，请在 `mmwk_cli` 目录下运行 `./tools/mmwk_raw.sh`。它支持 `trigger=none`、`trigger=radar-restart` 和 `trigger=device-reboot`。如果你还需要先下发 Wi-Fi / MQTT 设置，或者要把设备改指到本地 `server.sh` broker，请先运行 `./tools/mmwk_cfg.sh`。
-- 如果你需要严格验证启动文本，请回到 [本地 `server.sh` + `mmwk_cli.sh` Wi-Fi 刷机与 5 分钟采集示例](./collect.md) 里的完整 bring-up / OTA / collect 流程。
+- 如果你需要一个挂在官方 `collect` 命令之外的 pure-MQTT 启动期 helper，请在 package root 下运行 `./cli/collect.sh --trigger ...`。它支持 `trigger=none`、`trigger=radar-restart` 和 `trigger=device-reboot`。如果你还需要先下发 Wi-Fi / MQTT 设置，或者要把设备改指到本地 `server.sh` broker，请先运行 `./cli/config.sh set`。
+- 如果你需要严格验证启动文本，请回到 [本地 `server.sh` + `run.sh` Wi-Fi 刷机与 5 分钟采集示例](./collect.md) 里的完整 bring-up / OTA / collect 流程。
 
 ## 已验证运行态命令链
 
-如果你想要一条“现在就能照抄执行、并且和当前实现一致”的 bridge reference 主链，请在 `./mmwk_cli` 目录里按下面顺序执行这组运行态确认命令：
+如果你想要一条“现在就能照抄执行、并且和当前实现一致”的 bridge reference 主链，请在 `./cli` 目录里按下面顺序执行这组运行态确认命令：
 
 ```bash
-./mmwk_cli.sh device hi -p "$PORT" | tee ./bridge_hi.json
+./run.sh device hi -p "$PORT" | tee ./bridge_hi.json
 
 export BROKER_URI="$(python3 - <<'PY'
 import json
@@ -327,12 +327,12 @@ print(payload["raw_resp_topic"])
 PY
 )"
 
-until ./mmwk_cli.sh device hi --transport mqtt --broker "$BROKER_HOST" --mqtt-port "$MQTT_PORT" --device-id "$DEVICE_ID" --cmd-topic "$CMD_TOPIC" --resp-topic "$RESP_TOPIC"; do
+until ./run.sh device hi --transport mqtt --broker "$BROKER_HOST" --mqtt-port "$MQTT_PORT" --device-id "$DEVICE_ID" --cmd-topic "$CMD_TOPIC" --resp-topic "$RESP_TOPIC"; do
   sleep 3
 done
-./mmwk_cli.sh radar status --transport mqtt --broker "$BROKER_HOST" --mqtt-port "$MQTT_PORT" --device-id "$DEVICE_ID" --cmd-topic "$CMD_TOPIC" --resp-topic "$RESP_TOPIC"
-./mmwk_cli.sh radar version --transport mqtt --broker "$BROKER_HOST" --mqtt-port "$MQTT_PORT" --device-id "$DEVICE_ID" --cmd-topic "$CMD_TOPIC" --resp-topic "$RESP_TOPIC"
-./mmwk_cli.sh collect --duration 12 \
+./run.sh radar status --transport mqtt --broker "$BROKER_HOST" --mqtt-port "$MQTT_PORT" --device-id "$DEVICE_ID" --cmd-topic "$CMD_TOPIC" --resp-topic "$RESP_TOPIC"
+./run.sh radar version --transport mqtt --broker "$BROKER_HOST" --mqtt-port "$MQTT_PORT" --device-id "$DEVICE_ID" --cmd-topic "$CMD_TOPIC" --resp-topic "$RESP_TOPIC"
+./run.sh collect --duration 12 \
   --broker "$BROKER_URI" \
   --device-id "$DEVICE_ID" \
   --data-topic "$RAW_DATA_TOPIC" \
@@ -352,4 +352,4 @@ done
 - 如果你要拿 fresh startup/welcome 作为证明，就不要放宽这一步：应从 boot/OTA 窗口一开始就启动采集，并要求非空 `raw_resp`。
 - 上面各节里的 `radar flash`、`radar ota`、`radar reconf` 仍然保留给“你明确要改雷达 firmware / metadata / 运行时契约”的高级操作；每次做完这些高级操作后，都请再回到这里这条运行态确认主链。
 
-如果你要看完整的 bring-up 主线，请回到 [MMWK Bridge 模式](./bridge.md)，再继续进入 [本地 `server.sh` + `mmwk_cli.sh` Wi-Fi 刷机与 5 分钟采集示例](./collect.md)。
+如果你要看完整的 bring-up 主线，请回到 [MMWK Bridge 模式](./bridge.md)，再继续进入 [本地 `server.sh` + `run.sh` Wi-Fi 刷机与 5 分钟采集示例](./collect.md)。
