@@ -11,7 +11,7 @@ This guide only uses `factory.zip` for the first flash onto a blank or erased bo
 
 ## Prerequisites
 
-- The commands below assume the current working directory is the `mmwk` project root, which contains `firmwares/` and `mmwk_cli/`.
+- The commands below assume the current working directory is the `mmwk` project root, which contains `firmwares/` and `cli/`.
 - You already received the published bridge zip packages for your board and version.
 - Choose one flashing path:
   - Local serial erase plus `factory/flash.sh` requires ESP-IDF installed locally and the target device port available as `<port>`.

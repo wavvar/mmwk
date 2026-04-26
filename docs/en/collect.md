@@ -23,7 +23,7 @@ The following constraints were respected during validation:
 
 ## 2. Inputs Used in This Example
 
-The commands below assume the current working directory is the `mmwk` project root, meaning the directory that contains `firmwares/` and `mmwk_cli/`.
+The commands below assume the current working directory is the `mmwk` project root, meaning the directory that contains `firmwares/` and `cli/`.
 
 Placeholders used in this document:
 

@@ -9,7 +9,7 @@ Here, "develop radar with bridge" means using the bridge as the public developme
 - capture raw data and startup output over MQTT
 - repeat that loop while choosing the right public bridge board for the target radar family
 
-Assume your current working directory is `mmwk_cli` inside a published `mmwk` package. The examples below only use that public package layout.
+Assume your current working directory is `cli` inside a published `mmwk` package. The examples below only use that public package layout.
 
 ## Choose The Right Bridge Board
 
