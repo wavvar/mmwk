@@ -290,8 +290,9 @@ def _route_canonical_tool_call(name: str, arguments: dict) -> tuple[str, dict]:
 class ControlCliClient:
     """Canonical CLI JSON control client over UART/MQTT transport."""
 
-    def __init__(self, transport: RadarTransport):
+    def __init__(self, transport: RadarTransport, request_key: str = None):
         self.transport = transport
+        self.request_key = request_key or ""
         self._initialized = False
         self._server_name = ""
         self._compat_interval = {
@@ -396,6 +397,8 @@ class ControlCliClient:
         }
         if action is not None:
             request["action"] = action
+        if self.request_key:
+            request["key"] = self.request_key
 
         self.transport.send_json(request)
         resp = self.transport.wait_for_response(msg_id, timeout=timeout)
