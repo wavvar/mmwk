@@ -17,16 +17,18 @@ from mmwk.commands.collect import CollectCommand
 from mmwk.commands.cfg import CfgCommand
 
 _ACTIVE_PROTOCOL = "cli"
+_ACTIVE_KEY = ""
 
 
 def McpClient(transport):
-    return create_protocol_client(_ACTIVE_PROTOCOL, transport)
+    return create_protocol_client(_ACTIVE_PROTOCOL, transport, key=_ACTIVE_KEY)
 
 
 def _cli_create_transport(args):
     """Thin wrapper: catch ValueError from create_transport and exit."""
     if hasattr(args, "protocol"):
         _set_active_protocol(getattr(args, "protocol", None) or "cli")
+    _set_active_key(args)
     try:
         return create_transport(args)
     except ValueError as e:
@@ -72,9 +74,18 @@ def _set_active_protocol(protocol):
     _ACTIVE_PROTOCOL = protocol
 
 
+def _set_active_key(args):
+    global _ACTIVE_KEY
+    cli_key = getattr(args, "key", None)
+    env_key = os.environ.get("MMWK_CLI_KEY", "")
+    _ACTIVE_KEY = cli_key or env_key or ""
+
+
 def _finalize_protocol_args(args):
     if not hasattr(args, "protocol"):
         return
+
+    _set_active_key(args)
 
     if args.protocol is None:
         args.protocol = "cli"
@@ -126,6 +137,7 @@ def add_transport_args(parser):
     group.add_argument("--resp-topic", help="Custom MQTT response topic")
     group.add_argument("--timeout", type=float, default=10.0,
                        help="Response timeout in seconds (default: 10)")
+    group.add_argument("--key", help="CLI protection key for protected commands")
     group.add_argument("-v", "--verbose", action="store_true",
                        help="Enable debug logging")
 
@@ -424,6 +436,14 @@ def cmd_device_agent(args):
             print(text)
     finally:
         transport.close()
+
+
+def cmd_node_key(args):
+    """Handle: mmwk node key ..."""
+    payload = {"action": "key", "op": args.key_action}
+    if getattr(args, "new_key", None) is not None:
+        payload["new_key"] = args.new_key
+    _call_tool_and_print_json(args, "node", payload)
 
 
 def cmd_device_heartbeat(args):
@@ -1058,6 +1078,23 @@ def main():
     node_info_parser = node_sub.add_parser("info", help="Node status handshake")
     add_transport_args(node_info_parser)
     node_info_parser.set_defaults(func=cmd_node_info)
+
+    node_key_parser = node_sub.add_parser("key", help="Manage CLI protection key")
+    node_key_sub = node_key_parser.add_subparsers(dest="key_action", required=True)
+
+    node_key_status_parser = node_key_sub.add_parser("status", help="Show CLI key protection status")
+    add_transport_args(node_key_status_parser)
+    node_key_status_parser.set_defaults(func=cmd_node_key)
+
+    node_key_set_parser = node_key_sub.add_parser("set", help="Set or update CLI protection key")
+    node_key_set_parser.add_argument("--new-key", required=True,
+                                     help="New CLI protection key")
+    add_transport_args(node_key_set_parser)
+    node_key_set_parser.set_defaults(func=cmd_node_key)
+
+    node_key_clear_parser = node_key_sub.add_parser("clear", help="Clear CLI protection key")
+    add_transport_args(node_key_clear_parser)
+    node_key_clear_parser.set_defaults(func=cmd_node_key)
 
     device_reboot_parser = node_sub.add_parser("reboot", help="Reboot the node")
     add_transport_args(device_reboot_parser)
