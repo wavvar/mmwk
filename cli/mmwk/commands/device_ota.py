@@ -221,8 +221,18 @@ class DeviceOtaCommand:
             time.sleep(1)
 
         logger.info("Waiting for device to come back after OTA reboot...")
+        recover_after_reboot = getattr(self.mcp.transport, "recover_after_reboot", None)
+        if callable(recover_after_reboot):
+            logger.info("Reopening control transport after OTA reboot settle...")
+            recover_after_reboot(settle_sec=8.0, reconnect_wait_sec=20.0)
+        else:
+            time.sleep(8.0)
+
         reconnect_deadline = time.time() + max(45.0, timeout / 2)
         last_error = None
+        hard_reset_count = 0
+        max_hard_resets = 3
+        next_hard_reset_at = time.time()
         while time.time() < reconnect_deadline:
             try:
                 self.mcp.initialize(timeout=5)
@@ -237,6 +247,23 @@ class DeviceOtaCommand:
                 return True, False
             except Exception as exc:
                 last_error = exc
+                reset_device = getattr(self.mcp.transport, "reset_device", None)
+                if (
+                    callable(reset_device) and
+                    bool(getattr(self.mcp.transport, "_reset_requested", False))
+                    and hard_reset_count < max_hard_resets
+                    and time.time() >= next_hard_reset_at
+                ):
+                    hard_reset_count += 1
+                    logger.warning(
+                        "Control did not recover after OTA soft reboot; resetting UART target "
+                        "attempt %d/%d",
+                        hard_reset_count,
+                        max_hard_resets,
+                    )
+                    reset_device(settle_sec=3.0, reconnect_wait_sec=20.0)
+                    next_hard_reset_at = time.time() + 30.0
+                    continue
                 time.sleep(2)
 
         logger.error(f"Device did not return after OTA: {last_error}")

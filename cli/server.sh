@@ -179,6 +179,7 @@ HOST_IP=""
 TARGET_IP=""
 MQTT_PORT="1883"
 HTTP_PORT="8380"
+SERVER_START_TIMEOUT_SEC="${MMWK_SERVER_START_TIMEOUT_SEC:-90}"
 DEVICE_OTA=false
 DEVICE_OTA_BOARD=""
 DEVICE_OTA_DIR=""
@@ -887,7 +888,7 @@ start_server() {
     server_pid="$!"
     log_info "Launching detached supervisor (pid=$server_pid)"
 
-    for attempts in $(seq 1 20); do
+    for attempts in $(seq 1 "$SERVER_START_TIMEOUT_SEC"); do
         if [ -f "$ENV_FILE" ]; then
             load_state_runtime
             if tcp_connects 127.0.0.1 "$MQTT_PORT" && tcp_connects 127.0.0.1 "$HTTP_PORT"; then

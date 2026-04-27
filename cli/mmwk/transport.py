@@ -154,6 +154,11 @@ class RadarTransport(abc.ABC):
             self.notifications.clear()
             return items
 
+    def clear_pending(self):
+        with self.lock:
+            self.responses.clear()
+            self.notifications.clear()
+
 
 def _parse_uart_proxy_endpoint(raw: str):
     value = (raw or "").strip()
@@ -310,6 +315,9 @@ class UartTransport(RadarTransport):
             self.ser.dtr = False
             time.sleep(2)  # Wait for boot
 
+        self._start_listener()
+
+    def _start_listener(self):
         self._listener = threading.Thread(target=self._listen, daemon=True)
         self._listener.start()
 
@@ -345,15 +353,16 @@ class UartTransport(RadarTransport):
             )
 
         host, port = self._proxy_ctrl_endpoint
-        sock = socket.create_connection((host, port), timeout=self.timeout)
+        reset_timeout = max(self.timeout, 5.0)
+        sock = socket.create_connection((host, port), timeout=reset_timeout)
         try:
-            sock.settimeout(self.timeout)
+            sock.settimeout(reset_timeout)
             request = json.dumps(
                 {"command": "reset", "port": self.port},
                 separators=(",", ":"),
             ).encode("utf-8") + b"\n"
             sock.sendall(request)
-            response_raw = _recv_socket_line(sock, self.timeout)
+            response_raw = _recv_socket_line(sock, reset_timeout)
             try:
                 response = json.loads(response_raw.decode("utf-8", errors="ignore").strip() or "{}")
             except json.JSONDecodeError as exc:
@@ -456,6 +465,49 @@ class UartTransport(RadarTransport):
             logger.error(f"UART reconnect failed on {self.port}: {last_err}")
         return False
 
+    def recover_after_reboot(self, settle_sec: float = 5.0, reconnect_wait_sec: float = 20.0) -> bool:
+        self.clear_pending()
+        time.sleep(max(0.0, settle_sec))
+        ok = self._reconnect(wait_sec=reconnect_wait_sec)
+        self.clear_pending()
+        return ok
+
+    def reset_device(self, settle_sec: float = 2.0, reconnect_wait_sec: float = 20.0) -> bool:
+        self.clear_pending()
+        self.running = False
+        with self._io_lock:
+            try:
+                if getattr(self, "ser", None) and self.ser.is_open:
+                    self.ser.close()
+            except Exception:
+                pass
+        listener = getattr(self, "_listener", None)
+        if listener and listener.is_alive() and listener is not threading.current_thread():
+            listener.join(timeout=1.0)
+
+        self.running = True
+        if self._should_use_uart_proxy():
+            self._proxy_reset()
+            with self._io_lock:
+                self._open_serial()
+            time.sleep(max(0.0, settle_sec))
+        else:
+            with self._io_lock:
+                self._open_serial()
+                self.ser.dtr = False
+                self.ser.rts = False
+                time.sleep(0.1)
+                self.ser.dtr = True
+                self.ser.rts = True
+                time.sleep(0.1)
+                self.ser.rts = False
+                self.ser.dtr = False
+            time.sleep(max(0.0, settle_sec))
+
+        self._start_listener()
+        self.clear_pending()
+        return True
+
     def send_raw(self, data: str):
         payload = (data + "\n").encode('utf-8')
         for attempt in range(2):
@@ -510,11 +562,29 @@ class UartTransport(RadarTransport):
     def _process_line(self, line_str: str):
         """Process a single newline-delimited line from UART."""
         if line_str.startswith('{'):
+            decoder = json.JSONDecoder()
+            offset = 0
+            parsed_count = 0
             try:
-                data = json.loads(line_str)
-                self.ingest_json(data)
-                return
+                while offset < len(line_str):
+                    while offset < len(line_str) and line_str[offset].isspace():
+                        offset += 1
+                    if offset >= len(line_str):
+                        break
+
+                    data, offset = decoder.raw_decode(line_str, offset)
+                    if not isinstance(data, dict):
+                        raise json.JSONDecodeError("JSON value is not an object", line_str, offset)
+                    self.ingest_json(data)
+                    parsed_count += 1
+
+                if parsed_count > 0:
+                    return
             except json.JSONDecodeError as e:
+                if parsed_count > 0:
+                    logger.warning(f"Corrupt JSON tail ({e}), len={len(line_str)}: "
+                                   f"{line_str[:120]}...")
+                    return
                 logger.warning(f"Corrupt JSON ({e}), len={len(line_str)}: "
                                f"{line_str[:120]}...")
         logger.debug(f"LOG: {line_str}")

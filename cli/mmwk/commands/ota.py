@@ -497,6 +497,7 @@ class OtaCommand:
                 logger.info(f"{log_prefix}: {text}")
                 return True
 
+            self.mcp.transport.drain_notifications()
             if not send_ota_request("OTA initiated"):
                 return False
 
@@ -574,7 +575,7 @@ class OtaCommand:
                         _download_success_seen[0] = True
                     elif st == "flash_start":
                         _flash_start_seen[0] = True
-                    if st in ("ota_complete", "ota_done", "complete", "done", "success", "flash_success"):
+                    if st in ("ota_complete", "ota_done", "complete", "done", "flash_success"):
                         result = "done"
                     elif st == "download_success":
                         result = "download_success"
