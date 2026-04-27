@@ -186,11 +186,13 @@ def _canonical_tools(profile: str) -> list[dict]:
             _build_proto_tool(),
             _tool(
                 "network",
-                "Network configuration: WiFi credentials, provisioning AP, NTP time sync, MQTT settings, runtime status.",
+                "Network configuration: WiFi and 4G settings, preferred network, provisioning AP, NTP time sync, MQTT settings, runtime status.",
                 {
-                    "action": _action_property(["wifi", "prov", "ntp", "mqtt", "status"], "Operation"),
+                    "action": _action_property(["wifi", "4g", "priority", "prov", "ntp", "mqtt", "status", "diag"], "Operation"),
                     "ssid": {"type": "string", "description": "WiFi SSID"},
-                    "pass": {"type": "string", "description": "WiFi or MQTT password"},
+                    "pass": {"type": "string", "description": "WiFi, 4G, or MQTT password"},
+                    "apn": {"type": "string", "description": "4G APN"},
+                    "pref": {"type": "string", "enum": ["wifi", "4g"], "description": "Preferred network"},
                     "enable": {"type": "number", "description": "Provisioning enable (0/1)"},
                     "server": {"type": "string", "description": "NTP server"},
                     "tz_offset": {"type": "number", "description": "Timezone offset in seconds"},

@@ -55,7 +55,7 @@ def network_ready(payload: dict | list | object) -> bool:
 
 def network_runtime_ip(payload: dict | list | object) -> str:
     data = unwrap_tool_payload(payload)
-    candidates = [data.get("sta_ip"), data.get("ip")]
+    candidates = [data.get("active_ip"), data.get("ip"), data.get("sta_ip")]
 
     if isinstance(payload, dict):
         device_hi = payload.get("device_hi")
@@ -64,8 +64,9 @@ def network_runtime_ip(payload: dict | list | object) -> str:
         network_status = payload.get("network_status")
         if isinstance(network_status, dict):
             nested = unwrap_tool_payload(network_status)
-            candidates.append(nested.get("sta_ip"))
+            candidates.append(nested.get("active_ip"))
             candidates.append(nested.get("ip"))
+            candidates.append(nested.get("sta_ip"))
 
     for candidate in candidates:
         if valid_runtime_ip(candidate):
@@ -96,9 +97,15 @@ def network_runtime_summary(
     detail = [
         f"device_ip={device_ip or '<none>'}",
         f"state={network_state(status) or '<none>'}",
-        f"sta_ip={network_runtime_ip(status) or '<none>'}",
+        f"active_ip={network_runtime_ip(status) or '<none>'}",
         f"ready={network_ip_ready(status)}",
     ]
+    pref = status.get("pref") or diag.get("pref")
+    curr = status.get("curr") or diag.get("curr")
+    if pref:
+        detail.append(f"pref={pref}")
+    if curr:
+        detail.append(f"curr={curr}")
 
     if diag:
         detail.append(f"terminal_failure={normalize_bool(diag.get('terminal_failure'))}")

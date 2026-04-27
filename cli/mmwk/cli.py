@@ -668,6 +668,16 @@ def cmd_network(args):
                 net_args["user"] = args.user
             if args.passphrase is not None:
                 net_args["pass"] = args.passphrase
+        elif args.action == "4g":
+            if args.apn is not None:
+                net_args["apn"] = args.apn
+            if args.user is not None:
+                net_args["user"] = args.user
+            if args.passphrase is not None:
+                net_args["pass"] = args.passphrase
+        elif args.action == "priority":
+            if args.pref is not None:
+                net_args["pref"] = args.pref
         elif args.action == "ntp":
             if getattr(args, 'server', None): net_args["server"] = args.server
             if getattr(args, 'tz_offset', None) is not None: net_args["tz_offset"] = args.tz_offset
@@ -1246,6 +1256,20 @@ def main():
     add_transport_args(net_wifi)
     net_wifi.set_defaults(func=cmd_network)
 
+    # network 4g
+    net_4g = net_sub.add_parser("4g", help="Get/Set 4G configuration")
+    net_4g.add_argument("--apn", help="Set 4G APN")
+    net_4g.add_argument("--user", help="Set 4G username")
+    net_4g.add_argument("--pass", dest="passphrase", help="Set 4G password")
+    add_transport_args(net_4g)
+    net_4g.set_defaults(func=cmd_network)
+
+    # network priority
+    net_priority = net_sub.add_parser("priority", help="Get/Set preferred network: wifi or 4g")
+    net_priority.add_argument("--pref", choices=["wifi", "4g"], help="Preferred network")
+    add_transport_args(net_priority)
+    net_priority.set_defaults(func=cmd_network)
+
     # network prov
     net_prov = net_sub.add_parser("prov", help="Control Wi-Fi provisioning")
     net_prov_grp = net_prov.add_mutually_exclusive_group(required=True)
@@ -1255,7 +1279,7 @@ def main():
     net_prov.set_defaults(func=cmd_network)
 
     # network status
-    net_status = net_sub.add_parser("status", help="Query Wi-Fi/provisioning runtime status")
+    net_status = net_sub.add_parser("status", help="Query network runtime status")
     add_transport_args(net_status)
     net_status.set_defaults(func=cmd_network)
 

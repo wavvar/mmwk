@@ -191,9 +191,11 @@ COMMANDS:
     scene wait            Wait until radar is ready after scene apply
     collect               Subscribe MQTT raw_data/raw_resp and save raw data plus trimmed cmd_resp text
     network wifi          Set Wi-Fi credentials
+    network 4g            Get/Set 4G configuration
+    network priority      Get/Set preferred network: wifi or 4g
     network mqtt          Get/Set MQTT configuration
     network prov          Wi-Fi provisioning control
-    network status        Query Wi-Fi runtime/provisioning status
+    network status        Query network runtime status
     network ntp           Configure NTP time sync
 
 TRANSPORT OPTIONS:
