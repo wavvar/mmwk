@@ -143,6 +143,8 @@ For PRO/WDR devices with 4G support, store the mobile profile and then choose th
 
 `network priority --pref wifi|4g` controls the preferred network. Saving Wi-Fi credentials does not automatically change a 4G preference, and 4G failure does not automatically fall back to Wi-Fi. Use `network priority --pref wifi` or the device button toggle to return to Wi-Fi preference.
 
+For SDK hardware acceptance runs, 4G is also explicit: pass the runner's `--4g` only for SIM-equipped PRO/WDR devices; omit it to keep Wi-Fi as the test default.
+
 Provisioning AP SSID follows `MMWK-[board][app]-[MAC suffix]`. Factory default Wi-Fi is `MMWK / mmwk123456`.
 
 MQTT can be edited in the portal only while the device is still in factory state. After factory onboarding, bridge shows MQTT as read-only with password masked as `********`. After factory onboarding, hub hides MQTT settings from the portal.

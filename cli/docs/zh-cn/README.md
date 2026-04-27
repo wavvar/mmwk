@@ -135,6 +135,8 @@ pip install -r requirements.txt
 
 `network priority --pref wifi|4g` 用于设置 Wi-Fi/4G 优先网络。保存 Wi-Fi 凭据不会自动改掉 4G 优先级，4G 失败不会自动回退到 Wi-Fi。需要回到 Wi-Fi 优先时，请执行 `network priority --pref wifi`，或使用设备按键切换。
 
+SDK 硬件验收同样保持显式选择：只有带 SIM 卡的 PRO/WDR 测试才给 runner 传 `--4g`；不传时测试默认仍走 Wi-Fi。
+
 配网 AP 名称遵循 `MMWK-[板][应用]-[MAC后两字节]`。默认 Wi-Fi 为 `MMWK / mmwk123456`。
 
 只有出厂态下 portal 允许修改 MQTT。bridge 在非出厂态下只读显示 MQTT，密码固定显示为 `********`。hub 在非出厂态下隐藏 MQTT 配置。
