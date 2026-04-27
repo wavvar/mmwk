@@ -120,6 +120,14 @@ Use the results as follows:
 ./run.sh node reboot -p /dev/cu.usbserial-0001
 ```
 
+For PRO/WDR devices with 4G support, store the mobile profile and then choose the preferred network:
+```bash
+./run.sh network 4g --apn YOUR_APN -p /dev/cu.usbserial-0001
+./run.sh network priority --pref 4g -p /dev/cu.usbserial-0001
+```
+
+`network priority --pref wifi|4g` controls the preferred network. Saving Wi-Fi credentials does not automatically change a 4G preference, and 4G failure does not automatically fall back to Wi-Fi. Use `network priority --pref wifi` or the device button toggle to return to Wi-Fi preference.
+
 Provisioning AP SSID follows `MMWK-[board][app]-[MAC suffix]`. Factory default Wi-Fi is `MMWK / mmwk123456`.
 
 MQTT can be edited in the portal only while the device is still in factory state. After factory onboarding, bridge shows MQTT as read-only with password masked as `********`. After factory onboarding, hub hides MQTT settings from the portal.
@@ -207,6 +215,13 @@ If the device has no saved Wi-Fi credentials, it enters **Provisioning Mode** au
 To configure via CLI (UART):
 ```bash
 ./run.sh network wifi --ssid "MyWiFi" --pass "MyPass" -p /dev/cu.usbserial-0001
+```
+
+On PRO/WDR devices, configure 4G separately and choose the active preference:
+```bash
+./run.sh network 4g --apn YOUR_APN -p /dev/cu.usbserial-0001
+./run.sh network priority --pref wifi -p /dev/cu.usbserial-0001
+./run.sh network priority --pref 4g -p /dev/cu.usbserial-0001
 ```
 
 To inspect runtime provisioning/retry state:
@@ -297,7 +312,7 @@ Recommended transport for real applications, dashboards, automation, and fleet/d
 | `collect` | Subscribe `raw_data` / `raw_resp` and save DATA/CMD UART capture files on host |
 | `endpoint list/describe/read/config get/config set` | Inspect the Matter-oriented endpoint directory and runtime state (`endpoint list --json` / `endpoint describe` expose `endpoint_key`, `parent_endpoint_key`, `parts`, `truth_source`, and device-type metadata) |
 | `scene read/set/apply/wait` | Manage hub-only scene orchestration and radar config flows |
-| `network wifi/mqtt/prov/status/ntp` | Configure networking; `network status` returns `state`, `ip`, `ready`, and `mqtt_state` |
+| `network wifi/4g/priority/mqtt/prov/status/ntp` | Configure networking; `network status` returns `state`, `active_ip`, `pref`, `curr`, `ready`, and `mqtt_state` |
 
 ### Command Examples
 
@@ -348,6 +363,9 @@ Recommended transport for real applications, dashboards, automation, and fleet/d
 
 # --- Network ---
 ./run.sh network wifi --ssid "MyWiFi" --pass "MyPass" -p /dev/cu.usbserial-0001
+./run.sh network 4g --apn YOUR_APN -p /dev/cu.usbserial-0001
+./run.sh network priority --pref 4g -p /dev/cu.usbserial-0001
+./run.sh network priority --pref wifi -p /dev/cu.usbserial-0001
 ./run.sh network mqtt --uri mqtt://broker.local -p /dev/cu.usbserial-0001
 ./run.sh network prov --enable -p /dev/cu.usbserial-0001
 ./run.sh network status -p /dev/cu.usbserial-0001
@@ -445,6 +463,7 @@ python3 -m mmwk node info -p /dev/cu.usbserial-0001
 | **INIT** | Solid ON for 3s, then OFF | Boot indicator only |
 | **OFF** | LED off | Normal idle/running display |
 | **CONFIRM short** | OFF, ON 500ms, OFF | Short interaction acknowledgement |
+| **CONFIRM double** | OFF, ON 500ms, OFF 100ms, ON 500ms, OFF | 4G preferred-network confirmation |
 | **CONFIRM normal** | OFF, ON 500ms, OFF 100ms, ON 500ms, OFF | Configuration or connection acknowledgement |
 | **CONFIRM long** | OFF, then 500ms ON / 100ms OFF repeated 3 times | Long interaction acknowledgement, including factory-reset hold |
 | **ERROR warning** | 200ms ON / 100ms OFF loop | Recoverable warning or retry-exhausted condition |
@@ -455,7 +474,8 @@ LED is not a network readiness signal. Use `network status` (`state=connected &&
 `node agent --led 0|1` controls only ERROR display. INIT and CONFIRM always display; when `led=0`, ERROR keeps the hardware LED off while the logical error state is still present.
 
 ### Button Functions
-- **Short Press**: Short confirmation blink.
+- **Short Press**: Confirms the preferred network. one blink = Wi-Fi, two blinks = 4G.
+- **Triple Short Press**: Toggles the preferred network between Wi-Fi and 4G on devices that support 4G.
 - **Long Press (10s)**: **Factory Reset**. Erases NVS settings (Wi-Fi/MQTT) and reboots into Provisioning mode.
 
 ---

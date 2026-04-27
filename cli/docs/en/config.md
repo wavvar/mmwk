@@ -13,6 +13,7 @@ cd ./cli
 ## What It Does
 
 - Push Wi-Fi credentials with `network wifi`
+- Point 4G users to the official `network 4g` and `network priority` commands
 - Push MQTT settings with `network mqtt`
 - Optionally reboot the device with `node reboot`
 - Optionally start or reuse `server.sh` and feed its local broker URI back into the device
@@ -49,6 +50,18 @@ Use this when the device is already online and you want to re-point it without o
 ```
 
 `--transport mqtt` uses the current control-plane broker and topics only to deliver the configuration commands. The device-side MQTT identity is fixed to the Wi-Fi STA MAC, so `network mqtt` now stores only broker/auth settings and exposes the canonical topics as read-only derived values.
+
+### 3. 4G and network priority
+
+`config.sh set` remains focused on Wi-Fi/MQTT onboarding. For PRO/WDR 4G configuration, use the official `run.sh` network commands directly:
+
+```bash
+./run.sh network 4g --apn YOUR_APN -p /dev/cu.usbserial-0001
+./run.sh network priority --pref 4g -p /dev/cu.usbserial-0001
+./run.sh network priority --pref wifi -p /dev/cu.usbserial-0001
+```
+
+Saving Wi-Fi credentials does not change a 4G preference. 4G failure does not automatically fall back to Wi-Fi; switch the preference explicitly when you want Wi-Fi.
 
 ## Key Options
 

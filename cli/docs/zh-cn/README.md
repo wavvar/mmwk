@@ -111,6 +111,15 @@ pip install -r requirements.txt
 ./run.sh node reboot -p /dev/cu.usbserial-0001
 ```
 
+对于支持 4G 的 PRO/WDR 设备，可以单独保存 4G 配置，再选择优先网络：
+
+```bash
+./run.sh network 4g --apn YOUR_APN -p /dev/cu.usbserial-0001
+./run.sh network priority --pref 4g -p /dev/cu.usbserial-0001
+```
+
+`network priority --pref wifi|4g` 用于设置 Wi-Fi/4G 优先网络。保存 Wi-Fi 凭据不会自动改掉 4G 优先级，4G 失败不会自动回退到 Wi-Fi。需要回到 Wi-Fi 优先时，请执行 `network priority --pref wifi`，或使用设备按键切换。
+
 配网 AP 名称遵循 `MMWK-[板][应用]-[MAC后两字节]`。默认 Wi-Fi 为 `MMWK / mmwk123456`。
 
 只有出厂态下 portal 允许修改 MQTT。bridge 在非出厂态下只读显示 MQTT，密码固定显示为 `********`。hub 在非出厂态下隐藏 MQTT 配置。
@@ -219,6 +228,9 @@ CLI 配置方式：
 
 ```bash
 ./run.sh network wifi --ssid "MyWiFi" --pass "MyPass" -p /dev/cu.usbserial-0001
+./run.sh network 4g --apn YOUR_APN -p /dev/cu.usbserial-0001
+./run.sh network priority --pref wifi -p /dev/cu.usbserial-0001
+./run.sh network priority --pref 4g -p /dev/cu.usbserial-0001
 ./run.sh network status -p /dev/cu.usbserial-0001
 ```
 
@@ -297,7 +309,7 @@ flowchart LR
 | `collect` | 采集 `raw_data` / `raw_resp` 并保存到主机 |
 | `endpoint list/describe/read/config get/config set` | 查看面向 Matter 的 endpoint 目录与运行时状态（`endpoint list --json` / `endpoint describe` 会暴露 `endpoint_key`、`parent_endpoint_key`、`parts`、`truth_source` 等语义字段） |
 | `scene read/set/apply/wait` | hub 专属的 scene 编排与配置接口 |
-| `network wifi/mqtt/prov/status/ntp` | 网络配置，其中 `network status` 用于查询 `state` / `ip` / `ready` / `mqtt_state` |
+| `network wifi/4g/priority/mqtt/prov/status/ntp` | 网络配置，其中 `network status` 用于查询 `state` / `active_ip` / `pref` / `curr` / `ready` / `mqtt_state` |
 
 ### 命令示例
 
@@ -342,7 +354,13 @@ flowchart LR
 ./run.sh scene read -p /dev/cu.usbserial-0001   # 仅 hub
 
 # --- Network ---
+./run.sh network wifi --ssid "MyWiFi" --pass "MyPass" -p /dev/cu.usbserial-0001
+./run.sh network 4g --apn YOUR_APN -p /dev/cu.usbserial-0001
+./run.sh network priority --pref 4g -p /dev/cu.usbserial-0001
+./run.sh network priority --pref wifi -p /dev/cu.usbserial-0001
 ./run.sh network mqtt --uri mqtt://broker.local -p /dev/cu.usbserial-0001
+./run.sh network prov --enable -p /dev/cu.usbserial-0001
+./run.sh network status -p /dev/cu.usbserial-0001
 ./run.sh collect --duration 12 --data-output ./data_resp.sraw --resp-output ./cmd_resp.log -p /dev/cu.usbserial-0001
 ```
 
@@ -433,6 +451,7 @@ python3 -m mmwk node info -p /dev/cu.usbserial-0001
 | **INIT** | 常亮 3 秒后关闭 | 仅用于开机提示 |
 | **OFF** | LED 关闭 | 正常空闲 / 运行显示 |
 | **CONFIRM short** | 关闭、亮 500ms、关闭 | 短交互确认 |
+| **CONFIRM double** | 关闭、亮 500ms、关 100ms、亮 500ms、关闭 | 4G 优先网络确认 |
 | **CONFIRM normal** | 关闭、亮 500ms、关 100ms、亮 500ms、关闭 | 配置或连接确认 |
 | **CONFIRM long** | 关闭，然后亮 500ms / 关 100ms 循环 3 次 | 长交互确认，包括恢复出厂长按 |
 | **ERROR warning** | 亮 200ms / 关 100ms 持续循环 | 可恢复警告或重试耗尽 |
@@ -444,7 +463,8 @@ LED 不是网络 ready 信号。网络 ready 以 `network status` 的 `state=con
 
 ### 按键功能
 
-- **短按**：短确认闪烁
+- **短按**：确认当前优先网络。闪 1 次 = Wi-Fi，闪 2 次 = 4G。
+- **短按 3 次**：在支持 4G 的设备上切换 Wi-Fi / 4G 优先网络。
 - **长按 10 秒**：恢复出厂设置
 
 ---

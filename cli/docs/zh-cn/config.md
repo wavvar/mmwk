@@ -11,6 +11,7 @@ cd ./cli
 ## 它负责什么
 
 - 通过 `network wifi` 下发 Wi-Fi 凭据
+- 4G 配置请直接使用官方 `network 4g` 和 `network priority` 命令
 - 通过 `network mqtt` 下发 MQTT 设置
 - 按需通过 `node reboot` 重启设备
 - 按需启动或复用 `server.sh`，并把本地 broker URI 反向写回设备
@@ -47,6 +48,18 @@ cd ./cli
 ```
 
 `--transport mqtt` 只表示“当前这次配置命令”通过现有 MQTT 控制链路送达。设备侧 MQTT 身份现在固定绑定 Wi-Fi STA MAC，所以 `network mqtt` 只保存 broker / 鉴权设置，对外返回的 canonical topic 只是只读派生值。
+
+### 3. 4G 与网络优先级
+
+`config.sh set` 仍然只负责 Wi-Fi/MQTT onboarding。PRO/WDR 的 4G 配置请直接使用官方 `run.sh` 网络命令：
+
+```bash
+./run.sh network 4g --apn YOUR_APN -p /dev/cu.usbserial-0001
+./run.sh network priority --pref 4g -p /dev/cu.usbserial-0001
+./run.sh network priority --pref wifi -p /dev/cu.usbserial-0001
+```
+
+保存 Wi-Fi 凭据不会改变 4G 优先级。4G 失败不会自动回退到 Wi-Fi；需要 Wi-Fi 时请显式切换优先级。
 
 ## 关键参数
 
