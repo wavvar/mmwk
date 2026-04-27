@@ -306,7 +306,7 @@ Recommended transport for real applications, dashboards, automation, and fleet/d
 ./run.sh node info -p /dev/cu.usbserial-0001
 ./run.sh node reboot -p /dev/cu.usbserial-0001
 ./run.sh node ota --fw mmwk_sensor_bridge_full.bin -p /dev/cu.usbserial-0001
-./run.sh node agent --mqtt 1 --uart 1 -p /dev/cu.usbserial-0001
+./run.sh node agent --mqtt 1 --uart 1 --led 1 -p /dev/cu.usbserial-0001
 ./run.sh node heartbeat --interval 60 --fields rssi heap uptime -p /dev/cu.usbserial-0001
 ./run.sh endpoint list -p /dev/cu.usbserial-0001
 ./run.sh proto list -p /dev/cu.usbserial-0001
@@ -440,17 +440,22 @@ python3 -m mmwk node info -p /dev/cu.usbserial-0001
 
 ### LED Indicators
 
-| Pattern | System Status |
-|---------|---------------|
-| **Fast Blink (100ms)** | Wi-Fi searching / No connection |
-| **Slow Blink (1000ms)** | MQTT searching / No connection |
-| **Solid ON (30s)** | Successful MQTT connection |
-| **Solid ON (5s)** | Handshake or Button feedback |
-| **Pulse** | Processing Update / Flashing |
-| **OFF** | Idle/Running (Normal) |
+| State | Pattern | Meaning |
+|-------|---------|---------|
+| **INIT** | Solid ON for 3s, then OFF | Boot indicator only |
+| **OFF** | LED off | Normal idle/running display |
+| **CONFIRM short** | OFF, ON 500ms, OFF | Short interaction acknowledgement |
+| **CONFIRM normal** | OFF, ON 500ms, OFF 100ms, ON 500ms, OFF | Configuration or connection acknowledgement |
+| **CONFIRM long** | OFF, then 500ms ON / 100ms OFF repeated 3 times | Long interaction acknowledgement, including factory-reset hold |
+| **ERROR warning** | 200ms ON / 100ms OFF loop | Recoverable warning or retry-exhausted condition |
+| **ERROR severe** | Solid ON | Fatal startup/runtime bring-up failure |
+
+LED is not a network readiness signal. Use `network status` (`state=connected && ready=true`) for network readiness and `mqtt_state=connected` for MQTT-dependent flows.
+
+`node agent --led 0|1` controls only ERROR display. INIT and CONFIRM always display; when `led=0`, ERROR keeps the hardware LED off while the logical error state is still present.
 
 ### Button Functions
-- **Short Press**: Visual test (LED stays ON for 5s).
+- **Short Press**: Short confirmation blink.
 - **Long Press (10s)**: **Factory Reset**. Erases NVS settings (Wi-Fi/MQTT) and reboots into Provisioning mode.
 
 ---

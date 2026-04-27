@@ -410,6 +410,8 @@ def cmd_device_agent(args):
             dev_args["raw_auto"] = args.raw_auto
         if getattr(args, "uart_split", None) is not None:
             dev_args["uart_split"] = args.uart_split
+        if getattr(args, "led", None) is not None:
+            dev_args["led"] = args.led
         if getattr(args, "reboot_ms", None) is not None:
             dev_args["reboot_ms"] = args.reboot_ms
 
@@ -1077,6 +1079,8 @@ def main():
                                      help="Auto-enable raw stream on boot (0=off, 1=on)")
     device_agent_parser.add_argument("--uart-split", dest="uart_split", type=int, choices=[0, 1], default=None,
                                      help="Split single-UART runtime data after sensorStart (0=off, 1=on)")
+    device_agent_parser.add_argument("--led", type=int, choices=[0, 1], default=None,
+                                     help="LED error display enable (0=off, 1=on)")
     device_agent_parser.add_argument("--reboot-ms", dest="reboot_ms", type=int, default=None,
                                      help="Reboot threshold when MQTT stays disconnected")
     add_transport_args(device_agent_parser)

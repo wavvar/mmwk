@@ -307,7 +307,7 @@ flowchart LR
 ./run.sh endpoint list -p /dev/cu.usbserial-0001
 ./run.sh proto list -p /dev/cu.usbserial-0001
 ./run.sh node reboot -p /dev/cu.usbserial-0001
-./run.sh node agent --mqtt 1 --raw-auto 1 -p /dev/cu.usbserial-0001
+./run.sh node agent --mqtt 1 --raw-auto 1 --led 1 -p /dev/cu.usbserial-0001
 
 # --- Radar ---
 ./run.sh radar status -p /dev/cu.usbserial-0001
@@ -428,18 +428,23 @@ python3 -m mmwk node info -p /dev/cu.usbserial-0001
 
 ### LED 指示
 
-| Pattern | 含义 |
-|---------|------|
-| **Fast Blink (100ms)** | Wi-Fi 搜索中 / 未连接 |
-| **Slow Blink (1000ms)** | MQTT 搜索中 / 未连接 |
-| **Solid ON (30s)** | MQTT 连接成功 |
-| **Solid ON (5s)** | 握手或按键反馈 |
-| **Pulse** | 升级 / 刷写中 |
-| **OFF** | 空闲 / 正常运行 |
+| 状态 | Pattern | 含义 |
+|------|---------|------|
+| **INIT** | 常亮 3 秒后关闭 | 仅用于开机提示 |
+| **OFF** | LED 关闭 | 正常空闲 / 运行显示 |
+| **CONFIRM short** | 关闭、亮 500ms、关闭 | 短交互确认 |
+| **CONFIRM normal** | 关闭、亮 500ms、关 100ms、亮 500ms、关闭 | 配置或连接确认 |
+| **CONFIRM long** | 关闭，然后亮 500ms / 关 100ms 循环 3 次 | 长交互确认，包括恢复出厂长按 |
+| **ERROR warning** | 亮 200ms / 关 100ms 持续循环 | 可恢复警告或重试耗尽 |
+| **ERROR severe** | 常亮 | 致命启动 / 运行时初始化失败 |
+
+LED 不是网络 ready 信号。网络 ready 以 `network status` 的 `state=connected && ready=true` 为准，MQTT 相关流程以 `mqtt_state=connected` 为准。
+
+`node agent --led 0|1` 只控制 ERROR 显示。INIT 和 CONFIRM 始终会显示；当 `led=0` 时，ERROR 逻辑状态仍存在，但硬件 LED 保持关闭。
 
 ### 按键功能
 
-- **短按**：视觉测试
+- **短按**：短确认闪烁
 - **长按 10 秒**：恢复出厂设置
 
 ---

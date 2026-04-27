@@ -45,6 +45,7 @@ def _build_node_tool(profile: str) -> dict:
             "uart": {"type": "number", "description": "UART agent enable (0/1)"},
             "raw_auto": {"type": "number", "description": "Auto-enable raw stream on boot (0/1)"},
             "uart_split": {"type": "number", "description": "Split single-UART runtime data after sensorStart (0/1)"},
+            "led": {"type": "number", "description": "LED error display enable (0/1)"},
             "reboot_ms": {"type": "number", "description": "Reboot threshold when MQTT stays disconnected"},
             "interval": {"type": "number", "description": "Heartbeat interval"},
             "fields": {"type": "array", "items": {"type": "string"}, "description": "Heartbeat fields"},
