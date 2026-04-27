@@ -65,6 +65,21 @@ pip install -r requirements.txt
 
 ---
 
+## CLI Key 保护
+
+出厂态或空 key 设备保持开放，方便 bring-up。设置 key 以后，UART 和 MQTT 上的受保护命令都需要 `--key`；CLIv1 没有 login/session 流程。
+
+```bash
+./run.sh node key status -p /dev/cu.usbserial-0001
+./run.sh node key set --new-key YOUR_KEY -p /dev/cu.usbserial-0001
+./run.sh radar status --key YOUR_KEY -p /dev/cu.usbserial-0001
+./run.sh node key clear --key YOUR_KEY -p /dev/cu.usbserial-0001
+```
+
+`node key status` 是公开命令。`node key set` 可在开放设备上设置初始 key；保护启用后，更新 key 也需要当前正确的 `--key`。`node info` 仍可不带 key 调用，但保护启用后，未认证响应只包含公开身份字段和 `auth_enabled/auth_required`。恢复出厂设置会清除 key。
+
+---
+
 ## 快速开始
 
 拿到新设备后的最短端到端路径通常是：
@@ -291,6 +306,7 @@ flowchart LR
 | `node ota` | 升级 ESP 固件 |
 | `node agent` | 配置 agent 服务 |
 | `node heartbeat` | 配置心跳 |
+| `node key status/set/clear` | 查看、设置、更新或清除 CLI key 保护 |
 | `endpoint list` | 查看当前 profile / effective sensor set 的面向 Matter 的 endpoint 目录 |
 | `proto list/status/manifest` | 查看节点公开协议目录 |
 | `radar fw ota` | HTTP OTA 升级雷达固件 |
@@ -318,11 +334,15 @@ flowchart LR
 ./run.sh node info -p /dev/cu.usbserial-0001
 ./run.sh endpoint list -p /dev/cu.usbserial-0001
 ./run.sh proto list -p /dev/cu.usbserial-0001
+./run.sh node key status -p /dev/cu.usbserial-0001
+./run.sh node key set --new-key YOUR_KEY -p /dev/cu.usbserial-0001
+./run.sh node key clear --key YOUR_KEY -p /dev/cu.usbserial-0001
 ./run.sh node reboot -p /dev/cu.usbserial-0001
 ./run.sh node agent --mqtt 1 --raw-auto 1 --led 1 -p /dev/cu.usbserial-0001
 
 # --- Radar ---
 ./run.sh radar status -p /dev/cu.usbserial-0001
+./run.sh radar status --key YOUR_KEY -p /dev/cu.usbserial-0001
 ./run.sh radar start --mode auto -p /dev/cu.usbserial-0001
 ./run.sh radar stop -p /dev/cu.usbserial-0001
 ./run.sh radar fw version -p /dev/cu.usbserial-0001

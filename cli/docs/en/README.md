@@ -68,6 +68,21 @@ pip install -r requirements.txt
 
 ---
 
+## CLI Key Protection
+
+Factory or empty-key devices remain open for bring-up. After you set a key, protected commands over UART and MQTT require `--key`; there is no login/session flow in CLIv1.
+
+```bash
+./run.sh node key status -p /dev/cu.usbserial-0001
+./run.sh node key set --new-key YOUR_KEY -p /dev/cu.usbserial-0001
+./run.sh radar status --key YOUR_KEY -p /dev/cu.usbserial-0001
+./run.sh node key clear --key YOUR_KEY -p /dev/cu.usbserial-0001
+```
+
+`node key status` is public. `node key set` sets the initial key on an open device; once protection is enabled, updating the key also requires the current `--key`. `node info` still works without a key, but after protection is enabled the unauthenticated response is limited to public identity fields and `auth_enabled/auth_required`. Factory reset clears the key.
+
+---
+
 ## Quick Start
 
 Use this path when you receive a new device and want the shortest end-to-end flow:
@@ -294,6 +309,7 @@ Recommended transport for real applications, dashboards, automation, and fleet/d
 | `node ota` | Update the ESP firmware via HTTP OTA |
 | `node agent` | Enable/disable built-in agent services |
 | `node heartbeat` | Configure system heartbeat packets |
+| `node key status/set/clear` | Inspect, set, update, or clear CLI key protection |
 | `endpoint list` | Show the active Matter-oriented endpoint directory for the current profile / effective sensor set |
 | `proto list/status/manifest` | Inspect node public protocol directory |
 | `radar fw ota` | Update firmware via HTTP download (fastest) |
@@ -323,11 +339,15 @@ Recommended transport for real applications, dashboards, automation, and fleet/d
 ./run.sh node ota --fw mmwk_sensor_bridge_full.bin -p /dev/cu.usbserial-0001
 ./run.sh node agent --mqtt 1 --uart 1 --led 1 -p /dev/cu.usbserial-0001
 ./run.sh node heartbeat --interval 60 --fields rssi heap uptime -p /dev/cu.usbserial-0001
+./run.sh node key status -p /dev/cu.usbserial-0001
+./run.sh node key set --new-key YOUR_KEY -p /dev/cu.usbserial-0001
+./run.sh node key clear --key YOUR_KEY -p /dev/cu.usbserial-0001
 ./run.sh endpoint list -p /dev/cu.usbserial-0001
 ./run.sh proto list -p /dev/cu.usbserial-0001
 
 # --- Radar ---
 ./run.sh radar status -p /dev/cu.usbserial-0001
+./run.sh radar status --key YOUR_KEY -p /dev/cu.usbserial-0001
 ./run.sh radar start --mode auto -p /dev/cu.usbserial-0001
 ./run.sh radar stop -p /dev/cu.usbserial-0001
 ./run.sh radar fw version -p /dev/cu.usbserial-0001

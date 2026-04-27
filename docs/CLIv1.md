@@ -40,6 +40,43 @@ Rules:
 - `service` must be a non-empty string
 - `action` is optional but, when present, must be a string
 - `args` is optional; when present it must be a JSON object
+- `key` is optional and, when present, must be a top-level string field; do not put it inside `args`
+
+## Key Protection
+
+Factory or empty-key devices remain open. Once `node key set` stores a non-empty key, protected CLI requests over both UART and MQTT must include the correct top-level `"key"` field:
+
+```json
+{"type":"req","seq":2,"service":"radar","action":"status","key":"YOUR_KEY","args":{}}
+```
+
+Rules:
+
+- `key` is never echoed in responses.
+- There is no login/session/authenticate step in CLIv1; every protected request carries `key`.
+- Public requests work without `key`: `help`, `proto list`, `proto status`, `proto manifest`, `node info` public view, and `node key status`.
+- Protected requests include radar, network, endpoint, scene, node mutation/sensitive reads, `node key set` when a key already exists, and `node key clear`.
+- Missing or wrong `key` on protected requests returns `unauthorized`.
+- If a public request with a private view receives a wrong `key`, it returns `unauthorized`.
+
+`node info` is public but has two views:
+
+- When no key is stored, it returns the full existing identity/metadata payload and includes `auth_enabled=false`.
+- When a key is stored and no `key` is supplied, it returns only public identity fields such as `name`, `board`, `version`, `id`, plus `auth_enabled` and `auth_required`.
+- When the correct `key` is supplied, it returns the full identity/metadata payload.
+
+Key management is under `node key`:
+
+```json
+{"type":"req","seq":3,"service":"node","action":"key","args":{"op":"status"}}
+{"type":"req","seq":4,"service":"node","action":"key","args":{"op":"set","new_key":"YOUR_KEY"}}
+{"type":"req","seq":5,"service":"node","action":"key","key":"YOUR_KEY","args":{"op":"clear"}}
+```
+
+- `status` is public and returns `enabled` / `required`.
+- `set` sets the initial key when no key exists; when protection is already enabled, it updates the key only if the current top-level `key` is correct.
+- `clear` removes the stored key and requires the current correct top-level `key`.
+- There is no `rotate` operation; updating is handled by `set`.
 
 ## Success Response
 

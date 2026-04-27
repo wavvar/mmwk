@@ -40,6 +40,43 @@
 - `service` 必须是非空字符串
 - `action` 可选；如果带上，必须是字符串
 - `args` 可选；如果带上，必须是 JSON 对象
+- `key` 可选；如果带上，必须是顶层字符串字段，不要放进 `args`
+
+## Key 保护
+
+出厂态或空 key 设备保持开放。执行 `node key set` 存入非空 key 后，UART 和 MQTT 上的受保护 CLI 请求都必须携带正确的顶层 `"key"` 字段：
+
+```json
+{"type":"req","seq":2,"service":"radar","action":"status","key":"YOUR_KEY","args":{}}
+```
+
+规则：
+
+- 响应里不会回显 `key`。
+- CLIv1 没有 login/session/authenticate 过程；每条受保护请求都携带 `key`。
+- 公开请求无需 `key`：`help`、`proto list`、`proto status`、`proto manifest`、`node info` 公开视图，以及 `node key status`。
+- 受保护请求包括 radar、network、endpoint、scene、node 修改/敏感读取，已有 key 时的 `node key set`，以及 `node key clear`。
+- 受保护请求缺少或带错 `key` 时返回 `unauthorized`。
+- 如果公开请求存在私有视图，且调用方带了错误 `key`，返回 `unauthorized`。
+
+`node info` 是公开命令，但有两种视图：
+
+- 未存储 key 时，返回原有完整身份/元数据载荷，并包含 `auth_enabled=false`。
+- 已存储 key 且请求未携带 `key` 时，只返回公开身份字段，例如 `name`、`board`、`version`、`id`，以及 `auth_enabled`、`auth_required`。
+- 携带正确 `key` 时，返回完整身份/元数据载荷。
+
+key 管理位于 `node key`：
+
+```json
+{"type":"req","seq":3,"service":"node","action":"key","args":{"op":"status"}}
+{"type":"req","seq":4,"service":"node","action":"key","args":{"op":"set","new_key":"YOUR_KEY"}}
+{"type":"req","seq":5,"service":"node","action":"key","key":"YOUR_KEY","args":{"op":"clear"}}
+```
+
+- `status` 是公开操作，返回 `enabled` / `required`。
+- `set` 在没有 key 时设置初始 key；保护已启用时，只有当前顶层 `key` 正确才会更新 key。
+- `clear` 删除已存储 key，并要求当前顶层 `key` 正确。
+- 没有 `rotate` 操作；更新 key 由 `set` 完成。
 
 ## 成功响应
 
