@@ -1,5 +1,5 @@
 #!/bin/bash
-# config.sh — registry-backed radar task wrapper with init/update/list subcommands
+# config.sh — registry-backed radar task wrapper with init/update/list/search subcommands
 set -euo pipefail
 
 INVOKE_PWD="$(pwd)"
@@ -22,6 +22,7 @@ USAGE:
 COMMANDS:
   init      Configure a UART-connected device and persist it into device.yml
   set       Configure device Wi-Fi and MQTT settings over UART or MQTT
+  search    Discover MMWK devices over mDNS
   update    Update radar firmware or runtime cfg using device.yml
   list      List configured devices from device.yml
 
@@ -33,6 +34,7 @@ COMMON:
 EXAMPLES:
   ./config.sh init --port /dev/ttyUSB1
   ./config.sh set --server-local --ssid YOUR_WIFI --password YOUR_PASSWORD --port /dev/ttyUSB1 --reboot
+  ./config.sh search
   ./config.sh update --device-id 0123456789ab --fw ./firmware.bin
   ./config.sh list
 EOF_USAGE
@@ -143,6 +145,28 @@ USAGE:
 OPTIONAL:
   --working DIR         Working directory root for device.yml
   -h, --help            Show this help
+EOF_USAGE
+}
+
+usage_search() {
+    cat <<'EOF_USAGE'
+config.sh search -- Discover MMWK devices over mDNS
+
+USAGE:
+  ./config.sh search [options]
+
+OPTIONAL:
+  --timeout SEC        mDNS browse duration (default: 3)
+  --json               Print machine-readable JSON
+  --ap-iface IFACE     Temporarily add --ap-cidr to this host interface
+  --ap-cidr CIDR       Host address for device AP discovery (default: 192.168.4.2/24)
+  --keep-ap-alias      Leave the temporary AP address configured after search
+  -h, --help           Show this help
+
+EXAMPLES:
+  ./config.sh search
+  ./config.sh search --json
+  ./config.sh search --ap-iface wlan0 --ap-cidr 192.168.4.2/24
 EOF_USAGE
 }
 
@@ -719,6 +743,16 @@ cmd_list() {
     printf '%s\n' "$lines"
 }
 
+cmd_search() {
+    if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+        usage_search
+        exit 0
+    fi
+
+    setup_project_env
+    "$PYTHON" -m mmwk.discovery "$@"
+}
+
 subcommand="${1:-}"
 case "$subcommand" in
     init)
@@ -728,6 +762,10 @@ case "$subcommand" in
     set)
         shift
         cmd_set "$@"
+        ;;
+    search)
+        shift
+        cmd_search "$@"
         ;;
     update)
         shift
