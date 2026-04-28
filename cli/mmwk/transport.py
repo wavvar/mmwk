@@ -6,6 +6,7 @@ import os
 import socket
 import time
 import threading
+from urllib.parse import urlparse
 try:
     import termios
 except ImportError:  # pragma: no cover - non-POSIX fallback
@@ -595,6 +596,19 @@ class UartTransport(RadarTransport):
 class MqttTransport(RadarTransport):
     """MQTT transport using paho-mqtt."""
 
+    @staticmethod
+    def _resolve_broker_endpoint(broker: str, port: int) -> tuple[str, int, bool]:
+        raw = str(broker or "").strip()
+        if "://" not in raw:
+            return raw or "localhost", int(port), False
+
+        parsed = urlparse(raw)
+        scheme = (parsed.scheme or "").lower()
+        host = parsed.hostname or "localhost"
+        use_tls = scheme == "mqtts"
+        default_port = 8883 if use_tls else int(port)
+        return host, int(parsed.port or default_port), use_tls
+
     def __init__(self, broker: str, port: int = 1883, device_id: str = None,
                  cmd_topic: str = None, resp_topic: str = None,
                  username: str = None, password: str = None,
@@ -609,27 +623,59 @@ class MqttTransport(RadarTransport):
         self.resp_topic = resp_topic or topics["resp_topic"]
         self.qos = qos
         self.inter_chunk_delay = inter_chunk_delay
+        broker_host, broker_port, use_tls = self._resolve_broker_endpoint(broker, port)
 
         self.client = mqtt.Client()
         if username:
             self.client.username_pw_set(username, password)
+        if use_tls:
+            self.client.tls_set()
         self.client.on_connect = self._on_connect
         self.client.on_message = self._on_message
+        self.client.on_subscribe = self._on_subscribe
         self._connected = threading.Event()
+        self._subscribed = threading.Event()
+        self._connect_error = None
+        self._subscribe_error = None
 
-        logger.info(f"Connecting to MQTT broker {broker}:{port}...")
-        self.client.connect(broker, port, 60)
+        logger.info(f"Connecting to MQTT broker {broker_host}:{broker_port}...")
+        self.client.connect(broker_host, broker_port, 60)
         self.client.loop_start()
-        if not self._connected.wait(timeout=10):
-            raise ConnectionError("Failed to connect to MQTT broker")
+        try:
+            if not self._connected.wait(timeout=10):
+                raise ConnectionError("Failed to connect to MQTT broker")
+            if self._connect_error is not None:
+                raise ConnectionError(f"Failed to connect to MQTT broker: {self._connect_error}")
+            if self._subscribe_error is not None:
+                raise ConnectionError(f"Failed to subscribe to MQTT response topic: {self._subscribe_error}")
+            if not self._subscribed.wait(timeout=10):
+                raise ConnectionError("Failed to subscribe to MQTT response topic: subscribe-ready timeout")
+            if self._subscribe_error is not None:
+                raise ConnectionError(f"Failed to subscribe to MQTT response topic: {self._subscribe_error}")
+        except Exception:
+            self.close()
+            raise
 
     def _on_connect(self, client, userdata, flags, rc):
         if rc == 0:
             logger.info(f"MQTT connected, subscribing to {self.resp_topic}")
-            client.subscribe(self.resp_topic, qos=self.qos)
+            try:
+                result, _mid = client.subscribe(self.resp_topic, qos=self.qos)
+            except Exception as exc:
+                self._subscribe_error = str(exc)
+                self._subscribed.set()
+            else:
+                if result != 0:
+                    self._subscribe_error = f"rc={result}"
+                    self._subscribed.set()
             self._connected.set()
         else:
+            self._connect_error = f"rc={rc}"
             logger.error(f"MQTT connect failed: rc={rc}")
+            self._connected.set()
+
+    def _on_subscribe(self, client, userdata, mid, granted_qos, properties=None):
+        self._subscribed.set()
 
     def _on_message(self, client, userdata, msg):
         payload = msg.payload.decode('utf-8', errors='ignore')
