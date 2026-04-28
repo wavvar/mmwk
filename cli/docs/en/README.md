@@ -470,7 +470,7 @@ python3 -m mmwk node info -p /dev/cu.usbserial-0001
 - **[Wavvar MMWK MCP Protocol Specification V1.3](../../../docs/en/mcpv1.md)**: MCP/JSON-RPC specification for MCP-enabled firmware builds (`--protocol mcp` with the matching MCP firmware version).
 - **[Radar Task Tools](./radar-task-tools.md)**: Task-oriented wrappers for UART setup, network OTA, and MQTT raw collection from the `cli` directory.
 - **[Develop Radar With Bridge](./bridge-ti-radar-debug.md)**: Publication-safe bridge-development guide with separate 6843 and 6432 workflows.
-- **[Config Helper](./config.md)**: Helper workflow for Wi-Fi/MQTT configuration from the `cli` directory.
+- **[Config Helper](./config.md)**: Helper workflow for Wi-Fi/MQTT configuration and mDNS device discovery from the `cli` directory.
 - **[Collect Trigger Helper](./collect-trigger.md)**: Pure-MQTT raw capture helper workflow from the `cli` directory.
 - **[firmwares/](../../../firmwares/)**: Pre-built firmware binaries (ESP bridge + TI radar) for various board models.
 
@@ -703,7 +703,7 @@ If the radar has already been running for a while and you are only attaching lat
 
 - [Radar Task Tools](radar-task-tools.md): use `./config.sh init|update|list` plus `./collect.sh` when you want registry-backed UART setup, network update, and MQTT raw collection.
 - [Develop Radar With Bridge](bridge-ti-radar-debug.md): end-to-end bridge-development guide for choosing the right board and running `config.sh init|update|list` plus `collect.sh` on 6843- and 6432-series radar.
-- [Config Helper](config.md): use `./config.sh set` when you need to push Wi-Fi/MQTT settings over UART or an existing MQTT control path, or when you want the script to start or reuse `server.sh` for a local broker.
+- [Config Helper](config.md): use `./config.sh set` when you need to push Wi-Fi/MQTT settings over UART or an existing MQTT control path, and `./config.sh search` when you need to find device ids over mDNS.
 - [Collect Trigger Helper](collect-trigger.md): use `./collect.sh --trigger ...` when you intentionally need pure MQTT for both control and raw capture.
 
 Do not treat these helpers as a replacement for the strict startup-aware `collect -p` flow.

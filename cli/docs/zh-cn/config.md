@@ -1,6 +1,6 @@
 # 配置助手
 
-`config.sh set` 用来配置设备的 Wi-Fi 与 MQTT 设置，而且不会改动官方 `run.sh` 的命令面。
+`config.sh set` 用来配置设备的 Wi-Fi 与 MQTT 设置，而且不会改动官方 `run.sh` 的命令面。`config.sh search` 通过 mDNS 搜索附近 MMWK 设备。
 
 工作目录应为 `cli` 目录：
 
@@ -13,6 +13,7 @@ cd ./cli
 - 通过 `network wifi` 下发 Wi-Fi 凭据
 - 4G 配置请直接使用官方 `network 4g` 和 `network priority` 命令
 - 通过 `network mqtt` 下发 MQTT 设置
+- 发现通过 `_mmwk._tcp.local.` 广播出来的 MMWK device id
 - 按需通过 `node reboot` 重启设备
 - 按需启动或复用 `server.sh`，并把本地 broker URI 反向写回设备
 
@@ -61,7 +62,28 @@ cd ./cli
 
 保存 Wi-Fi 凭据不会改变 4G 优先级。4G 失败不会自动回退到 Wi-Fi；需要 Wi-Fi 时请显式切换优先级。
 
+### 4. 用 mDNS 搜索设备
+
+当你还不知道 device id，但需要选择 MQTT topic 或更新 `device.yml` 时，使用：
+
+```bash
+./config.sh search
+./config.sh search --json
+```
+
+默认输出是紧凑表格，包含 device id、name、board、version、mode、addresses 和 hostname。JSON 输出把同样字段放在 `devices` 里。
+
+如果主机已经连到设备的 provisioning AP，但本机接口没有 AP 网段地址，可以显式指定接口：
+
+```bash
+./config.sh search --ap-iface wlan0 --ap-cidr 192.168.4.2/24
+```
+
+`--ap-iface` 会临时给这个接口添加 `--ap-cidr`，如果该 CIDR 已经存在则跳过添加；搜索结束后会删除临时地址，除非同时传 `--keep-ap-alias`。它不会猜测接口，也不会改路由。主机仍然需要和设备 AP 处在同一个 Wi-Fi 链路上。
+
 ## 关键参数
+
+### `config.sh set`
 
 - `--transport uart|mqtt`：当前用于下发配置的控制链路
 - `--ssid` / `--password`：Wi-Fi 凭据
@@ -71,8 +93,17 @@ cd ./cli
 - `--server-state-dir`、`--server-serve-dir`、`--server-upload-dir`、`--server-host-ip`、`--server-target-ip`、`--server-mqtt-port`、`--server-http-port`：控制 `server.sh` 的启动/复用方式
 - `--reboot`：写完设置后重启设备
 
+### `config.sh search`
+
+- `--timeout SEC`：mDNS 搜索时长
+- `--json`：输出机器可读 JSON
+- `--ap-iface IFACE`：要临时添加 AP 网段地址的主机接口
+- `--ap-cidr CIDR`：用于设备 AP 搜索的临时主机地址，默认 `192.168.4.2/24`
+- `--keep-ap-alias`：搜索后保留临时地址
+
 ## 说明
 
 - 使用 `--server-local` 时不要再手动传 `--mqtt-uri`；broker 由 `server.sh` 决定。
 - 设备侧 MQTT 身份和 canonical topics 固定绑定 Wi-Fi STA MAC。`--device-id`、`--cmd-topic`、`--resp-topic` 只用于让 `config.sh set` 接入当前 MQTT 控制链路，不会改写设备保存下来的 topic 身份。
 - 如果你不传 `--reboot`，设置仍会写入，但设备可能要到下一次重启后才真正使用它们。
+- `config.sh search` 依赖 mDNS multicast，因此发现的是当前本地链路上的设备，不会跨路由网络搜索。

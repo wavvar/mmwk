@@ -178,7 +178,7 @@ SDK 硬件验收同样保持显式选择：只有带 SIM 卡的 PRO/WDR 测试�
 
 - [Radar Task Tools](radar-task-tools.md)：当你想直接走任务级工作流时，使用 `./config.sh init|update|list` 与 `./collect.sh` 完成基于注册表的 UART 配置、网络更新和 MQTT raw 采集。
 - [通过 Bridge 开发雷达](bridge-ti-radar-debug.md)：面向 6843 和 6432 的端到端 bridge 开发说明，包含 `config.sh init|update|list` 与 `collect.sh` 的使用顺序。
-- [配置助手](config.md)：当你需要通过 UART 或现有 MQTT 控制链路下发 Wi-Fi / MQTT 设置，或者希望脚本自动启动 / 复用 `server.sh` 本地 broker 时，使用 `./config.sh set`。
+- [配置助手](config.md)：当你需要通过 UART 或现有 MQTT 控制链路下发 Wi-Fi / MQTT 设置时，使用 `./config.sh set`；需要通过 mDNS 查找 device id 时，使用 `./config.sh search`。
 - [采集触发助手](collect-trigger.md)：当你明确需要控制面与 raw 采集都只走 pure MQTT 时，使用 `./collect.sh --trigger ...`。
 
 不要把这些 helper 当成严格启动期 `collect -p` 路径的替代品。
@@ -458,7 +458,7 @@ python3 -m mmwk node info -p /dev/cu.usbserial-0001
 - **[Wavvar MMWK MCP 协议规范 V1.3](../../../docs/zh-cn/mcpv1.md)**：面向 MCP 固件版本的 MCP/JSON-RPC 协议规范（配套 MCP 固件版本时使用 `--protocol mcp`）
 - **[Radar Task Tools](./radar-task-tools.md)**：在 `cli` 目录下执行的任务导向 wrapper，用于 UART 配置、网络 OTA 和 MQTT raw 采集
 - **[通过 Bridge 开发雷达](./bridge-ti-radar-debug.md)**：发布友好的 bridge 开发说明，分别覆盖 6843 和 6432 的推荐板型与具体步骤
-- **[配置助手](./config.md)**：在 `cli` 目录下执行的 Wi-Fi/MQTT 配置辅助流程
+- **[配置助手](./config.md)**：在 `cli` 目录下执行的 Wi-Fi/MQTT 配置与 mDNS 设备搜索辅助流程
 - **[采集触发助手](./collect-trigger.md)**：在 `cli` 目录下执行的 pure-MQTT raw 采集辅助流程
 - **[firmwares/](../../../firmwares/)**：预编译固件目录
 

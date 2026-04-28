@@ -1,8 +1,8 @@
 # Config Helper
 
-`config.sh set` configures device Wi-Fi and MQTT settings without changing the official `run.sh` command surface.
+`config.sh set` configures device Wi-Fi and MQTT settings without changing the official `run.sh` command surface. `config.sh search` discovers nearby MMWK devices over mDNS.
 
-Configure device Wi-Fi and MQTT settings over UART or MQTT.
+Configure device Wi-Fi and MQTT settings over UART or MQTT, or find device ids advertised on the local link.
 
 The working directory is the `cli` directory:
 
@@ -15,6 +15,7 @@ cd ./cli
 - Push Wi-Fi credentials with `network wifi`
 - Point 4G users to the official `network 4g` and `network priority` commands
 - Push MQTT settings with `network mqtt`
+- Discover MMWK device ids advertised through `_mmwk._tcp.local.`
 - Optionally reboot the device with `node reboot`
 - Optionally start or reuse `server.sh` and feed its local broker URI back into the device
 
@@ -63,7 +64,28 @@ Use this when the device is already online and you want to re-point it without o
 
 Saving Wi-Fi credentials does not change a 4G preference. 4G failure does not automatically fall back to Wi-Fi; switch the preference explicitly when you want Wi-Fi.
 
+### 4. Find devices with mDNS
+
+Use `search` when you need the device id before choosing an MQTT topic or updating `device.yml`:
+
+```bash
+./config.sh search
+./config.sh search --json
+```
+
+Default output is a compact table with device id, name, board, version, mode, addresses, and hostname. JSON output returns the same fields under `devices`.
+
+When the host is connected to a device provisioning AP but the interface does not have an address in the AP subnet, pass the interface explicitly:
+
+```bash
+./config.sh search --ap-iface wlan0 --ap-cidr 192.168.4.2/24
+```
+
+`--ap-iface` temporarily adds `--ap-cidr` to that interface, skips the add if the CIDR is already present, performs the mDNS browse, and removes the temporary address afterwards unless `--keep-ap-alias` is set. It does not guess interfaces or change routes. The host still needs to be on the same Wi-Fi link as the device AP.
+
 ## Key Options
+
+### `config.sh set`
 
 - `--transport uart|mqtt`: current control path used to push settings
 - `--ssid` / `--password`: Wi-Fi credentials
@@ -73,8 +95,17 @@ Saving Wi-Fi credentials does not change a 4G preference. 4G failure does not au
 - `--server-state-dir`, `--server-serve-dir`, `--server-upload-dir`, `--server-host-ip`, `--server-target-ip`, `--server-mqtt-port`, `--server-http-port`: control how `server.sh` is started or reused
 - `--reboot`: reboot after writing settings
 
+### `config.sh search`
+
+- `--timeout SEC`: mDNS browse duration
+- `--json`: print machine-readable JSON
+- `--ap-iface IFACE`: host interface to receive the temporary AP-subnet address
+- `--ap-cidr CIDR`: temporary host address for device AP discovery, default `192.168.4.2/24`
+- `--keep-ap-alias`: leave the temporary address configured after search
+
 ## Notes
 
 - If you use `--server-local`, do not also pass `--mqtt-uri`; the tool resolves the broker from `server.sh`.
 - Device-side MQTT identity and canonical topics are fixed to the Wi-Fi STA MAC. `--device-id`, `--cmd-topic`, and `--resp-topic` only help `config.sh set` reach the current MQTT control path; they do not rewrite the stored topic identity.
 - If you skip `--reboot`, the tool still writes the settings, but the device may not use them until the next reboot.
+- `config.sh search` depends on mDNS multicast, so it discovers devices on the current local link rather than through routed networks.
