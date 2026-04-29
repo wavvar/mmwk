@@ -290,9 +290,17 @@ def _route_canonical_tool_call(name: str, arguments: dict) -> tuple[str, dict]:
 class ControlCliClient:
     """Canonical CLI JSON control client over UART/MQTT transport."""
 
-    def __init__(self, transport: RadarTransport, request_key: str = None):
+    def __init__(
+        self,
+        transport: RadarTransport,
+        request_key: str = None,
+        request_retries: int = 1,
+        request_retry_delay: float = 1.0,
+    ):
         self.transport = transport
         self.request_key = request_key or ""
+        self.request_retries = max(1, int(request_retries))
+        self.request_retry_delay = max(0.0, float(request_retry_delay))
         self._initialized = False
         self._server_name = ""
         self._compat_interval = {
@@ -386,28 +394,47 @@ class ControlCliClient:
         return [copy.deepcopy(tool) for tool in _canonical_tools(profile)]
 
     def _call_transport_tool(self, name: str, arguments: dict, timeout: float) -> dict:
-        msg_id = self.transport.next_msg_id()
-        arguments = dict(arguments or {})
-        action = arguments.pop("action", None)
-        request = {
-            "type": "req",
-            "seq": msg_id,
-            "service": name,
-            "args": arguments,
-        }
-        if action is not None:
-            request["action"] = action
-        if self.request_key:
-            request["key"] = self.request_key
+        last_error = None
 
-        self.transport.send_json(request)
-        resp = self.transport.wait_for_response(msg_id, timeout=timeout)
-        if not resp:
-            raise TimeoutError(f"Timeout waiting for tool '{name}' response")
-        if "error" in resp:
-            err = resp["error"]
-            raise RuntimeError(f"Tool '{name}' error [{err.get('code')}]: {err.get('message')}")
-        return resp.get("result", {})
+        for attempt in range(1, self.request_retries + 1):
+            msg_id = self.transport.next_msg_id()
+            call_arguments = dict(arguments or {})
+            action = call_arguments.pop("action", None)
+            request = {
+                "type": "req",
+                "seq": msg_id,
+                "service": name,
+                "args": call_arguments,
+            }
+            if action is not None:
+                request["action"] = action
+            if self.request_key:
+                request["key"] = self.request_key
+
+            try:
+                self.transport.send_json(request)
+                resp = self.transport.wait_for_response(msg_id, timeout=timeout)
+            except Exception as exc:
+                last_error = exc
+            else:
+                if resp:
+                    if "error" in resp:
+                        err = resp["error"]
+                        raise RuntimeError(f"Tool '{name}' error [{err.get('code')}]: {err.get('message')}")
+                    return resp.get("result", {})
+                last_error = TimeoutError(f"Timeout waiting for tool '{name}' response")
+
+            if attempt < self.request_retries:
+                logger.warning(
+                    "Tool '%s' request attempt %d/%d failed: %s",
+                    name,
+                    attempt,
+                    self.request_retries,
+                    last_error,
+                )
+                time.sleep(self.request_retry_delay)
+
+        raise last_error
 
     def _compat_hub_call(self, arguments: dict, timeout: float) -> dict:
         sensor = arguments.get("sensor")

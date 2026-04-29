@@ -18,22 +18,69 @@ from mmwk.commands.cfg import CfgCommand
 
 _ACTIVE_PROTOCOL = "cli"
 _ACTIVE_KEY = ""
+_ACTIVE_REQUEST_RETRIES = 1
+_ACTIVE_REQUEST_RETRY_DELAY = 1.0
 
 
 def McpClient(transport):
-    return create_protocol_client(_ACTIVE_PROTOCOL, transport, key=_ACTIVE_KEY)
+    return create_protocol_client(
+        _ACTIVE_PROTOCOL,
+        transport,
+        key=_ACTIVE_KEY,
+        request_retries=_ACTIVE_REQUEST_RETRIES,
+        request_retry_delay=_ACTIVE_REQUEST_RETRY_DELAY,
+    )
 
 
 def _cli_create_transport(args):
     """Thin wrapper: catch ValueError from create_transport and exit."""
     if hasattr(args, "protocol"):
         _set_active_protocol(getattr(args, "protocol", None) or "cli")
-    _set_active_key(args)
     try:
-        return create_transport(args)
+        _set_active_key(args)
+        _set_active_request_retry_args(args)
+        retries, retry_delay = _resolve_transport_retry_args(args)
+        return create_transport(args, retries=retries, retry_delay=retry_delay)
     except ValueError as e:
         print(f"Error: {e}")
         sys.exit(1)
+
+
+def _resolve_transport_retry_args(args):
+    transport = getattr(args, "transport", "uart") or "uart"
+    retries = getattr(args, "transport_retries", None)
+    retry_delay = getattr(args, "transport_retry_delay", 2.0)
+
+    if retries is None:
+        retries = 3 if transport == "mqtt" else 1
+    if retry_delay is None:
+        retry_delay = 2.0
+
+    retries = int(retries)
+    retry_delay = float(retry_delay)
+    if retries < 1:
+        raise ValueError("--transport-retries must be >= 1")
+    if retry_delay < 0:
+        raise ValueError("--transport-retry-delay must be >= 0")
+    return retries, retry_delay
+
+
+def _resolve_request_retry_args(args):
+    retries = getattr(args, "request_retries", None)
+    retry_delay = getattr(args, "request_retry_delay", 1.0)
+
+    if retries is None:
+        retries = 1
+    if retry_delay is None:
+        retry_delay = 1.0
+
+    retries = int(retries)
+    retry_delay = float(retry_delay)
+    if retries < 1:
+        raise ValueError("--request-retries must be >= 1")
+    if retry_delay < 0:
+        raise ValueError("--request-retry-delay must be >= 0")
+    return retries, retry_delay
 
 
 def _print_json_payload(text):
@@ -79,6 +126,11 @@ def _set_active_key(args):
     cli_key = getattr(args, "key", None)
     env_key = os.environ.get("MMWK_CLI_KEY", "")
     _ACTIVE_KEY = cli_key or env_key or ""
+
+
+def _set_active_request_retry_args(args):
+    global _ACTIVE_REQUEST_RETRIES, _ACTIVE_REQUEST_RETRY_DELAY
+    _ACTIVE_REQUEST_RETRIES, _ACTIVE_REQUEST_RETRY_DELAY = _resolve_request_retry_args(args)
 
 
 def _finalize_protocol_args(args):
@@ -135,6 +187,14 @@ def add_transport_args(parser):
     group.add_argument("--device-id", help="Device ID for MQTT topics")
     group.add_argument("--cmd-topic", help="Custom MQTT command topic")
     group.add_argument("--resp-topic", help="Custom MQTT response topic")
+    group.add_argument("--transport-retries", type=int, default=None,
+                       help="Transport connection attempts (default: 3 for MQTT, 1 for UART)")
+    group.add_argument("--transport-retry-delay", type=float, default=2.0,
+                       help="Seconds between transport connection attempts (default: 2)")
+    group.add_argument("--request-retries", type=int, default=None,
+                       help="Tool request attempts after transport is connected (default: 1)")
+    group.add_argument("--request-retry-delay", type=float, default=1.0,
+                       help="Seconds between tool request attempts (default: 1)")
     group.add_argument("--timeout", type=float, default=10.0,
                        help="Response timeout in seconds (default: 10)")
     group.add_argument("--key", help="CLI protection key for protected commands")
@@ -1319,6 +1379,11 @@ def main():
     net_status = net_sub.add_parser("status", help="Query network runtime status")
     add_transport_args(net_status)
     net_status.set_defaults(func=cmd_network)
+
+    # network diag
+    net_diag = net_sub.add_parser("diag", help="Query network diagnostics")
+    add_transport_args(net_diag)
+    net_diag.set_defaults(func=cmd_network)
 
     # network ntp
     net_ntp = net_sub.add_parser("ntp", help="Configure NTP time sync")

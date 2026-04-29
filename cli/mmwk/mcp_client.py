@@ -10,8 +10,15 @@ from mmwk.transport import RadarTransport
 class McpClient:
     """MCP (Model Context Protocol) client over JSON-RPC 2.0."""
 
-    def __init__(self, transport: RadarTransport):
+    def __init__(
+        self,
+        transport: RadarTransport,
+        request_retries: int = 1,
+        request_retry_delay: float = 1.0,
+    ):
         self.transport = transport
+        self.request_retries = max(1, int(request_retries))
+        self.request_retry_delay = max(0.0, float(request_retry_delay))
         self._initialized = False
 
     def initialize(self, timeout: float = 10.0) -> dict:
@@ -93,23 +100,42 @@ class McpClient:
 
     def call_tool(self, name: str, arguments: dict, timeout: float = 30.0) -> dict:
         """Call an MCP tool and wait for the response."""
-        msg_id = self.transport.next_msg_id()
-        self.transport.send_json({
-            "jsonrpc": "2.0",
-            "id": msg_id,
-            "method": "tools/call",
-            "params": {
-                "name": name,
-                "arguments": arguments
-            }
-        })
-        resp = self.transport.wait_for_response(msg_id, timeout=timeout)
-        if not resp:
-            raise TimeoutError(f"Timeout waiting for tool '{name}' response")
-        if "error" in resp:
-            err = resp["error"]
-            raise RuntimeError(f"Tool '{name}' error [{err.get('code')}]: {err.get('message')}")
-        return resp.get("result", {})
+        last_error = None
+
+        for attempt in range(1, self.request_retries + 1):
+            msg_id = self.transport.next_msg_id()
+            try:
+                self.transport.send_json({
+                    "jsonrpc": "2.0",
+                    "id": msg_id,
+                    "method": "tools/call",
+                    "params": {
+                        "name": name,
+                        "arguments": arguments
+                    }
+                })
+                resp = self.transport.wait_for_response(msg_id, timeout=timeout)
+            except Exception as exc:
+                last_error = exc
+            else:
+                if resp:
+                    if "error" in resp:
+                        err = resp["error"]
+                        raise RuntimeError(f"Tool '{name}' error [{err.get('code')}]: {err.get('message')}")
+                    return resp.get("result", {})
+                last_error = TimeoutError(f"Timeout waiting for tool '{name}' response")
+
+            if attempt < self.request_retries:
+                logger.warning(
+                    "Tool '%s' request attempt %d/%d failed: %s",
+                    name,
+                    attempt,
+                    self.request_retries,
+                    last_error,
+                )
+                time.sleep(self.request_retry_delay)
+
+        raise last_error
 
     def extract_text(self, result: dict) -> str:
         """Extract text from MCP result content array."""

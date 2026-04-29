@@ -148,6 +148,8 @@ class _TrackingHandler(SimpleHTTPRequestHandler):
             path = self.path.split('?')[0]  # strip query string
             if self._tracker is not None:
                 self._tracker.record_complete(path)
+        except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError) as exc:
+            logger.debug(f"HTTP client disconnected during transfer: {self.path}: {exc}")
         except Exception:
             raise  # let the base class handle errors normally
 

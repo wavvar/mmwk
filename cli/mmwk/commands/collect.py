@@ -432,6 +432,26 @@ class CollectCommand:
         except Exception as e:
             logger.warning("Failed to disable pre-existing radar raw forwarding before collect bootstrap: %s", e)
 
+    def _restore_raw_forwarding(self, restore_raw_args: dict, timeout: float) -> bool:
+        last_error = None
+
+        for attempt in range(1, 4):
+            try:
+                self.mcp.call_tool("radar.raw", restore_raw_args, timeout=timeout)
+                return True
+            except Exception as e:
+                last_error = e
+                if attempt < 3:
+                    logger.warning(
+                        "Failed to restore radar raw config after collect (attempt %s/3): %s",
+                        attempt,
+                        e,
+                    )
+                    time.sleep(1.0)
+
+        logger.error(f"Failed to restore radar raw config after collect: {last_error}")
+        return False
+
     def execute(
         self,
         duration: int,
@@ -638,10 +658,7 @@ class CollectCommand:
                     except Exception:
                         pass
                 if self.mcp and restore_raw_args:
-                    try:
-                        self.mcp.call_tool("radar.raw", restore_raw_args, timeout=timeout)
-                    except Exception as e:
-                        logger.error(f"Failed to restore radar raw config after collect: {e}")
+                    if not self._restore_raw_forwarding(restore_raw_args, timeout):
                         result_ok = False
         return result_ok
 
@@ -833,10 +850,7 @@ class CollectCommand:
                     except Exception:
                         pass
                 if restore_raw_args:
-                    try:
-                        self.mcp.call_tool("radar.raw", restore_raw_args, timeout=timeout)
-                    except Exception as e:
-                        logger.error(f"Failed to restore radar raw config after collect: {e}")
+                    if not self._restore_raw_forwarding(restore_raw_args, timeout):
                         restore_failed = True
                 if restore_failed:
                     result_ok = False

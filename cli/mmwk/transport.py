@@ -322,6 +322,23 @@ class UartTransport(RadarTransport):
         self._listener = threading.Thread(target=self._listen, daemon=True)
         self._listener.start()
 
+    def _ensure_listener_running(self):
+        listener = getattr(self, "_listener", None)
+        if self.running and (listener is None or not listener.is_alive()):
+            self._start_listener()
+
+    def _stop_listener(self):
+        self.running = False
+        with self._io_lock:
+            try:
+                if getattr(self, "ser", None) and self.ser.is_open:
+                    self.ser.close()
+            except Exception:
+                pass
+        listener = getattr(self, "_listener", None)
+        if listener and listener.is_alive() and listener is not threading.current_thread():
+            listener.join(timeout=1.0)
+
     def _open_serial(self):
         if self._should_use_uart_proxy():
             self._open_serial_proxy()
@@ -469,7 +486,11 @@ class UartTransport(RadarTransport):
     def recover_after_reboot(self, settle_sec: float = 5.0, reconnect_wait_sec: float = 20.0) -> bool:
         self.clear_pending()
         time.sleep(max(0.0, settle_sec))
+        self._stop_listener()
+        self.running = True
         ok = self._reconnect(wait_sec=reconnect_wait_sec)
+        if ok:
+            self._start_listener()
         self.clear_pending()
         return ok
 
