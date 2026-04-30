@@ -28,7 +28,7 @@
 |  | UART_RX | 模组主串口接收（MAIN_RXD） |
 | **P4 接口定义** | VBAT | 外部电源输入 |
 |  | GND | 电源地 |
-|  | CAT1_RST | 模组复位/开机控制 |
+|  | CAT1_RST | 板间信号名称，实际连接 EG800Z `PWRKEY` 开机控制脚 |
 | **通信能力** | UART | 主 AT 指令通道，用于外部主控通信 |
 |  | USB | 支持 USB 2.0（CDC 虚拟串口），用于 AT 指令、调试及升级 |
 | **SIM 功能** | SIM 类型 | Nano SIM |
