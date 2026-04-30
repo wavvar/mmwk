@@ -457,8 +457,11 @@ server_env_text() {
     local state_dir="$1"
     local mqtt_port="$2"
     local http_port="$3"
+    local host_ip="${4:-}"
+    local start_cmd=(bash "$SERVER_SH" start --state-dir "$state_dir" --mqtt-port "$mqtt_port" --http-port "$http_port")
 
-    bash "$SERVER_SH" start --state-dir "$state_dir" --mqtt-port "$mqtt_port" --http-port "$http_port" >/dev/null
+    [ -z "$host_ip" ] || start_cmd+=(--host-ip "$host_ip")
+    "${start_cmd[@]}" >/dev/null
     bash "$SERVER_SH" env --state-dir "$state_dir"
 }
 

@@ -59,6 +59,9 @@ OPTIONAL:
   --mqtt-port PORT       MQTT server port (default: 1883)
   --http-server HOST     HTTP server host or base URL (default: local machine)
   --http-port PORT       HTTP server port (default: 8380)
+  --ap-link              Prepare the host Wi-Fi link for the bridge AP subnet
+  --ap-iface IFACE       Host Wi-Fi interface override for --ap-link
+  --ap-cidr CIDR         Host AP subnet CIDR for --ap-link (default: 192.168.4.2/24)
   --server-state-dir DIR server.sh state dir (default: ./build_output/local_server)
   --working DIR          Working directory root for device.yml
   -h, --help             Show this help
@@ -66,6 +69,8 @@ OPTIONAL:
 NOTES:
   - `init` updates `<working>/device.yml` only after MQTT readiness verification succeeds.
   - If `--ssid` and `--password` are omitted, the tool only refreshes server binding info.
+  - `--ap-link` is for the bridge provisioning AP subnet; it discovers a Wi-Fi
+    interface and may run sudo to add the requested host address.
 EOF_USAGE
 }
 
@@ -158,6 +163,9 @@ USAGE:
 OPTIONAL:
   --timeout SEC        mDNS browse duration (default: 3)
   --json               Print machine-readable JSON
+  --device-id ID       Filter by discovered id or client_id
+  --expect-one         Fail unless exactly one matching device is discovered
+  --print-device-id    With --expect-one, print only the selected client_id/id
   --ap-iface IFACE     Temporarily add --ap-cidr to this host interface
   --ap-cidr CIDR       Host address for device AP discovery (default: 192.168.4.2/24)
   --keep-ap-alias      Leave the temporary AP address configured after search
@@ -166,6 +174,8 @@ OPTIONAL:
 EXAMPLES:
   ./config.sh search
   ./config.sh search --json
+  ./config.sh search --expect-one --print-device-id
+  ./config.sh search --device-id dc5475c8784c --expect-one --json
   ./config.sh search --ap-iface wlan0 --ap-cidr 192.168.4.2/24
 EOF_USAGE
 }
@@ -209,6 +219,12 @@ cmd_init() {
     local mqtt_port="1883"
     local http_server=""
     local http_port="8380"
+    local ap_link=false
+    local ap_iface=""
+    local ap_cidr="192.168.4.2/24"
+    local ap_link_env=""
+    local ap_host_ip=""
+    local ap_link_args=()
     local server_state_dir=""
     local working_dir=""
     local server_env=""
@@ -259,6 +275,18 @@ cmd_init() {
                 http_port="${2:?missing value for --http-port}"
                 shift 2
                 ;;
+            --ap-link)
+                ap_link=true
+                shift
+                ;;
+            --ap-iface)
+                ap_iface="${2:?missing value for --ap-iface}"
+                shift 2
+                ;;
+            --ap-cidr)
+                ap_cidr="${2:?missing value for --ap-cidr}"
+                shift 2
+                ;;
             --server-state-dir)
                 server_state_dir="${2:?missing value for --server-state-dir}"
                 shift 2
@@ -286,9 +314,21 @@ cmd_init() {
     working_dir="$(resolve_default_working_dir "$working_dir")"
     server_state_dir="$(resolve_default_server_state_dir "$server_state_dir")"
 
+    if [ "$ap_link" = true ]; then
+        ap_link_args=(--cidr "$ap_cidr")
+        [ -z "$ap_iface" ] || ap_link_args+=(--iface "$ap_iface")
+        log_info "Preparing bridge AP subnet link"
+        if ! ap_link_env="$("$PYTHON" -m mmwk.ap_link "${ap_link_args[@]}")"; then
+            die "failed to prepare bridge AP subnet link"
+        fi
+        ap_host_ip="$(extract_env_value_from_text "$ap_link_env" "MMWK_AP_LINK_HOST_IP")"
+        [ -n "$ap_host_ip" ] || die "AP link helper did not return MMWK_AP_LINK_HOST_IP"
+        log_info "Bridge AP link host IP: $ap_host_ip"
+    fi
+
     if [ -z "$mqtt_server" ] || [ -z "$http_server" ]; then
         log_info "Resolving local server defaults"
-        server_env="$(server_env_text "$server_state_dir" "$mqtt_port" "$http_port")"
+        server_env="$(server_env_text "$server_state_dir" "$mqtt_port" "$http_port" "$ap_host_ip")"
 
         if [ -z "$mqtt_server" ]; then
             local_mqtt_uri="$(extract_env_value_from_text "$server_env" "MMWK_SERVER_MQTT_URI")"

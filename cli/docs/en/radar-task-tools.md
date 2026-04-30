@@ -41,6 +41,19 @@ If Wi-Fi credentials still need to be provisioned, add them explicitly:
 
 If `--mqtt-server` and `--http-server` are omitted, the tool resolves the local machine through `server.sh`.
 
+When the bridge is on its provisioning AP, add `--ap-link` so `init` prepares the host Wi-Fi interface before resolving local server endpoints:
+
+```bash
+./config.sh init \
+  --port /dev/ttyUSB1 \
+  --ap-link \
+  --ssid YOUR_WIFI \
+  --password YOUR_PASSWORD \
+  --working ./collect-lab
+```
+
+`--ap-link` is bridge AP-subnet preparation, not an Ethernet selector. On Linux and WSL it adds the AP address with `sudo ip addr add 192.168.4.2/24 dev <wifi-iface>` when the Wi-Fi interface does not already have a `192.168.4.x/24` address. On macOS it uses `sudo ifconfig <wifi-iface> alias 192.168.4.2 netmask 255.255.255.0`. If auto-detection picks the wrong interface or cannot find Wi-Fi, pass `--ap-iface IFACE`; for non-default lab addressing, pass `--ap-cidr CIDR`. See [Config Helper](config.md) for the full Linux, WSL, and macOS behavior.
+
 On success the script prints:
 
 - the detected device id

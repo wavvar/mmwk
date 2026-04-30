@@ -41,6 +41,19 @@
 
 当 `--mqtt-server` 和 `--http-server` 都未传入时，脚本会通过 `server.sh` 解析本机地址。
 
+当 bridge 处在 provisioning AP 上时，加上 `--ap-link`，让 `init` 先准备主机 Wi-Fi 网口，再解析本地 server 端点：
+
+```bash
+./config.sh init \
+  --port /dev/ttyUSB1 \
+  --ap-link \
+  --ssid YOUR_WIFI \
+  --password YOUR_PASSWORD \
+  --working ./collect-lab
+```
+
+`--ap-link` 是 bridge AP 网段准备动作，不是 Ethernet 选择器。Linux 和 WSL 上，如果 Wi-Fi 网口还没有 `192.168.4.x/24` 地址，它会执行 `sudo ip addr add 192.168.4.2/24 dev <wifi-iface>`。macOS 上使用 `sudo ifconfig <wifi-iface> alias 192.168.4.2 netmask 255.255.255.0`。如果自动发现选错或找不到 Wi-Fi，可以传 `--ap-iface IFACE`；实验环境地址不是默认值时，传 `--ap-cidr CIDR`。完整的 Linux、WSL 和 macOS 行为见 [配置助手](config.md)。
+
 成功后脚本会打印：
 
 - 检测到的 device id

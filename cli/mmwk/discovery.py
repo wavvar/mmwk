@@ -185,6 +185,45 @@ def format_devices_json(devices: Iterable[DeviceRecord]) -> str:
     return json.dumps({"devices": [device.to_json() for device in records]}, indent=2, sort_keys=True) + "\n"
 
 
+def device_identity(device: DeviceRecord) -> str:
+    return (device.client_id or device.device_id).strip()
+
+
+def device_label(device: DeviceRecord) -> str:
+    return (
+        f"{device_identity(device) or '<unknown>'} "
+        f"name={device.name or '<unnamed>'} "
+        f"board={device.board or '<unknown>'} "
+        f"addresses={','.join(device.addresses) or '<no-ip>'}"
+    )
+
+
+def filter_devices_by_id(devices: Iterable[DeviceRecord], requested_id: str) -> list[DeviceRecord]:
+    records = sort_and_deduplicate(devices)
+    requested = requested_id.strip()
+    if not requested:
+        return records
+    return [
+        device
+        for device in records
+        if requested in {device.device_id.strip(), device.client_id.strip()}
+    ]
+
+
+def expect_one_device(devices: Sequence[DeviceRecord], requested_id: str = "") -> DeviceRecord:
+    if len(devices) == 1:
+        return devices[0]
+
+    if not devices:
+        if requested_id:
+            raise RuntimeError(f"no MMWK device matching --device-id {requested_id} discovered over mDNS")
+        raise RuntimeError("no MMWK devices discovered over mDNS")
+
+    lines = ["multiple MMWK devices discovered over mDNS; provide --device-id:"]
+    lines.extend(f"  {device_label(device)}" for device in devices)
+    raise RuntimeError("\n".join(lines))
+
+
 def _interface(value: str) -> ipaddress.IPv4Interface:
     parsed = ipaddress.ip_interface(value)
     if parsed.version != 4:
@@ -339,6 +378,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--timeout", metavar="SEC", type=float, default=DEFAULT_TIMEOUT_SEC, help="mDNS browse duration")
     parser.add_argument("--json", action="store_true", help="print machine-readable JSON")
+    parser.add_argument("--device-id", metavar="ID", default="", help="filter by discovered id or client_id")
+    parser.add_argument("--expect-one", action="store_true", help="fail unless exactly one matching device is discovered")
+    parser.add_argument(
+        "--print-device-id",
+        action="store_true",
+        help="with --expect-one, print only the selected client_id/id",
+    )
     parser.add_argument(
         "--ap-iface",
         metavar="IFACE",
@@ -364,6 +410,15 @@ def run(args: argparse.Namespace) -> int:
         if args.ap_iface:
             alias_plan = apply_ap_alias(args.ap_iface, args.ap_cidr)
         devices = discover_devices(args.timeout)
+        devices = filter_devices_by_id(devices, args.device_id)
+        if args.print_device_id and not args.expect_one:
+            raise ValueError("--print-device-id requires --expect-one")
+        if args.expect_one:
+            selected = expect_one_device(devices, args.device_id)
+            devices = [selected]
+            if args.print_device_id:
+                print(device_identity(selected))
+                return 0
         output = format_devices_json(devices) if args.json else format_devices_table(devices)
         print(output, end="")
         return 0
