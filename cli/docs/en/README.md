@@ -141,7 +141,7 @@ For PRO/WDR devices with 4G support, store the mobile profile and then choose th
 ./run.sh network priority --pref 4g -p /dev/cu.usbserial-0001
 ```
 
-`network priority --pref wifi|4g` controls the preferred network. Saving Wi-Fi credentials does not automatically change a 4G preference, and 4G failure does not automatically fall back to Wi-Fi. Use `network priority --pref wifi` or the device button toggle to return to Wi-Fi preference.
+`network priority --pref wifi|4g` controls the preferred network. Saving Wi-Fi credentials does not automatically change a 4G preference. If `pref=4g` cannot connect, the device may use Wi-Fi as the current temporary bearer. The saved preference remains `4g`; `network status` reports this as `pref=4g,curr=wifi`, and `network diag` keeps the 4G failure reason.
 
 For SDK hardware acceptance runs, 4G is also explicit: pass the runner's `--4g` only for SIM-equipped PRO/WDR devices; omit it to keep Wi-Fi as the test default.
 

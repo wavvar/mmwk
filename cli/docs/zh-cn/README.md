@@ -133,7 +133,7 @@ pip install -r requirements.txt
 ./run.sh network priority --pref 4g -p /dev/cu.usbserial-0001
 ```
 
-`network priority --pref wifi|4g` 用于设置 Wi-Fi/4G 优先网络。保存 Wi-Fi 凭据不会自动改掉 4G 优先级，4G 失败不会自动回退到 Wi-Fi。需要回到 Wi-Fi 优先时，请执行 `network priority --pref wifi`，或使用设备按键切换。
+`network priority --pref wifi|4g` 用于设置 Wi-Fi/4G 优先网络。保存 Wi-Fi 凭据不会自动改掉 4G 优先级。如果 `pref=4g` 无法联网，设备可以临时使用 Wi-Fi 作为当前承载网络。保存的首选项仍保持 `4g`；`network status` 会显示 `pref=4g,curr=wifi`，`network diag` 会保留 4G 失败原因。
 
 SDK 硬件验收同样保持显式选择：只有带 SIM 卡的 PRO/WDR 测试才给 runner 传 `--4g`；不传时测试默认仍走 Wi-Fi。
 
