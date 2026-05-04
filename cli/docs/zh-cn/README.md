@@ -476,8 +476,8 @@ python3 -m mmwk node info -p /dev/cu.usbserial-0001
 | **CONFIRM double** | 关闭、亮 500ms、关 100ms、亮 500ms、关闭 | 4G 优先网络确认 |
 | **CONFIRM normal** | 关闭、亮 500ms、关 100ms、亮 500ms、关闭 | 配置或连接确认 |
 | **CONFIRM long** | 关闭，然后亮 500ms / 关 100ms 循环 3 次 | 长交互确认，包括恢复出厂长按 |
-| **ERROR warning** | 亮 200ms / 关 100ms 持续循环 | 可恢复警告或重试耗尽 |
-| **ERROR severe** | 常亮 | 致命启动 / 运行时初始化失败 |
+| **ERROR warning** | 亮 1000ms / 关 1000ms 持续循环 | MQTT 断开、MQTT 连接错误，或 MQTT 启动/重连失败 |
+| **ERROR severe** | 亮 200ms / 关 100ms 持续循环 | Wi-Fi 或 CAT1/4G 无法联网后的网络连接失败 |
 
 LED 不是网络 ready 信号。网络 ready 以 `network status` 的 `state=connected && ready=true` 为准，MQTT 相关流程以 `mqtt_state=connected` 为准。
 

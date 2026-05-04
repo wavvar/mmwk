@@ -488,8 +488,8 @@ python3 -m mmwk node info -p /dev/cu.usbserial-0001
 | **CONFIRM double** | OFF, ON 500ms, OFF 100ms, ON 500ms, OFF | 4G preferred-network confirmation |
 | **CONFIRM normal** | OFF, ON 500ms, OFF 100ms, ON 500ms, OFF | Configuration or connection acknowledgement |
 | **CONFIRM long** | OFF, then 500ms ON / 100ms OFF repeated 3 times | Long interaction acknowledgement, including factory-reset hold |
-| **ERROR warning** | 200ms ON / 100ms OFF loop | Recoverable warning or retry-exhausted condition |
-| **ERROR severe** | Solid ON | Fatal startup/runtime bring-up failure |
+| **ERROR warning** | 1000ms ON / 1000ms OFF loop | MQTT disconnected, MQTT connection error, or MQTT start/reconnect failure |
+| **ERROR severe** | 200ms ON / 100ms OFF loop | Network connection failure after Wi-Fi or CAT1/4G cannot come online |
 
 LED is not a network readiness signal. Use `network status` (`state=connected && ready=true`) for network readiness and `mqtt_state=connected` for MQTT-dependent flows.
 
