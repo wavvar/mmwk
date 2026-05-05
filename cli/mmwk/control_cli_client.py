@@ -31,7 +31,7 @@ def _action_property(actions: list[str], description: str) -> dict:
 
 
 def _build_node_tool(profile: str) -> dict:
-    actions = ["agent", "heartbeat", "info", "ota"]
+    actions = ["agent", "heartbeat", "info", "ota", "factory_reset"]
     if profile == "hub":
         actions.append("inquiry")
     else:

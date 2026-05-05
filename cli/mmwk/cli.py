@@ -437,6 +437,18 @@ def cmd_node_reboot(args):
         transport.close()
 
 
+def cmd_node_factory_reset(args):
+    """Handle: mmwk node factory-reset ..."""
+    transport = _cli_create_transport(args)
+    try:
+        mcp = McpClient(transport)
+        mcp.initialize(timeout=args.timeout)
+        mcp.call_tool("node", {"action": "factory_reset"}, timeout=args.timeout)
+        print("已触发重置")
+    finally:
+        transport.close()
+
+
 def cmd_device_ota(args):
     """Handle: mmwk device ota ..."""
     if args.https and not args.fw:
@@ -1138,6 +1150,12 @@ def main():
     node_info_parser = node_sub.add_parser("info", help="Node status handshake")
     add_transport_args(node_info_parser)
     node_info_parser.set_defaults(func=cmd_node_info)
+
+    node_factory_reset_parser = node_sub.add_parser(
+        "factory-reset", help="Trigger factory reset and reboot"
+    )
+    add_transport_args(node_factory_reset_parser)
+    node_factory_reset_parser.set_defaults(func=cmd_node_factory_reset)
 
     node_key_parser = node_sub.add_parser("key", help="Manage CLI protection key")
     node_key_sub = node_key_parser.add_subparsers(dest="key_action", required=True)

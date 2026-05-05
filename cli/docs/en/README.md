@@ -81,6 +81,12 @@ Factory or empty-key devices remain open for bring-up. After you set a key, prot
 
 `node key status` is public. `node key set` sets the initial key on an open device; once protection is enabled, updating the key also requires the current `--key`. `node info` still works without a key, but after protection is enabled the unauthenticated response is limited to public identity fields and `auth_enabled/auth_required`. Factory reset clears the key.
 
+```bash
+./run.sh node factory-reset --key YOUR_KEY -p /dev/cu.usbserial-0001
+```
+
+`node factory-reset` is key-protected whenever key protection is enabled. On success, CLI prints exactly one line: `已触发重置`. The device reboots after 1 second. During that short pending window, only `node info` and repeated `node factory-reset` are accepted; other commands are rejected with a pending-reset state error. `node info` reports `factory_reset_pending=true` during that window.
+
 ---
 
 ## Quick Start
@@ -98,7 +104,7 @@ Check the shell wrapper and discover device identity:
 ./run.sh node info -p /dev/cu.usbserial-0001
 ```
 
-Expected `node info` fields include `name`, `board`, `version`, `id`, plus, when MQTT is configured, `uri`, `client_id`, `raw_data_topic`, and `raw_resp_topic`. Here `name` / `version` are the canonical ESP firmware identity fields.
+Expected `node info` fields include `name`, `board`, `version`, `id`, plus, when MQTT is configured, `uri`, `client_id`, `raw_data_topic`, and `raw_resp_topic`. It also includes `factory_reset_pending` to expose the short reset transition state. Here `name` / `version` are the canonical ESP firmware identity fields.
 Startup ownership is now exposed on radar-facing surfaces instead: `radar status` returns `mode` and `modes`, while `fw.boot_mode` inside the `fw` object reports the runtime radar boot path. BRIDGE reports `["auto", "host"]`; HUB reports `["auto"]`.
 
 ### 2. Flash Your Radar Firmware + Config (UART, simplest)
@@ -307,6 +313,7 @@ Recommended transport for real applications, dashboards, automation, and fleet/d
 | Command | Action Description |
 |---------|---------------------|
 | `node info` | Handshake: identify model, version, and published metadata |
+| `node factory-reset` | Trigger factory reset (clear NVS + runtime assets, reboot after 1s) |
 | `node reboot` | Reboot the device |
 | `node ota` | Update the ESP firmware via HTTP OTA |
 | `node agent` | Enable/disable built-in agent services |
@@ -337,6 +344,7 @@ Recommended transport for real applications, dashboards, automation, and fleet/d
 ```bash
 # --- Node ---
 ./run.sh node info -p /dev/cu.usbserial-0001
+./run.sh node factory-reset --key YOUR_KEY -p /dev/cu.usbserial-0001
 ./run.sh node reboot -p /dev/cu.usbserial-0001
 ./run.sh node ota --fw mmwk_sensor_bridge_full.bin -p /dev/cu.usbserial-0001
 ./run.sh node agent --mqtt 1 --uart 1 --led 1 -p /dev/cu.usbserial-0001

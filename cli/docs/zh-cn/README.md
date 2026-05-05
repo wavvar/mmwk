@@ -78,6 +78,12 @@ pip install -r requirements.txt
 
 `node key status` 是公开命令。`node key set` 可在开放设备上设置初始 key；保护启用后，更新 key 也需要当前正确的 `--key`。`node info` 仍可不带 key 调用，但保护启用后，未认证响应只包含公开身份字段和 `auth_enabled/auth_required`。恢复出厂设置会清除 key。
 
+```bash
+./run.sh node factory-reset --key YOUR_KEY -p /dev/cu.usbserial-0001
+```
+
+当 key 保护启用时，`node factory-reset` 同样需要正确的 `--key`。成功后 CLI 只输出一行：`已触发重置`。设备会在 1 秒后重启。这个短暂 pending 窗口内，只允许 `node info` 与重复 `node factory-reset`；其他命令会被拒绝并返回 reset pending 状态错误。窗口期间 `node info` 会返回 `factory_reset_pending=true`。
+
 ---
 
 ## 快速开始
@@ -96,7 +102,7 @@ pip install -r requirements.txt
 ./run.sh node info -p /dev/cu.usbserial-0001
 ```
 
-期望 `node info` 返回的字段包括 `name`、`board`、`version`、`id`，以及在 MQTT 已配置时返回的 `uri`、`client_id`、`raw_data_topic`、`raw_resp_topic`。其中 `name` / `version` 是 ESP 固件身份的标准字段。
+期望 `node info` 返回的字段包括 `name`、`board`、`version`、`id`，以及在 MQTT 已配置时返回的 `uri`、`client_id`、`raw_data_topic`、`raw_resp_topic`。同时会返回 `factory_reset_pending`，用于表示短暂的重置过渡状态。其中 `name` / `version` 是 ESP 固件身份的标准字段。
 启动所有权现在改为由雷达面暴露：`radar status` 返回 `mode` 与 `modes`，`fw.boot_mode` 则表示当前运行态的雷达 boot path。BRIDGE 报告 `["auto", "host"]`，HUB 报告 `["auto"]`。
 
 ### 2. 刷写雷达固件与配置
@@ -304,6 +310,7 @@ flowchart LR
 | Command | 说明 |
 |---------|------|
 | `node info` | 读取设备身份与已发布元数据 |
+| `node factory-reset` | 触发恢复出厂（清 NVS + 运行期资源，1 秒后重启） |
 | `node reboot` | 重启设备 |
 | `node ota` | 升级 ESP 固件 |
 | `node agent` | 配置 agent 服务 |
@@ -334,6 +341,7 @@ flowchart LR
 ```bash
 # --- Node ---
 ./run.sh node info -p /dev/cu.usbserial-0001
+./run.sh node factory-reset --key YOUR_KEY -p /dev/cu.usbserial-0001
 ./run.sh endpoint list -p /dev/cu.usbserial-0001
 ./run.sh proto list -p /dev/cu.usbserial-0001
 ./run.sh node key status -p /dev/cu.usbserial-0001
