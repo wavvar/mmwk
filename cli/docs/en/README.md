@@ -484,7 +484,7 @@ python3 -m mmwk node info -p /dev/cu.usbserial-0001
 
 ## Hardware Interaction
 
-`mmwk_sensor` firmware keeps the ESP-side LED and button behavior consistent by default across all supported boards. This CLI document only covers command entry points; see [mmWave Sensor Development Kit](../../../docs/en/mmwk-sensor.md#37-key-and-led-interaction) and [mmWave Sensor Development Kit Reference](../../../docs/en/mmwk-sensor-reference.md#3-user-interaction-reference) for the detailed behavior.
+`mmwk_sensor` firmware keeps the ESP-side LED and button behavior consistent by default across all supported boards. This CLI document only covers command entry points; see [mmWave Sensor Development Kit](../../../docs/en/mmwk-sensor.md#5-user-interaction) for the detailed behavior.
 
 ---
 

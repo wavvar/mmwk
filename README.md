@@ -4,7 +4,7 @@ Chinese version: [中文文档](./README_CN.md)
 
 Wavvar MMWK (mmWave Kit) is a product-level mmWave radar sensor platform. This directory contains all pre-built firmwares, documentation, and CLI tools needed to operate and manage MMWK devices.
 
-## Features
+## 1. Features
 
 - **Radar Development Fast-track**: The [**mmWave Sensor Development Kit**](./docs/en/mmwk-sensor.md) gives MMWK a shared sensor platform for CLI control, Wi-Fi/MQTT/4G connectivity, OTA, radar firmware management, and raw radar passthrough. Start prototyping your radar-powered application in minutes, not months.
 - **TI Firmware Compatible**: Runs standard TI radar binaries without modification. This allows you to leverage the entire TI radar ecosystem — develop on TI EVMs, use TI signal processing toolboxes, and deploy directly to MMWK with zero code migration.
@@ -15,9 +15,9 @@ Wavvar MMWK (mmWave Kit) is a product-level mmWave radar sensor platform. This d
 - **Production & Deployment Ready**: Built for scale with robust OTA updates, standardized configuration management, and field-proven reliability, providing everything you need for mass production and large-scale deployment.
 - **Ecosystem & Customization**: Our ecosystem provides comprehensive tailored solutions—from 200Hz high-frequency radar firmware and multi-functional applications (people tracking, vital signs) to full-stack customization for cloud platforms and mobile apps.
 
-## Hardware
+## 2. Hardware
 
-### Architecture
+### 2.1 Architecture
 
 Every MMWK board consists of two MCUs: ESP and radar. The mmwk component provides the driver for the ESP chip and the radar chip.
 
@@ -33,7 +33,7 @@ The ESP's flash is partitioned to hold NVS (device settings), PHY init data, the
 
 Peripherals vary by board. PRO includes onboard 4G/LTE Cat1 as standard, while selected variants provide ESP-side user I/O, audio, or external 4G/LTE modules. The host connects to the ESP via USB-UART/Serial for local access.
 
-### Board Types
+### 2.2 Board Types
 
 Name | ESP | Audio | Radar | LED | 4G/LTE Support
 --- | --- | --- | --- | --- | ---
@@ -44,20 +44,14 @@ Name | ESP | Audio | Radar | LED | 4G/LTE Support
 IOT | ESP32S3 | No | IWR6843AoP | 1 | Yes
 [WDR](./modules/mdr.md) | ESP32S3 | Yes | IWRL6432AoP | 2 | Optional
 
-`LED` specifically refers to the radar-chip LED. Its IO follows the TI reference examples and must be controlled by the radar firmware.
+`LED` specifically refers to the radar-chip LED. Its IO follows the TI reference examples and must be controlled by the radar firmware. All boards also include one ESP-controlled button and one ESP-controlled LED; their shared behavior is documented in the [mmWave Sensor Development Kit](./docs/en/mmwk-sensor.md#5-user-interaction). For product-line hardware details, start with the [Product Module Overview](./modules/README.md).
 
-All boards also include one ESP-controlled button and one ESP-controlled LED.
+MMWK's dual-MCU architecture lets users evaluate standard TI radar firmware quickly: develop and debug the radar firmware on TI toolchains and evaluation boards, then deploy the same radar binary and configuration on MMWK while building application logic on the ESP MCU. The ESP powers, flashes, configures, and supervises the radar chip, while the radar chip owns RF signal processing and data generation.
 
-If you need product-line specific hardware context beyond the [sensor platform workflow docs](./docs/en/mmwk-sensor.md), start with the [Product Module Overview](./modules/README.md). The RPX line now has dedicated introductions for [MINI](./modules/mini.md) and [PRO](./modules/pro.md), while [RPI](./modules/rpx.md#3-rpi-6432-sensing-module) and [CFH](./modules/rpx.md#2-6843-series-sensing-modules) remain in the [RPX module guide](./modules/rpx.md). The `WDR/MDR` controller-and-radar-board path is covered by the [MDR module introduction](./modules/mdr.md), the [WDR-M main controller carrier board introduction](./modules/wdr-m.md), the [WDR-4G communication board introduction](./modules/wdr-4g.md), the [ML6432A_BO module introduction](./modules/ml6432a_bo.md), and the [ML6432A module introduction](./modules/ml6432a.md).
-
-The hardware architecture of separate MCUs enables users to quickly evaluate any TI radar firmware. Users can utilize all of TI's toolchains and development boards to develop and debug radar firmware, and then develop applications on the MMWK's ESP MCU. Existing TI radar firmware such as People Tracking and Vital Signs can all be used on MMWK.
-
-The ESP chip acts as a controller for the radar chip. It is responsible for powering, flashing firmware, configuring the radar chip, and even extra radar data processing. The radar chip handles signal processing and data generation. The mmwk component provides a unified interface for the two chips, transparent to the user.
-
-The ESP chip can be used for implementing application-level algorithms such as AI inference, MQTT, and custom control/protocol layers (CLIv1 default, MCPv1 compatibility). The mmwk component provides a unified interface for the ESP chip, transparent to the user.
+The ESP MCU can also run application-level logic such as AI inference, MQTT connectivity, and custom control or protocol layers. The `mmwk` component presents a unified interface across the ESP and radar sides, so common workflows stay consistent across supported boards.
 
 
-### MMWK vs. TI Evaluation Boards
+### 2.3 MMWK vs. TI Evaluation Boards
 
 MMWK uses the same TI radar chips and is fully compatible with standard TI firmware binaries. The recommended development workflow leverages each platform's strengths:
 
@@ -87,14 +81,14 @@ MMWK uses the same TI radar chips and is fully compatible with standard TI firmw
 
 > **Key point:** The firmware binary developed and tested on a TI evaluation board can be directly loaded onto MMWK without modification. MMWK extends the TI ecosystem rather than replacing it.
 
-### Bring Your Own Device & Software
+### 2.4 Bring Your Own Device & Software
 
 MMWK provides the freedom to bring your own software and hardware to the ecosystem:
 - **Software (BYOS)**: Build on top of the existing application layer or rewrite the entire firmware stack to suit your proprietary sensing logic and cloud integration needs.
 - **Device (BYOD)**: Run MMWK-related software on your own hardware. We are actively expanding support for standard TI radar EVMs and ESP32 development boards to ensure maximum hardware portability.
 
 
-## Getting Started
+## 3. Getting Started
 
 Start with the [mmWave Sensor Development Kit](./docs/en/mmwk-sensor.md). Use this section to choose the right first document based on your board's current state:
 
@@ -102,11 +96,11 @@ Start with the [mmWave Sensor Development Kit](./docs/en/mmwk-sensor.md). Use th
 2. **[mmWave Sensor Development Kit](./docs/en/mmwk-sensor.md)**: Start here if an `mmwk_sensor` firmware profile is already running and you want the first end-to-end bring-up, including radar flash plus collection.
 3. **[Device OTA Guide](./docs/en/ota.md)**: Start here if the device is already running the current public firmware package and you only need an ESP OTA update.
 
-[mmWave Sensor Development Kit](./docs/en/mmwk-sensor.md) is the canonical getting-started guide for the shared `mmwk_sensor` platform. It routes you onward to factory flash, radar flash plus collection, OTA, and the deeper [mmWave Sensor Development Kit Reference](./docs/en/mmwk-sensor-reference.md).
+[mmWave Sensor Development Kit](./docs/en/mmwk-sensor.md) is the canonical getting-started guide and reference for the shared `mmwk_sensor` platform. It routes you onward to factory flash, radar flash plus collection, OTA, shared user interaction, control transport, raw passthrough, and runtime verification.
 
 
 
-## Tools
+## 4. Tools
 
 Every MMWK device exposes its capabilities through a standardized protocol. The open-source CLI tool communicates with the device over this protocol, and any custom application can do the same.
 
@@ -122,41 +116,15 @@ Every MMWK device exposes its capabilities through a standardized protocol. The 
   AI Agent (Claude, etc.)                                     (optional MCPv1 compat layer)
 ```
 
-### Control Protocol
+The diagram shows the intended integration model: `mmwk_cli` is the open-source host implementation and the best-supported path for Agent / LLM-driven operation, while custom applications can speak the same standard CLI JSON protocol directly. The protocol is transport-neutral across UART and MQTT, with MCPv1 kept as an explicit compatibility mode for callers that need it.
 
-Current host workflows default to a canonical CLI JSON protocol that keeps the same service/action semantics as the legacy MCP tool layer. MCP remains available for compatibility callers that explicitly pass `--protocol mcp`.
+- [CLI README](./cli/docs/en/README.md)
+- [Wavvar MMWK Canonical CLI Protocol V1.1](./docs/CLIv1.md)
+- [Wavvar MMWK MCP Protocol Specification V1.3](./docs/en/mcpv1.md)
+- [Radar Task Tools](./cli/docs/en/radar-task-tools.md)
+- [Develop Radar With Bridge](./cli/docs/en/bridge-ti-radar-debug.md)
 
-The device accepts commands and pushes sensor events over two transports:
-
-- **UART** (115200 baud, newline-delimited JSON)
-- **MQTT** (for WiFi / LAN / cloud remote access)
-
-The canonical CLI JSON specification is documented in [Wavvar MMWK Canonical CLI Protocol V1.1](./docs/CLIv1.md).
-
-If you need the MCP compatibility path, any MCP-compatible client — including AI Agents like Claude — can still discover tools (`tools/list`), invoke device actions (`tools/call`), and receive real-time sensor notifications without custom drivers. The full MCP compatibility spec is documented in [Wavvar MMWK MCP Protocol Specification V1.3](./docs/en/mcpv1.md).
-
-### MMWK CLI (Open Source)
-
-[mmwk_cli](./cli/) is an **open-source** Python CLI that defaults to the canonical CLI JSON protocol, with MCP still available as a compatibility fallback when needed. It is both a ready-to-use management utility and a reference implementation showing how to build custom host applications on top of the MMWK control protocols.
-
-- **Cross-platform** — Python 3.10+, runs on macOS, Linux, and Windows
-- **Dual transport** — UART (serial) for local access, MQTT for remote management over the network
-- **Firmware updates** — HTTP OTA (fastest) and UART chunk transfer (no WiFi needed)
-- **Runtime config apply** — `radar config apply` switches runtime `welcome` / `verify` / cfg behavior without flashing firmware again
-- **Startup contract discovery** — `radar status` exposes `mode` plus `modes`; `fw.boot_mode` inside the `fw` object reports the live radar boot path. BRIDGE supports `["auto", "host"]`, HUB supports `["auto"]`
-- **Current public facades** — the published CLI now centers on `node`, `proto`, `endpoint`, `scene`, `radar fw`, `radar config`, `radar raw`, `network`, and `collect`
-- **Task wrappers included** — the published package now ships `./cli/config.sh` and `./cli/collect.sh` for registry-backed bridge lab flows
-- **Device control** — Handshake, radar start/stop, WiFi/MQTT configuration, firmware partition management
-- **Zero setup shell wrapper** — `./cli/run.sh` bootstraps the CLI on macOS/Linux; direct Python usage remains available as an advanced fallback from the `cli` directory via `python3 -m mmwk`
-- **Built-in server helper** — `./cli/server.sh` provides a quick local MQTT broker and HTTP file server to assist with firmware OTA and data collection workflows
-- **AI command-line ready** — Designed to be seamlessly used by autonomous AI agents (like Claude) to discover, control, and interact with the sensor
-- **Integration tests included** — End-to-end flash, OTA, and persistence verification test suite
-
-For full usage and command reference, see [CLI README](./cli/docs/en/README.md).
-For task-oriented wrapper flows, see [Radar Task Tools](./cli/docs/en/radar-task-tools.md) and [Develop Radar With Bridge](./cli/docs/en/bridge-ti-radar-debug.md).
-
-
-## Radar Firmwares
+## 5. Radar Firmwares
 
 Any firmware that can run on the supported radar chips can be used with MMWK. Go to the TI website to download the latest firmwares either from the [mmWave SDK](https://www.ti.com/tool/download/MMWAVE-SDK) for IWR6843AoP or [mmWave Low Power SDK](https://www.ti.com/tool/download/MMWAVE-L-SDK) for IWRL6432AoP. Another good resource is the [RADAR-TOOLBOX](https://www.ti.com/tool/download/RADAR-TOOLBOX).
 
@@ -164,7 +132,7 @@ A configuration file is required for most standard TI firmwares. It is a text fi
 
 > **NOTE**: The configuration file is specific to each firmware. MAKE SURE YOU USE THE CORRECT ONE. The configuration file is usually named `*.cfg`. You are strongly recommended to test the firmware and configuration file with the TI evaluation board before using it in this project.
 
-### TI Pre-built Radar Firmwares
+### 5.1 TI Pre-built Radar Firmwares
 
 The following radar firmwares are included in `firmwares/radar/`:
 
@@ -174,7 +142,7 @@ The following radar firmwares are included in `firmwares/radar/`:
 | IWR6843AoP | Vital Signs Detection | `iwr6843/vital_signs/` | `.bin` + `.cfg` |
 | IWRL6432AoP | Presence Detection | `iwrl6432/presence/` | `.appimage` + `.cfg` |
 
-### MMWK_ROID
+### 5.2 MMWK_ROID
 
 ROID is Wavvar's custom radar firmware line for high-sample ROI observation and fine micro-motion analysis. It keeps layered outputs from `RAW ROI` to `PHASE`, `BREATH`, and `HEART`, which makes it a stronger fit for higher-precision heart / respiration observation and research-oriented signal analysis than coarse presence-only paths.
 
@@ -182,7 +150,7 @@ It can serve as the firmware base for advanced vital-sign workflows while also l
 
 See [MMWK_ROID Overview](./docs/en/roid.md) for the English document and [中文版本](./docs/zh-cn/roid.md) for the Chinese document.
 
-## ESP Firmwares
+## 6. ESP Firmwares
 
 Pre-built ESP firmwares are located in `firmwares/esp/`. Each variant is built for a specific board type and special functions.
 
@@ -191,27 +159,19 @@ For current public ESP firmware lifecycle docs:
 - [Factory Flash Guide](./docs/en/flash.md) for blank/erased devices and package-based first flash.
 - [Device OTA Guide](./docs/en/ota.md) for OTA updates on devices already running the current public firmware package.
 
+### 6.1 Bridge
 
-### mmwk_sensor_bridge
+`mmwk_sensor_bridge` is the baseline transparent-passthrough firmware profile built on the `mmwk_sensor` platform. It is used for radar firmware development, flashing, configuration, tuning, raw radar collection, point-cloud/data validation, and real-time visualization workflows.
 
-`mmwk_sensor_bridge` is the baseline transparent-passthrough firmware profile built on the `mmwk_sensor` platform. In this profile, the ESP performs no higher-level radar signal processing and acts as the development bridge between the radar chip and the external host.
+Bridge focuses on connecting the host, ESP, radar firmware, radar configuration, and radar data streams. It keeps the shared platform capabilities such as CLI JSON over UART/MQTT, Wi-Fi provisioning, MQTT relay, OTA/radar firmware management, and raw passthrough.
 
-**Core features:**
+### 6.2 Hub
 
-- **Radar firmware management** — In bridge `auto`, the ESP can automatically load radar firmware (`.bin` + `.cfg`) from SPIFFS and perform managed bring-up; in bridge `host`, startup ownership stays with the host and the ESP does not automatically send radar configuration
-- **OTA flashing** — Supports remote radar firmware updates via HTTP/MQTT, as well as UART chunk transfer
-- **Raw data forwarding** — Forwards raw data frames from the radar chip directly to the host without any signal processing
-- **Control protocol** — Built-in canonical CLI JSON control over both UART (115200 baud) and MQTT, with MCPv1 JSON-RPC compatibility for callers that explicitly select `--protocol mcp`
-- **WiFi provisioning** — Creates a hotspot (`MMWK_XXXX`) on first boot; users configure WiFi credentials via a browser captive portal
-- **MQTT relay** — Once connected to WiFi, relays radar data and receives control commands through an MQTT broker
+`mmwk_sensor_hub` is another firmware profile built on the same `mmwk_sensor` platform. It provides a radar sensor hub profile that can expose sensor surfaces such as heart rate, respiration, sleep, and body movement, while retaining bridge capabilities such as radar raw / point-cloud real-time display and host-side validation.
 
-### mmwk_sensor_hub
+Hub internals are intentionally not described in this public package documentation. This is not provided as a pre-built firmware.
 
-`mmwk_sensor_hub` is another firmware profile built on the same `mmwk_sensor` platform. It keeps the shared sensor capabilities and adds a sensor hub profile definition and implementation. Hub internals are intentionally not described in this public package documentation.
-
-This is not provided as a pre-built firmware.
-
-## Legal Notice
+## 7. Legal Notice
 
 The radar firmware binaries provided in `firmwares/radar/` include original builds from [**Texas Instruments (TI)**](https://www.ti.com) and custom builds from [**Wavvar**](https://wavvar.com).
 

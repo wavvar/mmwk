@@ -474,7 +474,7 @@ python3 -m mmwk node info -p /dev/cu.usbserial-0001
 
 ## 硬件交互
 
-`mmwk_sensor` 固件默认在所有支持板型上保持一致的 ESP 侧 LED 与按键行为。CLI 文档只说明命令入口；用户交互细节请看 [mmWave Sensor Development Kit](../../../docs/zh-cn/mmwk-sensor.md#37-key-与-led-交互) 和 [mmWave Sensor Development Kit 参考](../../../docs/zh-cn/mmwk-sensor-reference.md#3-用户交互参考)。
+`mmwk_sensor` 固件默认在所有支持板型上保持一致的 ESP 侧 LED 与按键行为。CLI 文档只说明命令入口；用户交互细节请看 [mmWave Sensor Development Kit](../../../docs/zh-cn/mmwk-sensor.md#5-用户交互)。
 
 ---
 
