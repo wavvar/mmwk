@@ -180,6 +180,8 @@ def add_transport_args(parser):
                        help="Serial baudrate (default: 115200)")
     group.add_argument("--reset", action="store_true",
                        help="Reset device via DTR/RTS before connecting")
+    group.add_argument("--uart-proxy", choices=["auto", "off"], default=None,
+                       help="Use persistent local UART proxy for short CLI calls (default: auto; env MMWK_CLI_UART_PROXY_MODE)")
     group.add_argument("--broker", default="localhost",
                        help="MQTT broker address (default: localhost)")
     group.add_argument("--mqtt-port", type=int, default=1883,

@@ -279,7 +279,7 @@ This is the recommended communication model:
 - **Application guidance**: if you are building a product feature, service, AI agent, dashboard, or cloud workflow, integrate through MQTT. Do not treat a persistent UART cable as the normal application architecture.
 
 ### UART (Local)
-Primary transport for factory setup, local debugging, and recovery. On POSIX hosts, ordinary UART opens now preserve the device runtime by default; use `--reset` only when you intentionally want a hardware reboot via DTR/RTS. If a host driver needs the old behavior, set `MMWK_CLI_UART_NORESET_BACKEND=pyserial`.
+Primary transport for factory setup, local debugging, and recovery. Ordinary UART commands use a persistent local proxy by default, so repeated short CLI calls reuse one physical serial open instead of toggling the USB-UART reset lines each time. Use `--reset` only when you intentionally want a hardware reboot via DTR/RTS. Use `--uart-proxy off` or `MMWK_CLI_UART_PROXY_MODE=off` to bypass the proxy for host-driver debugging.
 ```bash
 # Fast flash with reset
 ./run.sh radar fw flash --fw fw.bin -p /dev/cu.usbserial-0001 --baudrate 921600 --reset

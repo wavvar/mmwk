@@ -1,11 +1,15 @@
 """Transport layer for communicating with MMWK bridge/hub devices."""
 
 import abc
+import hashlib
 import json
 import os
 import socket
+import subprocess
+import sys
 import time
 import threading
+from pathlib import Path
 from urllib.parse import urlparse
 try:
     import termios
@@ -207,6 +211,151 @@ def _recv_socket_line(sock, timeout: float) -> bytes:
     raise TimeoutError("Timed out waiting for UART proxy response")
 
 
+def _read_uart_proxy_env(path: Path):
+    values = {}
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            values[key.strip()] = value.strip()
+    except OSError:
+        return None
+
+    data = _parse_uart_proxy_endpoint(values.get("MMWK_CLI_UART_PROXY_DATA", ""))
+    ctrl = _parse_uart_proxy_endpoint(values.get("MMWK_CLI_UART_PROXY_CTRL", ""))
+    if not data or not ctrl:
+        return None
+    return data, ctrl
+
+
+def _ping_uart_proxy(ctrl_endpoint, timeout: float = 1.0) -> bool:
+    if not ctrl_endpoint:
+        return False
+    host, port = ctrl_endpoint
+    try:
+        sock = socket.create_connection((host, port), timeout=timeout)
+        try:
+            sock.settimeout(timeout)
+            sock.sendall(b'{"command":"ping"}\n')
+            response_raw = _recv_socket_line(sock, timeout)
+            response = json.loads(response_raw.decode("utf-8", errors="ignore").strip() or "{}")
+            return isinstance(response, dict) and response.get("ok") is True
+        finally:
+            try:
+                sock.shutdown(socket.SHUT_RDWR)
+            except Exception:
+                pass
+            sock.close()
+    except Exception:
+        return False
+
+
+def _send_uart_proxy_control(ctrl_endpoint, command: str, timeout: float = 1.0) -> bool:
+    if not ctrl_endpoint:
+        return False
+    host, port = ctrl_endpoint
+    try:
+        sock = socket.create_connection((host, port), timeout=timeout)
+        try:
+            sock.settimeout(timeout)
+            request = json.dumps({"command": command}, separators=(",", ":")).encode("utf-8") + b"\n"
+            sock.sendall(request)
+            response_raw = _recv_socket_line(sock, timeout)
+            response = json.loads(response_raw.decode("utf-8", errors="ignore").strip() or "{}")
+            return isinstance(response, dict) and response.get("ok") is True
+        finally:
+            try:
+                sock.shutdown(socket.SHUT_RDWR)
+            except Exception:
+                pass
+            sock.close()
+    except Exception:
+        return False
+
+
+def _uart_proxy_state_dir(port: str, baudrate: int) -> Path:
+    cli_root = Path(__file__).resolve().parents[1]
+    key = hashlib.sha1(f"{port}:{baudrate}".encode("utf-8")).hexdigest()[:12]
+    return cli_root / "build_output" / "uart_proxy" / key
+
+
+def _ensure_uart_proxy(port: str, baudrate: int, timeout: float):
+    state_dir = _uart_proxy_state_dir(port, baudrate)
+    state_dir.mkdir(parents=True, exist_ok=True)
+    env_file = state_dir / "proxy.env"
+    pid_file = state_dir / "proxy.pid"
+    log_file = state_dir / "proxy.log"
+    serial_log = state_dir / "serial.log"
+
+    endpoints = _read_uart_proxy_env(env_file)
+    if endpoints and _ping_uart_proxy(endpoints[1]):
+        return endpoints
+
+    for path in (env_file, pid_file):
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+
+    cmd = [
+        sys.executable,
+        "-m",
+        "mmwk.uart_proxy_server",
+        "--port",
+        port,
+        "--baudrate",
+        str(baudrate),
+        "--timeout",
+        "0.2",
+        "--env-file",
+        str(env_file),
+        "--pid-file",
+        str(pid_file),
+        "--serial-log",
+        str(serial_log),
+    ]
+    with log_file.open("ab", buffering=0) as log_fp:
+        process = subprocess.Popen(
+            cmd,
+            cwd=str(Path(__file__).resolve().parents[1]),
+            stdout=log_fp,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+
+    deadline = time.time() + max(5.0, min(20.0, timeout))
+    last_endpoints = None
+    while time.time() < deadline:
+        if process.poll() is not None:
+            break
+        endpoints = _read_uart_proxy_env(env_file)
+        if endpoints:
+            last_endpoints = endpoints
+            if _ping_uart_proxy(endpoints[1]):
+                logger.info(f"Using UART proxy for {port}: {env_file}")
+                return endpoints
+        time.sleep(0.1)
+
+    if process.poll() is None and last_endpoints and _ping_uart_proxy(last_endpoints[1], timeout=2.0):
+        logger.info(f"Using UART proxy for {port}: {env_file}")
+        return last_endpoints
+
+    try:
+        process.terminate()
+    except Exception:
+        pass
+    raise RuntimeError(f"UART proxy did not become ready for {port}; see {log_file}")
+
+
+def _shutdown_uart_proxy(port: str, baudrate: int) -> None:
+    state_dir = _uart_proxy_state_dir(port, baudrate)
+    env_file = state_dir / "proxy.env"
+    endpoints = _read_uart_proxy_env(env_file)
+    if endpoints:
+        _send_uart_proxy_control(endpoints[1], "shutdown", timeout=1.0)
+
+
 class _SocketSerialAdapter:
     """Socket-backed serial-like client used by the UART proxy."""
 
@@ -284,7 +433,7 @@ class UartTransport(RadarTransport):
     """UART serial transport using pyserial."""
 
     def __init__(self, port: str, baudrate: int = 115200, timeout: float = 1.0,
-                 reset: bool = False):
+                 reset: bool = False, uart_proxy: str | None = None):
         super().__init__()
         self.port = port
         self.baudrate = baudrate
@@ -292,12 +441,31 @@ class UartTransport(RadarTransport):
         self._reset_requested = reset
         self._serial_backend = ""
         self._io_lock = threading.Lock()
-        self._proxy_data_endpoint = _parse_uart_proxy_endpoint(
-            os.getenv("MMWK_CLI_UART_PROXY_DATA", "")
-        )
-        self._proxy_ctrl_endpoint = _parse_uart_proxy_endpoint(
-            os.getenv("MMWK_CLI_UART_PROXY_CTRL", "")
-        )
+        proxy_mode = (uart_proxy or os.getenv("MMWK_CLI_UART_PROXY_MODE", "auto")).strip().lower()
+        if proxy_mode in ("1", "true", "yes", "on"):
+            proxy_mode = "auto"
+        if proxy_mode in ("0", "false", "no"):
+            proxy_mode = "off"
+        if proxy_mode not in ("auto", "off"):
+            raise ValueError("--uart-proxy must be auto or off")
+
+        if proxy_mode == "off":
+            _shutdown_uart_proxy(port, baudrate)
+            self._proxy_data_endpoint = None
+            self._proxy_ctrl_endpoint = None
+        elif not os.getenv("MMWK_CLI_UART_PROXY_DATA", "").strip():
+            self._proxy_data_endpoint, self._proxy_ctrl_endpoint = _ensure_uart_proxy(
+                port,
+                baudrate,
+                timeout,
+            )
+        else:
+            self._proxy_data_endpoint = _parse_uart_proxy_endpoint(
+                os.getenv("MMWK_CLI_UART_PROXY_DATA", "")
+            )
+            self._proxy_ctrl_endpoint = _parse_uart_proxy_endpoint(
+                os.getenv("MMWK_CLI_UART_PROXY_CTRL", "")
+            )
 
         if self._should_use_uart_proxy() and reset:
             self._proxy_reset()
@@ -756,7 +924,9 @@ def create_transport(args, retries: int = 1, retry_delay: float = 2.0) -> RadarT
                 return UartTransport(
                     port=port,
                     baudrate=getattr(args, 'baudrate', 115200),
+                    timeout=getattr(args, 'timeout', 1.0),
                     reset=getattr(args, 'reset', False),
+                    uart_proxy=getattr(args, 'uart_proxy', None),
                 )
         except ValueError:
             raise  # Don't retry on missing args

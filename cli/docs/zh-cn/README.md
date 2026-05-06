@@ -281,7 +281,7 @@ flowchart LR
 - **MCPv1**：兼容/参考层，仅在 MCP 客户端明确需要该协议形态时使用
 
 ### UART（本地）
-在 POSIX 主机上，普通 UART 打开现在默认保持设备当前运行态，不再因为单次命令而额外复位；只有你明确传 `--reset` 时，CLI 才会通过 DTR/RTS 做硬件重启。如果某台主机必须回退旧行为，可设置 `MMWK_CLI_UART_NORESET_BACKEND=pyserial`。
+普通 UART 命令默认使用本地持久 proxy，因此连续短命令会复用同一个物理串口打开句柄，不再每次都触发 USB-UART 复位线。只有你明确传 `--reset` 时，CLI 才会通过 DTR/RTS 做硬件重启。如需排查主机串口驱动行为，可用 `--uart-proxy off` 或 `MMWK_CLI_UART_PROXY_MODE=off` 绕过 proxy。
 
 ```bash
 ./run.sh radar fw flash --fw fw.bin -p /dev/cu.usbserial-0001 --baudrate 921600 --reset

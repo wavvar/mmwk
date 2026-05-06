@@ -205,6 +205,7 @@ TRANSPORT OPTIONS:
     --device-id ID         Device ID for MQTT
     --baudrate RATE        Baudrate (default: 115200)
     --reset                DTR/RTS reset before connecting
+    --uart-proxy auto|off  Reuse a persistent local UART proxy for short commands
     -v, --verbose          Debug logging
 
 EXAMPLES:
