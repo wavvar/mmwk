@@ -1,4 +1,4 @@
-# Wavvar MMWK 标准 CLI 控制协议 V1.0
+# Wavvar MMWK 标准 CLI 控制协议 V1.1
 
 本文档定义当前 MMWK bridge/hub 主机侧默认使用的标准 CLI JSON 控制协议。它与传输层无关，并且保留与旧 MCP tool 层一致的 service/action 语义。
 
@@ -9,6 +9,24 @@
 - 同时适用于 UART 和 MQTT
 
 `mmwk_cli` 现在默认使用这套协议。迁移窗口内，如果调用方省略 `--protocol`，CLI 会打印一次 warning，提示你显式升级到 `--protocol cli`。只有在兼容性回退场景下才需要 `--protocol mcp`。
+
+## 协议版本
+
+CLIv1.1 在主机初始化时返回的 `protocolVersion` 为 `control.v1.1`。
+
+## 版本变更
+
+### V1.1
+
+- 统一 CLI 初始化返回的协议版本为 `protocolVersion=control.v1.1`。
+- 定义 UART 和 MQTT 上每条请求携带顶层 `key` 的保护机制。
+- 定义设备存储 key 后 `node info` 的公开/私有两种视图。
+- 定义 `node key status`、`node key set`、`node key clear` 三个 key 管理操作。
+- 保持 `proto list`、`proto status`、`proto manifest` 作为无需 key 的公开协议目录发现接口。
+
+### V1.0
+
+- 初始标准 CLI JSON 信封、请求/响应/事件封包，以及 service/action 兼容命令面。
 
 ## 传输与封包
 

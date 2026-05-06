@@ -132,7 +132,7 @@ pip install -r requirements.txt
 ./run.sh node reboot -p /dev/cu.usbserial-0001
 ```
 
-对于支持 4G 的 PRO/WDR 设备，可以单独保存 4G 配置，再选择优先网络：
+对于 PRO 设备以及带 4G 的 WDR 设备，可以单独保存 4G 配置，再选择优先网络：
 
 ```bash
 ./run.sh network 4g --apn YOUR_APN -p /dev/cu.usbserial-0001
@@ -141,7 +141,7 @@ pip install -r requirements.txt
 
 `network priority --pref wifi|4g` 用于设置 Wi-Fi/4G 优先网络。保存 Wi-Fi 凭据不会自动改掉 4G 优先级。如果 `pref=4g` 无法联网，设备可以临时使用 Wi-Fi 作为当前承载网络。保存的首选项仍保持 `4g`；`network status` 会显示 `pref=4g,curr=wifi`，`network diag` 会保留 4G 失败原因。
 
-SDK 硬件验收同样保持显式选择：只有带 SIM 卡的 PRO/WDR 测试才给 runner 传 `--4g`；不传时测试默认仍走 Wi-Fi。
+SDK 硬件验收同样保持显式选择：PRO 设备或带 4G 的 WDR 设备测试时给 runner 传 `--4g`；不传时测试默认仍走 Wi-Fi。
 
 配网 AP 名称遵循 `MMWK-[板][应用]-[MAC后两字节]`。默认 Wi-Fi 为 `MMWK / mmwk123456`。
 
@@ -462,7 +462,7 @@ python3 -m mmwk node info -p /dev/cu.usbserial-0001
 
 - **[run.sh](../../run.sh)**：推荐的 macOS/Linux shell 入口
 - **[mmwk/](../../mmwk/)**：被包装的 Python 实现
-- **[Wavvar MMWK 标准 CLI 控制协议 V1.0](../../../docs/CLIv1_CN.md)**：默认标准 CLI JSON 协议规范
+- **[Wavvar MMWK 标准 CLI 控制协议 V1.1](../../../docs/CLIv1_CN.md)**：默认标准 CLI JSON 协议规范
 - **[Wavvar MMWK MCP 协议规范 V1.3](../../../docs/zh-cn/mcpv1.md)**：面向 MCP 固件版本的 MCP/JSON-RPC 协议规范（配套 MCP 固件版本时使用 `--protocol mcp`）
 - **[Radar Task Tools](./radar-task-tools.md)**：在 `cli` 目录下执行的任务导向 wrapper，用于 UART 配置、网络 OTA 和 MQTT raw 采集
 - **[通过 Bridge 开发雷达](./bridge-ti-radar-debug.md)**：发布友好的 bridge 开发说明，分别覆盖 6843 和 6432 的推荐板型与具体步骤

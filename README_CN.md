@@ -31,14 +31,14 @@ ESP 芯片通过三种接口与雷达芯片通信：
 
 ESP 的 Flash 分区中包含 NVS（设备设置）、PHY 初始化数据、出厂应用，以及一个用于存放雷达固件二进制与配置文件的 **assets** 分区。在 bridge `auto`、hub `auto` 这类受管启动流程里，ESP 可以从该分区加载雷达固件，并自动完成雷达刷写与配置。
 
-部分型号还带有 ESP 侧用户 IO、音频和 4G/LTE 模块。主机通过 USB-UART/Serial 与 ESP 连接，实现本地访问。
+不同板卡的外设配置有所不同。PRO 标准板自带 4G/LTE Cat1，部分型号还提供 ESP 侧用户 IO、音频或外接 4G/LTE 模块。主机通过 USB-UART/Serial 与 ESP 连接，实现本地访问。
 
 ### 板卡型号
 
 Name | ESP | Audio | Radar | LED | 4G/LTE Support
 --- | --- | --- | --- | --- | ---
 [MINI](./modules/mini_cn.md) | ESP32 | No | IWR6843AoP | 1 | No
-[PRO](./modules/pro_cn.md) | ESP32S3 | Optional | IWR6843AoP | 1 | No
+[PRO](./modules/pro_cn.md) | ESP32S3 | Optional | IWR6843AoP | 1 | 标配 Cat1/4G
 [RPI](./modules/rpx_cn.md#3-rpi-6432-感知模块) | ESP32S3 | Yes | IWRL6432AoP | 1 | No
 [CFH](./modules/rpx_cn.md#2-6843-系列感知模块) | ESP32S3 | Yes | IWR6843AoP | 1 | No
 IOT | ESP32S3 | No | IWR6843AoP | 1 | Yes
@@ -128,7 +128,7 @@ MMWK 默认以 [BRIDGE 模式](./docs/zh-cn/bridge.md) 运行。请先根据设�
 - **UART**（115200 波特率，按行分隔 JSON）
 - **MQTT**（用于 WiFi / LAN / 云端远程访问）
 
-标准 CLI JSON 协议见 [Wavvar MMWK 标准 CLI 控制协议 V1.0](./docs/CLIv1_CN.md)。
+标准 CLI JSON 协议见 [Wavvar MMWK 标准 CLI 控制协议 V1.1](./docs/CLIv1_CN.md)。
 
 如果你要走 MCP 兼容路径，任何兼容 MCP 的客户端，包括 Claude 这类 AI Agent，仍然可以发现工具（`tools/list`）、调用设备动作（`tools/call`），并接收实时传感器通知，而无需自定义驱动。完整 MCP 兼容规范见 [Wavvar MMWK MCP 协议规范 V1.3](./docs/zh-cn/mcpv1.md)。
 

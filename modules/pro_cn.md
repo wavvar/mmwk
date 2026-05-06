@@ -61,7 +61,7 @@
 |  | | Station / SoftAP / Station + SoftAP |
 |  | | 最大 150 Mbps（理论值，实际取决于网络环境） |
 |  | 本地通信 | UART（数据格式由固件定义，可支持二进制或 JSON） |
-|  | 蜂窝网络（可选） | LTE Cat.1 bis（4G，全网通） |
+|  | 蜂窝网络 | 标准板载 LTE Cat.1 bis（4G，全网通） |
 |  | | 下行最高 10 Mbps / 上行最高 5 Mbps （见注 2） | 
 | **硬件架构** | 处理架构 | 双芯片异构架构（毫米波雷达 SoC + 主控 MCU） |
 |  | 雷达处理单元 | ARM Cortex-R4F + C674x DSP + 硬件加速器（HWA） |

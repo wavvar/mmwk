@@ -349,7 +349,7 @@ class ControlCliClient:
                     payload.get("version", "?"),
                 )
                 return {
-                    "protocolVersion": "control.v1",
+                    "protocolVersion": "control.v1.1",
                     "serverInfo": {
                         "name": payload.get("name", "?"),
                         "version": payload.get("version", "?"),
