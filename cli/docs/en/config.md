@@ -116,7 +116,7 @@ Use this when the device is already online and you want to re-point it without o
 
 ### 4. 4G and network priority
 
-`config.sh set` remains focused on Wi-Fi/MQTT onboarding. For PRO/WDR 4G configuration, use the official `run.sh` network commands directly:
+`config.sh set` remains focused on Wi-Fi/MQTT onboarding. For PRO devices and 4G-equipped WDR devices, use the official `run.sh` network commands directly:
 
 ```bash
 ./run.sh network 4g --apn YOUR_APN -p /dev/cu.usbserial-0001

@@ -31,14 +31,14 @@ The ESP chip communicates with the radar chip through three interfaces:
 
 The ESP's flash is partitioned to hold NVS (device settings), PHY init data, the factory application, and an **assets** partition that stores radar firmware binaries and configuration files. In managed startup flows such as bridge `auto` and hub `auto`, the ESP can load radar firmware from this assets partition and flash/configure the radar chip automatically.
 
-Optional peripherals include ESP-side user I/O, Audio, and 4G/LTE modules on selected variants. The host connects to the ESP via USB-UART/Serial for local access.
+Peripherals vary by board. PRO includes onboard 4G/LTE Cat1 as standard, while selected variants provide ESP-side user I/O, audio, or external 4G/LTE modules. The host connects to the ESP via USB-UART/Serial for local access.
 
 ### Board Types
 
 Name | ESP | Audio | Radar | LED | 4G/LTE Support
 --- | --- | --- | --- | --- | ---
 [MINI](./modules/mini.md) | ESP32 | No | IWR6843AoP | 1 | No
-[PRO](./modules/pro.md) | ESP32S3 | Optional | IWR6843AoP | 1 | No
+[PRO](./modules/pro.md) | ESP32S3 | Optional | IWR6843AoP | 1 | Standard Cat1/4G
 [RPI](./modules/rpx.md#3-rpi-6432-sensing-module) | ESP32S3 | Yes | IWRL6432AoP | 1 | No
 [CFH](./modules/rpx.md#2-6843-series-sensing-modules) | ESP32S3 | Yes | IWR6843AoP | 1 | No
 IOT | ESP32S3 | No | IWR6843AoP | 1 | Yes
@@ -131,7 +131,7 @@ The device accepts commands and pushes sensor events over two transports:
 - **UART** (115200 baud, newline-delimited JSON)
 - **MQTT** (for WiFi / LAN / cloud remote access)
 
-The canonical CLI JSON specification is documented in [Wavvar MMWK Canonical CLI Protocol V1.0](./docs/CLIv1.md).
+The canonical CLI JSON specification is documented in [Wavvar MMWK Canonical CLI Protocol V1.1](./docs/CLIv1.md).
 
 If you need the MCP compatibility path, any MCP-compatible client — including AI Agents like Claude — can still discover tools (`tools/list`), invoke device actions (`tools/call`), and receive real-time sensor notifications without custom drivers. The full MCP compatibility spec is documented in [Wavvar MMWK MCP Protocol Specification V1.3](./docs/en/mcpv1.md).
 

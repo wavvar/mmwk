@@ -135,7 +135,7 @@ Use the results as follows:
 ./run.sh node reboot -p /dev/cu.usbserial-0001
 ```
 
-For PRO/WDR devices with 4G support, store the mobile profile and then choose the preferred network:
+For PRO devices and 4G-equipped WDR devices, store the mobile profile and then choose the preferred network:
 ```bash
 ./run.sh network 4g --apn YOUR_APN -p /dev/cu.usbserial-0001
 ./run.sh network priority --pref 4g -p /dev/cu.usbserial-0001
@@ -143,7 +143,7 @@ For PRO/WDR devices with 4G support, store the mobile profile and then choose th
 
 `network priority --pref wifi|4g` controls the preferred network. Saving Wi-Fi credentials does not automatically change a 4G preference, and 4G failure does not automatically fall back to Wi-Fi. Use `network priority --pref wifi` or the device button toggle to return to Wi-Fi preference.
 
-For SDK hardware acceptance runs, 4G is also explicit: pass the runner's `--4g` only for SIM-equipped PRO/WDR devices; omit it to keep Wi-Fi as the test default.
+For SDK hardware acceptance runs, 4G is also explicit: pass the runner's `--4g` for PRO devices or 4G-equipped WDR devices; omit it to keep Wi-Fi as the test default.
 
 Provisioning AP SSID follows `MMWK-[board][app]-[MAC suffix]`. Factory default Wi-Fi is `MMWK / mmwk123456`.
 
@@ -234,7 +234,7 @@ To configure via CLI (UART):
 ./run.sh network wifi --ssid "MyWiFi" --pass "MyPass" -p /dev/cu.usbserial-0001
 ```
 
-On PRO/WDR devices, configure 4G separately and choose the active preference:
+On PRO devices and 4G-equipped WDR devices, configure 4G separately and choose the active preference:
 ```bash
 ./run.sh network 4g --apn YOUR_APN -p /dev/cu.usbserial-0001
 ./run.sh network priority --pref wifi -p /dev/cu.usbserial-0001
@@ -466,7 +466,7 @@ python3 -m mmwk node info -p /dev/cu.usbserial-0001
 
 - **[run.sh](../../run.sh)**: Recommended macOS/Linux shell wrapper with auto venv management.
 - **[mmwk/](../../mmwk/)**: Python implementation wrapped by `run.sh` (CLI entrypoint, transport layer, protocol clients, and flash/OTA commands).
-- **[Wavvar MMWK Canonical CLI Protocol V1.0](../../../docs/CLIv1.md)**: Default canonical CLI JSON protocol specification.
+- **[Wavvar MMWK Canonical CLI Protocol V1.1](../../../docs/CLIv1.md)**: Default canonical CLI JSON protocol specification.
 - **[Wavvar MMWK MCP Protocol Specification V1.3](../../../docs/en/mcpv1.md)**: MCP/JSON-RPC specification for MCP-enabled firmware builds (`--protocol mcp` with the matching MCP firmware version).
 - **[Radar Task Tools](./radar-task-tools.md)**: Task-oriented wrappers for UART setup, network OTA, and MQTT raw collection from the `cli` directory.
 - **[Develop Radar With Bridge](./bridge-ti-radar-debug.md)**: Publication-safe bridge-development guide with separate 6843 and 6432 workflows.

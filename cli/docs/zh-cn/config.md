@@ -114,7 +114,7 @@ sudo ifconfig <wifi-iface> -alias 192.168.4.2
 
 ### 4. 4G 与网络优先级
 
-`config.sh set` 仍然只负责 Wi-Fi/MQTT onboarding。PRO/WDR 的 4G 配置请直接使用官方 `run.sh` 网络命令：
+`config.sh set` 仍然只负责 Wi-Fi/MQTT onboarding。PRO 设备和带 4G 的 WDR 设备请直接使用官方 `run.sh` 网络命令配置 4G：
 
 ```bash
 ./run.sh network 4g --apn YOUR_APN -p /dev/cu.usbserial-0001

@@ -63,7 +63,7 @@ Typical applications include:
 |  |  | Station / SoftAP / Station + SoftAP |
 |  |  | Up to 150 Mbps (theoretical; actual performance depends on the network environment) |
 |  | Local Communication | UART (data format is defined by firmware and can support binary or JSON) |
-|  | Cellular Network (Optional) | LTE Cat.1 bis (4G, full-network support) |
+|  | Cellular Network | Standard onboard LTE Cat.1 bis (4G, full-network support) |
 |  |  | Up to 10 Mbps downlink / up to 5 Mbps uplink (see Note 2) |
 | **Hardware Architecture** | Processing Architecture | Dual-chip heterogeneous architecture (mmWave radar SoC + main MCU) |
 |  | Radar Processing Unit | ARM Cortex-R4F + C674x DSP + Hardware Accelerator (HWA) |

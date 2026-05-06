@@ -1,4 +1,4 @@
-# Wavvar MMWK Canonical CLI Protocol V1.0
+# Wavvar MMWK Canonical CLI Protocol V1.1
 
 This document defines the default canonical CLI JSON protocol used by current MMWK bridge/hub host flows. It is transport-neutral and carries the same service/action surface as the legacy MCP tool layer.
 
@@ -9,6 +9,24 @@ This document defines the default canonical CLI JSON protocol used by current MM
 - Works over both UART and MQTT
 
 `mmwk_cli` now defaults to this protocol. During the migration window, omitting `--protocol` prints a warning so callers can upgrade explicitly to `--protocol cli`. Use `--protocol mcp` only as a compatibility fallback.
+
+## Protocol Version
+
+CLIv1.1 reports `protocolVersion` as `control.v1.1` during host initialization.
+
+## Version History
+
+### V1.1
+
+- Standardizes CLI initialization reporting on `protocolVersion=control.v1.1`.
+- Defines top-level per-request `key` protection for UART and MQTT.
+- Defines public/private `node info` views after a device key is stored.
+- Defines `node key status`, `node key set`, and `node key clear` for key management.
+- Keeps public protocol directory discovery available without a key through `proto list`, `proto status`, and `proto manifest`.
+
+### V1.0
+
+- Initial canonical CLI JSON envelope, request/response/event framing, and service/action compatibility surface.
 
 ## Transport and Framing
 
