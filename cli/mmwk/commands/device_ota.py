@@ -145,6 +145,7 @@ class DeviceOtaCommand:
         )
 
     def _execute_once(self, url: str, served_name: str, server, timeout: float) -> tuple[bool, bool]:
+        start_response_uncertain = False
         try:
             # Drop stale OTA notifications from previous runs/retries.
             self.mcp.transport.drain_notifications()
@@ -161,8 +162,15 @@ class DeviceOtaCommand:
                 return False, False
         except Exception as exc:
             err = str(exc)
-            logger.error(f"Device OTA command failed before download start: {err}")
-            return False, self._is_retriable_start_error(err)
+            if not self._is_retriable_start_error(err):
+                logger.error(f"Device OTA command failed before download start: {err}")
+                return False, False
+            logger.warning(
+                "Device OTA start response timed out; keeping OTA server alive and "
+                "waiting for download/progress evidence: %s",
+                err,
+            )
+            start_response_uncertain = True
 
         start_time = time.time()
         downloaded = False if served_name else True
@@ -214,11 +222,17 @@ class DeviceOtaCommand:
             if server and not downloaded and server.tracker.is_complete(served_name):
                 logger.info(f"  [device ota] download complete: {served_name}")
                 downloaded = True
+                if start_response_uncertain:
+                    break
 
             if rebooting_seen or (success_seen and downloaded):
                 break
 
             time.sleep(1)
+
+        if start_response_uncertain and served_name and not downloaded:
+            logger.error("Device OTA start response timed out and no firmware download was observed")
+            return False, True
 
         logger.info("Waiting for device to come back after OTA reboot...")
         recover_after_reboot = getattr(self.mcp.transport, "recover_after_reboot", None)
