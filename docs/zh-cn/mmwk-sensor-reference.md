@@ -79,9 +79,17 @@ ESP 侧 KEY 行为默认在受支持的 `mmwk_sensor` 板卡上一致。各板�
 
 ## 4. 控制与传输
 
-### 4.1 UART 上的 CLI JSON
+### 4.1 UART 接口
 
-UART 是本地工厂初始化、调试、恢复和台架 bring-up 路径。推荐主机入口：
+UART 是本地工厂初始化、调试、恢复和台架 bring-up 路径。另一个单片机在电平和管脚匹配时，可以直接连接板子的 UART。UART 管脚随板子而变，接线前请查看对应板子的原理图。
+
+当前板子如果要让 PC 连接 UART，需要外接 UART 转 USB 转接器。PC 的 USB 口不能直接和裸 UART 管脚通信。
+
+WDR 和新设计是普通 CLI / 控制场景下的当前例外：它们通过 UART 和 USB 复用支持内置 USB 串口，所以普通控制接口不需要额外 UART 转 USB 转接器。
+
+ESP 芯片级刷机和普通控制接口是两件事。所有板子做 ESP 芯片级刷机时，仍然需要对应的外部转换器或刷机治具。
+
+推荐主机入口：
 
 ```bash
 ./run.sh node info -p "$PORT"
@@ -89,7 +97,15 @@ UART 是本地工厂初始化、调试、恢复和台架 bring-up 路径。推�
 
 UART 命令默认使用标准 CLI JSON 协议。CLI key 保护启用后，受保护命令需要 `--key`。
 
-### 4.2 MQTT 上的 CLI JSON
+### 4.2 UART 和 USB 复用
+
+UART 和 USB 复用会在启动或恢复后的空闲窗口内，在 UART 和 USB CDC 之间选择本地控制接口。目前只有 WDR 和新设计支持。
+
+这个选择和优先网络无关。空闲窗口内检测到 UART 活动时，控制路径保持在 UART；窗口超时且没有 UART 活动时，控制路径切到 USB CDC。
+
+在 WDR 上，CAT1/4G USB-DTE 只有在 4G 实际启动或运行时才单独参与仲裁；仅仅把优先网络设为 4G，不会阻止设备进入 UART 和 USB 复用。
+
+### 4.3 MQTT 上的 CLI JSON
 
 网络配置完成后，MQTT 是推荐的远程应用/控制路径。配置方式：
 
@@ -105,7 +121,7 @@ UART 命令默认使用标准 CLI JSON 协议。CLI key 保护启用后，受保
 
 网络 ready 以 `state=connected && ready=true` 为准；MQTT ready 以 `mqtt_state=connected` 为准。
 
-### 4.3 MQTT Topic 身份
+### 4.4 MQTT Topic 身份
 
 `network mqtt` 负责配置 broker / 鉴权设置。设备 MQTT 身份以及 canonical topic 派生仍绑定设备身份。
 

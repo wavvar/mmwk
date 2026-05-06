@@ -79,9 +79,24 @@ ESP-side KEY behavior is consistent by default across supported `mmwk_sensor` bo
 
 ## 4. Control and Transport
 
-### 4.1 CLI JSON over UART
+### 4.1 UART Interface
 
-UART is the local factory, debug, recovery, and bench bring-up path. The recommended host entry point is:
+UART is the local factory, debug, recovery, and bench bring-up path. Another MCU
+can connect directly to the board UART when voltage levels and pins match. UART
+pin assignments are board-specific; check the board schematic before wiring.
+
+When a PC connects to UART on current boards, use an external UART-to-USB
+adapter. A PC USB port cannot communicate directly with bare UART pins.
+
+WDR and new designs are the current exception for normal CLI/control use: they
+support built-in USB serial through UART and USB multiplexing, so a separate
+UART-to-USB adapter is not required for the normal control interface.
+
+ESP chip-level flashing is separate from the normal control interface. All
+boards still require the appropriate external converter or flashing fixture for
+ESP chip-level flashing.
+
+The recommended host entry point is:
 
 ```bash
 ./run.sh node info -p "$PORT"
@@ -89,7 +104,21 @@ UART is the local factory, debug, recovery, and bench bring-up path. The recomme
 
 UART commands use the canonical CLI JSON protocol by default. Protected commands require `--key` after CLI key protection is enabled.
 
-### 4.2 CLI JSON over MQTT
+### 4.2 UART and USB Multiplexing
+
+UART and USB multiplexing selects the local control interface between UART and
+USB CDC during the boot or restore idle window. It is currently supported only
+by WDR and new designs.
+
+The selection is independent of the preferred network bearer. If UART activity
+is detected during the idle window, the control path remains on UART. If the
+window expires without UART activity, the control path switches to USB CDC.
+
+On WDR, CAT1/4G USB-DTE ownership is still arbitrated separately when 4G
+actually starts or runs; 4G preference alone does not prevent the device from
+entering UART and USB multiplexing.
+
+### 4.3 CLI JSON over MQTT
 
 MQTT is the recommended remote application/control path after network setup. Configure it with:
 
@@ -105,7 +134,7 @@ Then verify readiness with:
 
 Treat `state=connected && ready=true` as the network-ready contract and `mqtt_state=connected` as the MQTT-ready contract.
 
-### 4.3 MQTT Topic Identity
+### 4.4 MQTT Topic Identity
 
 `network mqtt` configures broker/auth settings. Device MQTT identity and canonical topic derivation remain tied to the device identity.
 
