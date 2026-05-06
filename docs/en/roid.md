@@ -49,7 +49,7 @@ In the blood-pressure direction, ROID is better positioned as a research and mod
 
 ## How To Integrate Through mmwk_sensor_bridge
 
-If you want to connect ROID into an upper-layer system or validation workflow, [MMWK Bridge Mode](./bridge.md) is the most direct entry point. `mmwk_sensor_bridge` is better suited to act as a transparent bridge between the radar side and the host side so teams can first close the loop of firmware loading, data forwarding, and upper-layer processing before adding more product logic.
+If you want to connect ROID into an upper-layer system or validation workflow, [mmWave Sensor Development Kit](./mmwk-sensor.md) is the most direct entry point. The baseline `mmwk_sensor_bridge` profile is suited to transparent radar-side and host-side validation, while other `mmwk_sensor` profiles can keep the same platform capabilities and add higher-level sensor semantics.
 
 ## Capability Boundaries
 

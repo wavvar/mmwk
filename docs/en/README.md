@@ -2,8 +2,8 @@
 
 Start here for product-level MMWK workflows and protocol references.
 
-- [MMWK Sensor BRIDGE Mode](./bridge.md): first bridge bring-up path.
-- [Local `server.sh` + `run.sh` Wi-Fi Flash and 5-Minute Collection Example](./collect.md): validated bridge collection workflow.
+- [mmWave Sensor Development Kit](./mmwk-sensor.md): shared sensor platform bring-up path.
+- [Local `server.sh` + `run.sh` Wi-Fi Flash and 5-Minute Collection Example](./collect.md): validated sensor collection workflow.
 - [Factory Flash Guide](./flash.md): first ESP flash for blank or erased devices.
 - [Device OTA Guide](./ota.md): ESP OTA update flow.
 - [Wavvar MMWK Canonical CLI Protocol V1.1](../CLIv1.md): default UART/MQTT control protocol.

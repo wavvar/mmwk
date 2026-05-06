@@ -6,7 +6,7 @@ Wavvar MMWK (mmWave Kit) is a product-level mmWave radar sensor platform. This d
 
 ## Features
 
-- **Radar Development Fast-track**: The default [**BRIDGE mode**](./docs/en/bridge.md) transforms MMWK into a transparent gateway, allowing you to stream raw radar data directly to high-level applications or AI agents via MQTT ([CLIv1](./docs/CLIv1.md) default, [MCPv1](./docs/en/mcpv1.md) compatibility). Start prototyping your radar-powered application in minutes, not months.
+- **Radar Development Fast-track**: The [**mmWave Sensor Development Kit**](./docs/en/mmwk-sensor.md) gives MMWK a shared sensor platform for CLI control, Wi-Fi/MQTT/4G connectivity, OTA, radar firmware management, and raw radar passthrough. Start prototyping your radar-powered application in minutes, not months.
 - **TI Firmware Compatible**: Runs standard TI radar binaries without modification. This allows you to leverage the entire TI radar ecosystem — develop on TI EVMs, use TI signal processing toolboxes, and deploy directly to MMWK with zero code migration.
 - **Dual-MCU Architecture**: Separates radar processing (TI C674x) from application logic (ESP32/ESP32S3). This ensures uninterrupted real-time radar performance while providing the flexibility to run complex networking, AI logic, and custom application code on the ESP MCU.
 - **Flexible Data Pipeline**: Supports multiple operating modes (BRIDGE, HUB, RAW). This versatility allows you to switch between transparent data forwarding and on-device intelligent processing based on your specific application requirements.
@@ -48,7 +48,7 @@ IOT | ESP32S3 | No | IWR6843AoP | 1 | Yes
 
 All boards also include one ESP-controlled button and one ESP-controlled LED.
 
-If you need product-line specific hardware context beyond the [bridge workflow docs](./docs/en/bridge.md), start with the [Product Module Overview](./modules/README.md). The RPX line now has dedicated introductions for [MINI](./modules/mini.md) and [PRO](./modules/pro.md), while [RPI](./modules/rpx.md#3-rpi-6432-sensing-module) and [CFH](./modules/rpx.md#2-6843-series-sensing-modules) remain in the [RPX module guide](./modules/rpx.md). The `WDR/MDR` controller-and-radar-board path is covered by the [MDR module introduction](./modules/mdr.md), the [WDR-M main controller carrier board introduction](./modules/wdr-m.md), the [WDR-4G communication board introduction](./modules/wdr-4g.md), the [ML6432A_BO module introduction](./modules/ml6432a_bo.md), and the [ML6432A module introduction](./modules/ml6432a.md).
+If you need product-line specific hardware context beyond the [sensor platform workflow docs](./docs/en/mmwk-sensor.md), start with the [Product Module Overview](./modules/README.md). The RPX line now has dedicated introductions for [MINI](./modules/mini.md) and [PRO](./modules/pro.md), while [RPI](./modules/rpx.md#3-rpi-6432-sensing-module) and [CFH](./modules/rpx.md#2-6843-series-sensing-modules) remain in the [RPX module guide](./modules/rpx.md). The `WDR/MDR` controller-and-radar-board path is covered by the [MDR module introduction](./modules/mdr.md), the [WDR-M main controller carrier board introduction](./modules/wdr-m.md), the [WDR-4G communication board introduction](./modules/wdr-4g.md), the [ML6432A_BO module introduction](./modules/ml6432a_bo.md), and the [ML6432A module introduction](./modules/ml6432a.md).
 
 The hardware architecture of separate MCUs enables users to quickly evaluate any TI radar firmware. Users can utilize all of TI's toolchains and development boards to develop and debug radar firmware, and then develop applications on the MMWK's ESP MCU. Existing TI radar firmware such as People Tracking and Vital Signs can all be used on MMWK.
 
@@ -96,13 +96,13 @@ MMWK provides the freedom to bring your own software and hardware to the ecosyst
 
 ## Getting Started
 
-MMWK defaults to [BRIDGE mode](./docs/en/bridge.md). Use this section to choose the right first document based on your board's current state:
+Start with the [mmWave Sensor Development Kit](./docs/en/mmwk-sensor.md). Use this section to choose the right first document based on your board's current state:
 
-1. **[Factory Flash Guide](./docs/en/flash.md)**: Start here if your board is blank or erased and you need the first ESP bridge flash.
-2. **[MMWK Sensor BRIDGE Mode](./docs/en/bridge.md)**: Start here if bridge firmware is already running and you want the first end-to-end bridge bring-up, including radar flash plus collection.
-3. **[Device OTA Guide](./docs/en/ota.md)**: Start here if the device is already running bridge firmware and you only need an ESP OTA update.
+1. **[Factory Flash Guide](./docs/en/flash.md)**: Start here if your board is blank or erased and you need the first ESP firmware flash.
+2. **[mmWave Sensor Development Kit](./docs/en/mmwk-sensor.md)**: Start here if an `mmwk_sensor` firmware profile is already running and you want the first end-to-end bring-up, including radar flash plus collection.
+3. **[Device OTA Guide](./docs/en/ota.md)**: Start here if the device is already running the current public firmware package and you only need an ESP OTA update.
 
-[MMWK Bridge Mode](./docs/en/bridge.md) is the canonical getting-started guide for bridge mode. It routes you onward to factory flash, radar flash plus collection, OTA, and the deeper [MMWK Sensor BRIDGE Reference](./docs/en/bridge-reference.md).
+[mmWave Sensor Development Kit](./docs/en/mmwk-sensor.md) is the canonical getting-started guide for the shared `mmwk_sensor` platform. It routes you onward to factory flash, radar flash plus collection, OTA, and the deeper [mmWave Sensor Development Kit Reference](./docs/en/mmwk-sensor-reference.md).
 
 
 
@@ -186,15 +186,15 @@ See [MMWK_ROID Overview](./docs/en/roid.md) for the English document and [中文
 
 Pre-built ESP firmwares are located in `firmwares/esp/`. Each variant is built for a specific board type and special functions.
 
-For bridge firmware lifecycle docs:
+For current public ESP firmware lifecycle docs:
 
 - [Factory Flash Guide](./docs/en/flash.md) for blank/erased devices and package-based first flash.
-- [Device OTA Guide](./docs/en/ota.md) for OTA updates on devices already running bridge firmware.
+- [Device OTA Guide](./docs/en/ota.md) for OTA updates on devices already running the current public firmware package.
 
 
 ### mmwk_sensor_bridge
 
-mmwk_sensor_bridge is the BRIDGE mode firmware running on the ESP chip. In this mode, the ESP performs no radar signal processing and acts purely as a transparent bridge between the radar chip and the external host.
+`mmwk_sensor_bridge` is the baseline transparent-passthrough firmware profile built on the `mmwk_sensor` platform. In this profile, the ESP performs no higher-level radar signal processing and acts as the development bridge between the radar chip and the external host.
 
 **Core features:**
 
@@ -207,7 +207,7 @@ mmwk_sensor_bridge is the BRIDGE mode firmware running on the ESP chip. In this 
 
 ### mmwk_sensor_hub
 
-mmwk_sensor_hub is the HUB mode firmware running on the ESP chip. It extends the BRIDGE capabilities with on-device radar processing and exposes the additional `hub` MCP tool for higher-level sensing workflows.
+`mmwk_sensor_hub` is another firmware profile built on the same `mmwk_sensor` platform. It keeps the shared sensor capabilities and adds a sensor hub profile definition and implementation. Hub internals are intentionally not described in this public package documentation.
 
 This is not provided as a pre-built firmware.
 

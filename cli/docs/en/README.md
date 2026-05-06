@@ -27,8 +27,6 @@ This document is for [`./run.sh`](../../run.sh), the recommended shell entrypoin
 - [Command Reference](#command-reference)
 - [Project Documentation](#project-documentation)
 - [Hardware Interaction](#hardware-interaction)
-  - [LED Indicators](#led-indicators)
-  - [Button Functions](#button-functions)
 - [Troubleshooting](#troubleshooting)
 
 ---
@@ -443,7 +441,7 @@ The `run.sh` wrapper script handles virtual environment setup, dependency instal
 ```
 
 **Advanced OOTB OTA Flow:**
-If you already have a device running bridge firmware, you can simplify the update process:
+If you already have a device running the current public `mmwk_sensor_bridge` firmware package, you can simplify the update process:
 ```bash
 ./server.sh run --device-ota --device-ota-board mini --host-ip 192.168.4.8
 eval "$(./server.sh env)"
@@ -458,7 +456,7 @@ When `--device-ota` is used, `server.sh` first looks for the legacy top-level `f
 - If `--serve-dir` is omitted, `server.sh` serves the current working directory you launched it from.
 - `server.sh status` validates both PID liveness and actual TCP listening state.
 - `server.sh env` prints the resolved host IP, MQTT URI, and HTTP base URL for reuse in `network mqtt`, `radar fw ota`, `node ota`, and `collect`.
-- For an OTA-only flow for already-running bridge devices, use [Bridge Device OTA Guide](../../../docs/en/ota.md). Factory flashing is covered by [Bridge Factory Flash Guide](../../../docs/en/flash.md).
+- For an OTA-only flow for already-running devices, use [Device OTA Guide](../../../docs/en/ota.md). Factory flashing is covered by [Factory Flash Guide](../../../docs/en/flash.md).
 - This helper is intended only for local development, local flash, and data collection workflows.
 
 ### Advanced: Direct Python Usage
@@ -486,27 +484,7 @@ python3 -m mmwk node info -p /dev/cu.usbserial-0001
 
 ## Hardware Interaction
 
-### LED Indicators
-
-| State | Pattern | Meaning |
-|-------|---------|---------|
-| **INIT** | Solid ON for 3s, then OFF | Boot indicator only |
-| **OFF** | LED off | Normal idle/running display |
-| **CONFIRM short** | OFF, ON 500ms, OFF | Short interaction acknowledgement |
-| **CONFIRM double** | OFF, ON 500ms, OFF 100ms, ON 500ms, OFF | 4G preferred-network confirmation |
-| **CONFIRM normal** | OFF, ON 500ms, OFF 100ms, ON 500ms, OFF | Configuration or connection acknowledgement |
-| **CONFIRM long** | OFF, then 500ms ON / 100ms OFF repeated 3 times | Long interaction acknowledgement, including factory-reset hold |
-| **ERROR warning** | 1000ms ON / 1000ms OFF loop | MQTT disconnected, MQTT connection error, or MQTT start/reconnect failure |
-| **ERROR severe** | 200ms ON / 100ms OFF loop | Network connection failure after Wi-Fi or CAT1/4G cannot come online |
-
-LED is not a network readiness signal. Use `network status` (`state=connected && ready=true`) for network readiness and `mqtt_state=connected` for MQTT-dependent flows.
-
-`node agent --led 0|1` controls only ERROR display. INIT and CONFIRM always display; when `led=0`, ERROR keeps the hardware LED off while the logical error state is still present.
-
-### Button Functions
-- **Short Press**: Confirms the preferred network. one blink = Wi-Fi, two blinks = 4G.
-- **Triple Short Press**: Toggles the preferred network between Wi-Fi and 4G on devices that support 4G.
-- **Long Press (10s)**: **Factory Reset**. Erases NVS settings (Wi-Fi/MQTT) and reboots into Provisioning mode.
+`mmwk_sensor` firmware keeps the ESP-side LED and button behavior consistent by default across all supported boards. This CLI document only covers command entry points; see [mmWave Sensor Development Kit](../../../docs/en/mmwk-sensor.md#37-key-and-led-interaction) and [mmWave Sensor Development Kit Reference](../../../docs/en/mmwk-sensor-reference.md#3-user-interaction-reference) for the detailed behavior.
 
 ---
 

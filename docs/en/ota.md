@@ -1,24 +1,24 @@
-# Bridge Device OTA Guide
+# Device OTA Guide
 
-Use this guide only for OTA updates on devices that are already running bridge firmware.
+Use this guide only for OTA updates on devices that are already running the current public `mmwk_sensor_bridge` firmware package.
 
 ## Scope
 
-- OTA-only flow for already-running bridge devices.
-- Uses published bridge artifacts from `../firmwares/esp/<board>/`.
+- OTA-only flow for already-running devices.
+- Uses published `mmwk_sensor_bridge` artifacts from `../firmwares/esp/<board>/`.
 - Out of scope: factory flashing and package build instructions.
 
 For blank/erased devices, see [Factory Flash Guide](./flash.md).
 
 ## Prerequisites
 
-- Device is reachable on UART and already running bridge firmware.
+- Device is reachable on UART and already running the current public `mmwk_sensor_bridge` firmware package.
 - Published OTA package exists at `../firmwares/esp/<board>/mmwk_sensor_bridge/v<version>/ota.zip`.
 - `server.sh --device-ota --device-ota-board <board>` can also consume the legacy top-level `mmwk_sensor_bridge_full.bin` when it exists.
 
 ## Start Local Publish Helper
 
-Use the helper mode `server.sh --device-ota --device-ota-board <board>` to publish bridge OTA artifacts.
+Use the helper mode `server.sh --device-ota --device-ota-board <board>` to publish OTA artifacts.
 
 ```bash
 cd ./cli

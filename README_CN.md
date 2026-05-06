@@ -6,7 +6,7 @@ Wavvar MMWK（mmWave Kit）是一个面向产品化的毫米波雷达传感器�
 
 ## 特性
 
-- **雷达开发快速起步**：默认的 [**BRIDGE 模式**](./docs/zh-cn/bridge.md) 会把 MMWK 变成透明网关，让你可以通过 MQTT（[CLIv1](./docs/CLIv1_CN.md) 默认，[MCPv1](./docs/zh-cn/mcpv1.md) 兼容）将原始雷达数据直接流式传输到上层应用或 AI Agent，几分钟内就能开始原型验证。
+- **雷达开发快速起步**：[**mmWave Sensor Development Kit**](./docs/zh-cn/mmwk-sensor.md) 为 MMWK 提供共享 sensor 平台能力，包括 CLI 控制、Wi-Fi/MQTT/4G 联网、OTA、雷达固件管理和原始雷达透传，几分钟内就能开始原型验证。
 - **兼容 TI 固件**：可直接运行标准 TI 雷达二进制，无需修改。你可以使用完整的 TI 雷达生态，在 TI EVM 上开发，最终零迁移部署到 MMWK。
 - **双 MCU 架构**：将雷达处理（TI C674x）与应用逻辑（ESP32/ESP32S3）分离，在保证实时雷达性能的同时，保留复杂联网、AI 逻辑和自定义应用开发能力。
 - **灵活的数据管线**：支持 BRIDGE、HUB、RAW 等多种运行模式，可按场景在透明转发和板载智能处理之间切换。
@@ -48,7 +48,7 @@ IOT | ESP32S3 | No | IWR6843AoP | 1 | Yes
 
 所有板卡还包含一个由 ESP 控制的按键和一个由 ESP 控制的 LED。
 
-如果你需要的是产品线级别的硬件背景，而不只是 [bridge 工作流说明](./docs/zh-cn/bridge.md)，建议先看 [模组产品总览](./modules/README_CN.md)。RPX 线现在已经有 [MINI 模组简介](./modules/mini_cn.md) 和 [PRO 模组简介](./modules/pro_cn.md) 两份独立文档；[RPI](./modules/rpx_cn.md#3-rpi-6432-感知模块) 和 [CFH](./modules/rpx_cn.md#2-6843-系列感知模块) 仍放在 [RPX 模块使用指南](./modules/rpx_cn.md) 中。`WDR/MDR` 的控制板与雷达板路径可继续阅读 [MDR 模块简介](./modules/mdr_cn.md)、[WDR-M 主控承载板简介](./modules/wdr-m_cn.md)、[WDR-4G 通信板简介](./modules/wdr-4g_cn.md)、[ML6432A_BO 模组简介](./modules/ml6432a_bo_cn.md) 和 [ML6432A 模组简介](./modules/ml6432a_cn.md)。
+如果你需要的是产品线级别的硬件背景，而不只是 [sensor 平台工作流说明](./docs/zh-cn/mmwk-sensor.md)，建议先看 [模组产品总览](./modules/README_CN.md)。RPX 线现在已经有 [MINI 模组简介](./modules/mini_cn.md) 和 [PRO 模组简介](./modules/pro_cn.md) 两份独立文档；[RPI](./modules/rpx_cn.md#3-rpi-6432-感知模块) 和 [CFH](./modules/rpx_cn.md#2-6843-系列感知模块) 仍放在 [RPX 模块使用指南](./modules/rpx_cn.md) 中。`WDR/MDR` 的控制板与雷达板路径可继续阅读 [MDR 模块简介](./modules/mdr_cn.md)、[WDR-M 主控承载板简介](./modules/wdr-m_cn.md)、[WDR-4G 通信板简介](./modules/wdr-4g_cn.md)、[ML6432A_BO 模组简介](./modules/ml6432a_bo_cn.md) 和 [ML6432A 模组简介](./modules/ml6432a_cn.md)。
 
 双 MCU 架构让用户可以快速评估任意 TI 雷达固件。你可以继续使用 TI 的工具链和开发板完成雷达固件开发与调试，再在 MMWK 的 ESP MCU 上开发应用。像 People Tracking、Vital Signs 这类 TI 现有固件都可以运行在 MMWK 上。
 
@@ -95,13 +95,13 @@ MMWK 支持你把自己的软件和硬件带入生态：
 
 ## Getting Started
 
-MMWK 默认以 [BRIDGE 模式](./docs/zh-cn/bridge.md) 运行。请先根据设备当前状态选择入口：
+请从 [mmWave Sensor Development Kit](./docs/zh-cn/mmwk-sensor.md) 开始，并根据设备当前状态选择入口：
 
-1. **[出厂刷机指南](./docs/zh-cn/flash.md)**：如果板卡是空片或已被擦除，请先从这里完成第一次 ESP bridge 烧录。
-2. **[MMWK Sensor BRIDGE 模式](./docs/zh-cn/bridge.md)**：如果设备已经在运行 bridge 固件，并且你想跑通第一次端到端 bring-up，包括雷达刷写和数据采集，请从这里开始。
-3. **[设备 OTA 指南](./docs/zh-cn/ota.md)**：如果设备已经在运行 bridge 固件，而你只需要做 ESP OTA 更新，请直接看这里。
+1. **[出厂刷机指南](./docs/zh-cn/flash.md)**：如果板卡是空片或已被擦除，请先从这里完成第一次 ESP 固件烧录。
+2. **[mmWave Sensor Development Kit](./docs/zh-cn/mmwk-sensor.md)**：如果设备已经运行某个 `mmwk_sensor` 固件 profile，并且你想跑通第一次端到端 bring-up，包括雷达刷写和数据采集，请从这里开始。
+3. **[设备 OTA 指南](./docs/zh-cn/ota.md)**：如果设备已经运行当前公开固件包，而你只需要做 ESP OTA 更新，请直接看这里。
 
-[MMWK Bridge 模式](./docs/zh-cn/bridge.md) 是 bridge 模式的规范起步入口，会继续把你分流到出厂刷机、雷达刷写加采集、ESP OTA，以及更深入的 [MMWK Sensor BRIDGE 参考](./docs/zh-cn/bridge-reference.md)。
+[mmWave Sensor Development Kit](./docs/zh-cn/mmwk-sensor.md) 是共享 `mmwk_sensor` 平台的规范起步入口，会继续把你分流到出厂刷机、雷达刷写加采集、ESP OTA，以及更深入的 [mmWave Sensor Development Kit 参考](./docs/zh-cn/mmwk-sensor-reference.md)。
 
 ## 工具
 
@@ -186,14 +186,14 @@ ROID 是 Wavvar 面向高采样 ROI 观测与精细微动分析的一条毫米�
 
 预编译 ESP 固件位于 `firmwares/esp/`。每个变体对应特定板型和功能组合。
 
-Bridge 固件生命周期文档：
+当前公开 ESP 固件生命周期文档：
 
 - [出厂刷机指南](./docs/zh-cn/flash.md)：面向空片/擦除设备和首刷包流程。
-- [设备 OTA 指南](./docs/zh-cn/ota.md)：面向已运行 bridge 固件设备的 OTA 更新流程。
+- [设备 OTA 指南](./docs/zh-cn/ota.md)：面向已运行当前公开固件包设备的 OTA 更新流程。
 
 ### mmwk_sensor_bridge
 
-`mmwk_sensor_bridge` 是运行在 ESP 上的 BRIDGE 模式固件。在该模式下，ESP 不进行雷达信号处理，而是作为雷达芯片与外部主机之间的透明桥接层。
+`mmwk_sensor_bridge` 是基于 `mmwk_sensor` 平台的基础透明透传固件 profile。在该 profile 下，ESP 不进行更高层的雷达信号处理，而是作为雷达芯片与外部主机之间的开发桥接层。
 
 **核心特性：**
 
@@ -206,7 +206,7 @@ Bridge 固件生命周期文档：
 
 ### mmwk_sensor_hub
 
-`mmwk_sensor_hub` 是运行在 ESP 上的 HUB 模式固件。它在 BRIDGE 能力之上增加了板载雷达处理，并额外暴露 `hub` MCP 工具，用于更高层的感知工作流。
+`mmwk_sensor_hub` 是另一个基于同一 `mmwk_sensor` 平台的固件 profile。它保留共享 sensor 能力，并在其上增加 sensor hub profile 的定义与实现。Hub 内部实现不在这份公开包文档中展开。
 
 当前未提供该固件的预编译版本。
 

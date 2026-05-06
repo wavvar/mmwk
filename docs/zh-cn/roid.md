@@ -49,7 +49,7 @@ ROID 更适合被理解为类心电波形研究的数据入口，而不应被等
 
 ## 如何通过 mmwk_sensor_bridge 接入
 
-如果要把 ROID 接入上层系统或验证链路，[MMWK Bridge 模式](./bridge.md) 是更直接的入口。`mmwk_sensor_bridge` 更适合承担雷达侧与主机侧之间的透明桥接角色，让团队先把固件加载、数据转发和上层处理链路连通，再继续叠加更高层的算法或产品逻辑。
+如果要把 ROID 接入上层系统或验证链路，[mmWave Sensor Development Kit](./mmwk-sensor.md) 是更直接的入口。基础 `mmwk_sensor_bridge` profile 适合做雷达侧与主机侧之间的透明验证；其他 `mmwk_sensor` profile 也可以保留同样的平台能力，并在其上叠加更高层的 sensor 语义。
 
 ## 能力边界与说明
 

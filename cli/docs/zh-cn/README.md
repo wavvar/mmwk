@@ -432,7 +432,7 @@ flowchart LR
 ```
 
 **进阶 OTA 流程：**
-仅用于已经运行 bridge 固件的设备升级整个 ESP 固件流水线时：
+仅用于已经运行当前公开 `mmwk_sensor_bridge` 固件包的设备升级整个 ESP 固件流水线时：
 ```bash
 ./server.sh run --device-ota --device-ota-board mini --host-ip 192.168.4.8
 eval "$(./server.sh env)"
@@ -447,7 +447,7 @@ eval "$(./server.sh env)"
 - 如果没有显式传入 `--serve-dir`，`server.sh` 会对外提供它启动时的当前工作目录。
 - `server.sh status` 会同时检查 PID 存活和实际 TCP 端口监听状态。
 - `server.sh env` 会输出可直接复用的主机 IP、MQTT URI 和 HTTP Base URL，方便传给 `network mqtt`、`radar fw ota`、`node ota` 和 `collect`。
-- 仅适用于已运行 bridge 固件的 OTA 流程请看 [Bridge 设备 OTA 指南](../../../docs/zh-cn/ota.md)，出厂刷机请看 [Bridge 出厂烧录指南](../../../docs/zh-cn/flash.md)。
+- 仅适用于已运行设备的 OTA 流程请看 [设备 OTA 指南](../../../docs/zh-cn/ota.md)，出厂刷机请看 [出厂烧录指南](../../../docs/zh-cn/flash.md)。
 - 该助手脚本仅面向本地开发、本地刷机和数据采集工作流设计。
 
 ### 高级用法：直接调用 Python
@@ -474,28 +474,7 @@ python3 -m mmwk node info -p /dev/cu.usbserial-0001
 
 ## 硬件交互
 
-### LED 指示
-
-| 状态 | Pattern | 含义 |
-|------|---------|------|
-| **INIT** | 常亮 3 秒后关闭 | 仅用于开机提示 |
-| **OFF** | LED 关闭 | 正常空闲 / 运行显示 |
-| **CONFIRM short** | 关闭、亮 500ms、关闭 | 短交互确认 |
-| **CONFIRM double** | 关闭、亮 500ms、关 100ms、亮 500ms、关闭 | 4G 优先网络确认 |
-| **CONFIRM normal** | 关闭、亮 500ms、关 100ms、亮 500ms、关闭 | 配置或连接确认 |
-| **CONFIRM long** | 关闭，然后亮 500ms / 关 100ms 循环 3 次 | 长交互确认，包括恢复出厂长按 |
-| **ERROR warning** | 亮 1000ms / 关 1000ms 持续循环 | MQTT 断开、MQTT 连接错误，或 MQTT 启动/重连失败 |
-| **ERROR severe** | 亮 200ms / 关 100ms 持续循环 | Wi-Fi 或 CAT1/4G 无法联网后的网络连接失败 |
-
-LED 不是网络 ready 信号。网络 ready 以 `network status` 的 `state=connected && ready=true` 为准，MQTT 相关流程以 `mqtt_state=connected` 为准。
-
-`node agent --led 0|1` 只控制 ERROR 显示。INIT 和 CONFIRM 始终会显示；当 `led=0` 时，ERROR 逻辑状态仍存在，但硬件 LED 保持关闭。
-
-### 按键功能
-
-- **短按**：确认当前优先网络。闪 1 次 = Wi-Fi，闪 2 次 = 4G。
-- **短按 3 次**：在支持 4G 的设备上切换 Wi-Fi / 4G 优先网络。
-- **长按 10 秒**：恢复出厂设置
+`mmwk_sensor` 固件默认在所有支持板型上保持一致的 ESP 侧 LED 与按键行为。CLI 文档只说明命令入口；用户交互细节请看 [mmWave Sensor Development Kit](../../../docs/zh-cn/mmwk-sensor.md#37-key-与-led-交互) 和 [mmWave Sensor Development Kit 参考](../../../docs/zh-cn/mmwk-sensor-reference.md#3-用户交互参考)。
 
 ---
 

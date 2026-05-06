@@ -1,4 +1,4 @@
-# Bridge Factory Flash Guide
+# Factory Flash Guide
 
 ## Published Packages You Receive
 
@@ -7,7 +7,7 @@ The published bridge release now ships as two zip files under the versioned rele
 - `./firmwares/esp/<board>/mmwk_sensor_bridge/v<version>/factory.zip`
 - `./firmwares/esp/<board>/mmwk_sensor_bridge/v<version>/ota.zip`
 
-This guide only uses `factory.zip` for the first flash onto a blank or erased board. `ota.zip` is the companion package for later ESP OTA updates and is covered in [Bridge Device OTA Guide](./ota.md).
+This guide only uses `factory.zip` for the first flash onto a blank or erased board. `ota.zip` is the companion package for later ESP OTA updates and is covered in [Device OTA Guide](./ota.md).
 
 ## Prerequisites
 

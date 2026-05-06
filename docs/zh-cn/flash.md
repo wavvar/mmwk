@@ -1,13 +1,13 @@
-# Bridge 出厂烧录指南
+# 出厂烧录指南
 
 ## 你拿到的发布包
 
-现在对外发布的 bridge 固件以同一版本目录下的两个 zip 文件交付：
+当前公开 `mmwk_sensor_bridge` 固件包以同一版本目录下的两个 zip 文件交付：
 
 - `./firmwares/esp/<board>/mmwk_sensor_bridge/v<version>/factory.zip`
 - `./firmwares/esp/<board>/mmwk_sensor_bridge/v<version>/ota.zip`
 
-本文只使用 `factory.zip` 完成空片或被擦除板卡的首次烧录。`ota.zip` 是后续 ESP OTA 更新用的配套包，详见 [Bridge 设备 OTA 指南](./ota.md)。
+本文只使用 `factory.zip` 完成空片或被擦除板卡的首次烧录。`ota.zip` 是后续 ESP OTA 更新用的配套包，详见 [设备 OTA 指南](./ota.md)。
 
 ## 前置条件
 
