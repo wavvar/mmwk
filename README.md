@@ -90,15 +90,25 @@ MMWK provides the freedom to bring your own software and hardware to the ecosyst
 
 ## 3. Getting Started
 
-Start with the [mmWave Sensor Development Kit](./docs/en/mmwk-sensor.md). Use this section to choose the right first document based on your board's current state:
+### 3.1 Prerequisites
 
-1. **[Factory Flash Guide](./docs/en/flash.md)**: Start here if your board is blank or erased and you need the first ESP firmware flash.
-2. **[mmWave Sensor Development Kit](./docs/en/mmwk-sensor.md)**: Start here if an `mmwk_sensor` firmware profile is already running and you want the first end-to-end bring-up, including radar flash plus collection.
-3. **[Device OTA Guide](./docs/en/ota.md)**: Start here if the device is already running the current public firmware package and you only need an ESP OTA update.
+**Hardware:** Choose a supported MMWK board first; the board table above and the [Product Module Overview](./modules/README.md) explain the available hardware families. A UART-to-USB adapter is needed when your factory-flash path or board wiring exposes only UART, and it is also the fastest way to run first-time UART configuration/debug commands. If the board already exposes a supported USB serial interface, use that interface for local CLI access.
 
-[mmWave Sensor Development Kit](./docs/en/mmwk-sensor.md) is the canonical getting-started guide and reference for the shared `mmwk_sensor` platform. It routes you onward to factory flash, radar flash plus collection, OTA, shared user interaction, control transport, raw passthrough, and runtime verification.
+**Network:** Prepare either Wi-Fi provisioning or, on cellular-capable boards, a usable 4G/Cat1 SIM and antenna. Wi-Fi can be configured through the device AP/browser portal or quickly through UART CLI; 4G is only available on supported boards and is selected through the shared network-priority behavior. Network readiness matters before MQTT control, MQTT raw collection, HTTP OTA downloads, or upload/record tests.
 
+**Servers:** MQTT and HTTP can run locally on your laptop, on a LAN machine, or in the cloud. MQTT is the control and data broker: it carries CLI JSON command/response traffic and the raw radar topics used by collection workflows. HTTP is used when the device must download radar/ESP firmware or config files for OTA, and it can also act as the upload endpoint for record verification. For a local lab setup, start with the CLI [Local Server Helper](./cli/docs/en/README.md#local-server-helper-serversh); `server.sh` provides the MQTT broker and HTTP file server context used by [the 5-minute collection example](./docs/en/collect.md) and [Device OTA Guide](./docs/en/ota.md).
 
+### 3.2 Application Scenarios
+
+**Collect radar data:** Use this path when an [`mmwk_sensor`](./docs/en/mmwk-sensor.md) firmware profile is already running and you want raw radar data, point-cloud/data validation, or a repeatable capture workflow. Configure Wi-Fi or 4G, make sure MQTT is reachable, then follow the [mmWave Sensor Development Kit](./docs/en/mmwk-sensor.md) and the [Local `server.sh` + `run.sh` Wi-Fi Flash and 5-Minute Collection Example](./docs/en/collect.md). For task-oriented wrappers, use [Radar Task Tools](./cli/docs/en/radar-task-tools.md) and [Develop Radar With Bridge](./cli/docs/en/bridge-ti-radar-debug.md).
+
+**Flash your own radar firmware:** Use this path when you have a radar firmware/config pair that you developed or selected yourself. Validate the `.bin` / `.appimage` plus `.cfg` pairing on the radar development board when possible, then use the MMWK bridge capability to flash, configure, and collect from the same artifact pair. The main references are [Radar Firmwares](#5-radar-firmwares), [Develop Radar With Bridge](./cli/docs/en/bridge-ti-radar-debug.md), and the CLI [Firmware Flashing Workflow](./cli/docs/en/README.md#firmware-flashing-workflow). Use HTTP when you want network OTA download; use UART or MQTT chunk transfer when that is the better fit for your bench setup.
+
+**Update ESP firmware by OTA:** Use this path when the device is already running the current public `mmwk_sensor_bridge` package and you only need to update the ESP firmware itself. You need an HTTP URL that the device can reach; this can come from local `server.sh` or a cloud/LAN HTTP server. Follow the [Device OTA Guide](./docs/en/ota.md).
+
+**Restore the factory baseline:** Use this path when the ESP is blank, erased, badly misconfigured, or you need to return to the published bridge factory image. A full factory restore uses `factory.zip` and is covered by the [Factory Flash Guide](./docs/en/flash.md); the local serial path requires the target serial port and ESP-IDF, while the ESP Launchpad DIY path can use the extracted merged factory image. If the current firmware is still healthy and you only need to clear saved settings, use the shared KEY behavior in [User Interaction](./docs/en/mmwk-sensor.md#5-user-interaction) or the CLI `node factory-reset` command from the [CLI README](./cli/docs/en/README.md#command-reference).
+
+[mmWave Sensor Development Kit](./docs/en/mmwk-sensor.md) is the canonical getting-started guide and reference for the shared [`mmwk_sensor`](./docs/en/mmwk-sensor.md) platform. It routes you onward to factory flash, radar flash plus collection, OTA, shared user interaction, control transport, raw passthrough, and runtime verification.
 
 ## 4. Tools
 
@@ -142,13 +152,11 @@ The following radar firmwares are included in `firmwares/radar/`:
 | IWR6843AoP | Vital Signs Detection | `iwr6843/vital_signs/` | `.bin` + `.cfg` |
 | IWRL6432AoP | Presence Detection | `iwrl6432/presence/` | `.appimage` + `.cfg` |
 
-### 5.2 MMWK_ROID
+### 5.2 ROID
 
-ROID is Wavvar's custom radar firmware line for high-sample ROI observation and fine micro-motion analysis. It keeps layered outputs from `RAW ROI` to `PHASE`, `BREATH`, and `HEART`, which makes it a stronger fit for higher-precision heart / respiration observation and research-oriented signal analysis than coarse presence-only paths.
+[ROID](./docs/en/roid.md) is Wavvar's custom radar firmware line for high-sample ROI observation and fine micro-motion analysis. It keeps layered outputs from `RAW ROI` to `PHASE`, `BREATH`, and `HEART`, which makes it a stronger fit for higher-precision heart / respiration observation and research-oriented signal analysis than coarse presence-only paths.
 
 It can serve as the firmware base for advanced vital-sign workflows while also leaving room for ECG-like waveform research and blood-pressure algorithm validation. This firmware is commercially licensed; contact `bp@wavvar.com`.
-
-See [MMWK_ROID Overview](./docs/en/roid.md) for the English document and [中文版本](./docs/zh-cn/roid.md) for the Chinese document.
 
 ## 6. ESP Firmwares
 
@@ -161,13 +169,13 @@ For current public ESP firmware lifecycle docs:
 
 ### 6.1 Bridge
 
-`mmwk_sensor_bridge` is the baseline transparent-passthrough firmware profile built on the `mmwk_sensor` platform. It is used for radar firmware development, flashing, configuration, tuning, raw radar collection, point-cloud/data validation, and real-time visualization workflows.
+`mmwk_sensor_bridge` is the baseline transparent-passthrough firmware profile built on the [`mmwk_sensor`](./docs/en/mmwk-sensor.md) platform. It is used for radar firmware development, flashing, configuration, tuning, raw radar collection, point-cloud/data validation, and real-time visualization workflows.
 
 Bridge focuses on connecting the host, ESP, radar firmware, radar configuration, and radar data streams. It keeps the shared platform capabilities such as CLI JSON over UART/MQTT, Wi-Fi provisioning, MQTT relay, OTA/radar firmware management, and raw passthrough.
 
 ### 6.2 Hub
 
-`mmwk_sensor_hub` is another firmware profile built on the same `mmwk_sensor` platform. It provides a radar sensor hub profile that can expose sensor surfaces such as heart rate, respiration, sleep, and body movement, while retaining bridge capabilities such as radar raw / point-cloud real-time display and host-side validation.
+`mmwk_sensor_hub` is another firmware profile built on the same [`mmwk_sensor`](./docs/en/mmwk-sensor.md) platform. It provides a radar sensor hub profile that can expose sensor surfaces such as heart rate, respiration, sleep, and body movement, while retaining bridge capabilities such as radar raw / point-cloud real-time display and host-side validation.
 
 Hub internals are intentionally not described in this public package documentation. This is not provided as a pre-built firmware.
 
@@ -176,4 +184,4 @@ Hub internals are intentionally not described in this public package documentati
 The radar firmware binaries provided in `firmwares/radar/` include original builds from [**Texas Instruments (TI)**](https://www.ti.com) and custom builds from [**Wavvar**](https://wavvar.com).
 
 - **TI Firmwares**: Binaries sourced from TI toolboxes or SDKs remain the property of Texas Instruments. They are included for evaluation and integration purposes. Official releases can be found in the [TI Radar Toolbox](https://dev.ti.com/tirex/explore/node?node=A__AGun-M.W.r.X.G.X.r.G.X.r.G.X.A).
-- **Wavvar Firmwares**: Custom binaries (like MMWK_ROID) are developed by and are the property of Wavvar.
+- **Wavvar Firmwares**: Custom binaries such as ROID are developed by and are the property of Wavvar.

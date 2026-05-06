@@ -89,13 +89,25 @@ MMWK 支持你把自己的软件和硬件带入生态：
 
 ## 3. 快速开始
 
-请从 [mmWave Sensor Development Kit](./docs/zh-cn/mmwk-sensor.md) 开始，并根据设备当前状态选择入口：
+### 3.1 前置条件
 
-1. **[出厂刷机指南](./docs/zh-cn/flash.md)**：如果板卡是空片或已被擦除，请先从这里完成第一次 ESP 固件烧录。
-2. **[mmWave Sensor Development Kit](./docs/zh-cn/mmwk-sensor.md)**：如果设备已经运行某个 `mmwk_sensor` 固件 profile，并且你想跑通第一次端到端 bring-up，包括雷达刷写和数据采集，请从这里开始。
-3. **[设备 OTA 指南](./docs/zh-cn/ota.md)**：如果设备已经运行当前公开固件包，而你只需要做 ESP OTA 更新，请直接看这里。
+**硬件：** 先选择一块受支持的 MMWK 板卡，上面的板卡表和 [模组产品总览](./modules/README_CN.md) 可帮助你判断硬件系列。出厂刷机路径或板卡接线只暴露 UART 时，需要 UART-USB 转换器；需要通过 UART 快速下发首次配置或调试命令时，也建议准备 UART-USB 转换器。如果板卡已经提供受支持的 USB 串口，则直接使用该接口作为本地 CLI 入口。
 
-[mmWave Sensor Development Kit](./docs/zh-cn/mmwk-sensor.md) 是共享 `mmwk_sensor` 平台的规范起步入口和参考文档，会继续把你分流到出厂刷机、雷达刷写加采集、ESP OTA、共享用户交互、控制传输、raw 透传和运行态确认。
+**网络：** 准备 Wi-Fi 配网，或在支持蜂窝网络的板卡上准备可用的 4G/Cat1 SIM 卡和天线。Wi-Fi 可以通过设备 AP/浏览器门户配置，也可以通过 UART CLI 快速配置；4G 只适用于支持蜂窝硬件的板卡，并遵循共享网络优先级行为。开始 MQTT 控制、MQTT raw 采集、HTTP OTA 下载或上传/录制验证前，都应先确认网络可用。
+
+**服务器：** MQTT 和 HTTP 可以运行在本机、局域网主机或云服务器上。MQTT 是控制与数据 broker：负责 CLI JSON 命令/响应，以及采集流程使用的 raw 雷达 topic。HTTP 用于设备下载雷达/ESP 固件和配置文件，也可作为 record 验证时的上传端点。本地实验建议从 CLI 的 [本地 Server 辅助脚本](./cli/docs/zh-cn/README.md#本地-server-辅助脚本-serversh) 开始；`server.sh` 会提供 [5 分钟采集示例](./docs/zh-cn/collect.md) 和 [设备 OTA 指南](./docs/zh-cn/ota.md) 中需要复用的 MQTT broker 与 HTTP 文件服务上下文。
+
+### 3.2 应用场景
+
+**采集雷达数据：** 如果设备已经运行某个 [`mmwk_sensor`](./docs/zh-cn/mmwk-sensor.md) 固件 profile，而你要采集 raw 雷达数据、验证点云/数据或建立可复现采集流程，请走这条路径。先完成 Wi-Fi 或 4G 联网，确认 MQTT 可达，再阅读 [mmWave Sensor Development Kit](./docs/zh-cn/mmwk-sensor.md) 和 [本地 `server.sh` + `run.sh` Wi-Fi 刷机与 5 分钟采集示例](./docs/zh-cn/collect.md)。如果你要使用任务导向 wrapper，请看 [Radar Task Tools](./cli/docs/zh-cn/radar-task-tools.md) 和 [通过 Bridge 开发雷达](./cli/docs/zh-cn/bridge-ti-radar-debug.md)。
+
+**刷自己的雷达固件：** 如果你已经有自己开发或选择的雷达 firmware/config 配对，请走这条路径。尽量先在雷达开发板上验证 `.bin` / `.appimage` 与 `.cfg` 是否匹配，再使用 MMWK 的 bridge 能力完成刷写、配置和采集验证。主要入口是 [雷达固件](#5-雷达固件)、[通过 Bridge 开发雷达](./cli/docs/zh-cn/bridge-ti-radar-debug.md)，以及 CLI 的 [固件刷写流程](./cli/docs/zh-cn/README.md#固件刷写流程)。需要网络 OTA 下载时使用 HTTP；台架场景也可以根据需要选择 UART 或 MQTT 分块传输。
+
+**ESP OTA 升级：** 如果设备已经运行当前公开的 `mmwk_sensor_bridge` 包，而你只需要更新 ESP 固件本身，请走这条路径。设备需要能访问到一个 HTTP URL；这个 URL 可以由本地 `server.sh` 提供，也可以由局域网或云端 HTTP 服务器提供。具体流程见 [设备 OTA 指南](./docs/zh-cn/ota.md)。
+
+**刷回工厂状态：** 如果 ESP 是空片、已擦除、配置严重异常，或你需要回到公开发布的 bridge 出厂镜像，请走这条路径。完整工厂恢复使用 `factory.zip`，见 [出厂刷机指南](./docs/zh-cn/flash.md)；本地串口路径需要目标串口和 ESP-IDF，ESP Launchpad DIY 路径则可使用解压后的合并出厂镜像。如果当前固件仍能正常运行，而你只是想清除保存配置，请使用 [用户交互](./docs/zh-cn/mmwk-sensor.md#5-用户交互) 中的 KEY 行为，或 CLI README 中的 [`node factory-reset`](./cli/docs/zh-cn/README.md#命令参考) 命令。
+
+[mmWave Sensor Development Kit](./docs/zh-cn/mmwk-sensor.md) 是共享 [`mmwk_sensor`](./docs/zh-cn/mmwk-sensor.md) 平台的规范起步入口和参考文档，会继续把你分流到出厂刷机、雷达刷写加采集、ESP OTA、共享用户交互、控制传输、raw 透传和运行态确认。
 
 ## 4. 工具
 
@@ -143,13 +155,11 @@ MMWK 支持你把自己的软件和硬件带入生态：
 | IWR6843AoP | Vital Signs Detection | `iwr6843/vital_signs/` | `.bin` + `.cfg` |
 | IWRL6432AoP | Presence Detection | `iwrl6432/presence/` | `.appimage` + `.cfg` |
 
-### 5.2 MMWK_ROID
+### 5.2 ROID
 
-ROID 是 Wavvar 面向高采样 ROI 观测与精细微动分析的一条毫米波雷达固件路线。它保留从 `RAW ROI` 到 `PHASE`、`BREATH`、`HEART` 的分层输出，比只给粗粒度存在结果的链路更适合高精度心率 / 呼吸观测，以及研究型信号分析。
+[ROID](./docs/zh-cn/roid.md) 是 Wavvar 面向高采样 ROI 观测与精细微动分析的一条毫米波雷达固件路线。它保留从 `RAW ROI` 到 `PHASE`、`BREATH`、`HEART` 的分层输出，比只给粗粒度存在结果的链路更适合高精度心率 / 呼吸观测，以及研究型信号分析。
 
 它既可作为更高精度生命体征观测的固件基础，也为类心电波形研究和血压算法验证保留了继续扩展的数据入口。该固件按商业授权方式提供，请联系 `bp@wavvar.com`。
-
-完整介绍见 [中文文档](./docs/zh-cn/roid.md)；English version: [MMWK_ROID Overview](./docs/en/roid.md)。
 
 ## 6. ESP 固件
 
@@ -162,13 +172,13 @@ ROID 是 Wavvar 面向高采样 ROI 观测与精细微动分析的一条毫米�
 
 ### 6.1 Bridge
 
-`mmwk_sensor_bridge` 是基于 `mmwk_sensor` 平台的基础透明透传固件 profile，用于雷达固件开发、刷写、配置、调参、raw 雷达采集、点云/数据验证和实时显示等工作流。
+`mmwk_sensor_bridge` 是基于 [`mmwk_sensor`](./docs/zh-cn/mmwk-sensor.md) 平台的基础透明透传固件 profile，用于雷达固件开发、刷写、配置、调参、raw 雷达采集、点云/数据验证和实时显示等工作流。
 
 Bridge 重点打通主机、ESP、雷达固件、雷达配置和雷达数据流，并保留 CLI JSON over UART/MQTT、Wi-Fi 配网、MQTT 中继、OTA/雷达固件管理和 raw 透传等共享平台能力。
 
 ### 6.2 Hub
 
-`mmwk_sensor_hub` 是另一个基于同一 `mmwk_sensor` 平台的固件 profile。它提供雷达传感器的 sensor hub profile，可支持心率、呼吸、睡眠、体动等传感器面，同时保留 bridge 能力，包括 raw 雷达数据、点云实时显示和主机侧验证等流程。
+`mmwk_sensor_hub` 是另一个基于同一 [`mmwk_sensor`](./docs/zh-cn/mmwk-sensor.md) 平台的固件 profile。它提供雷达传感器的 sensor hub profile，可支持心率、呼吸、睡眠、体动等传感器面，同时保留 bridge 能力，包括 raw 雷达数据、点云实时显示和主机侧验证等流程。
 
 Hub 内部实现不在这份公开包文档中展开。当前未提供该固件的预编译版本。
 
@@ -177,4 +187,4 @@ Hub 内部实现不在这份公开包文档中展开。当前未提供该固件�
 `firmwares/radar/` 中提供的雷达固件二进制既包含来自 [**Texas Instruments (TI)**](https://www.ti.com) 的原始构建，也包含来自 [**Wavvar**](https://wavvar.com) 的自定义构建。
 
 - **TI 固件**：来自 TI 工具箱或 SDK 的二进制仍归 Texas Instruments 所有，这些文件在仓库中仅用于评估和集成。官方发布请参考 [TI Radar Toolbox](https://dev.ti.com/tirex/explore/node?node=A__AGun-M.W.r.X.G.X.r.G.X.r.G.X.A)。
-- **Wavvar 固件**：自定义二进制（例如 MMWK_ROID）由 Wavvar 开发并拥有。
+- **Wavvar 固件**：ROID 等自定义二进制由 Wavvar 开发并拥有。
