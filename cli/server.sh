@@ -957,7 +957,16 @@ PY
 
     start_http_server_attempt() {
         local attempt_label="$1"
+        local attempt_timeout="$HTTP_START_TIMEOUT_SEC"
         shift
+        if [ "${1:-}" = "" ]; then
+            echo "Error: HTTP server attempt requested with no command" >&2
+            return 1
+        fi
+        if [[ "$1" =~ ^[0-9]+$ ]]; then
+            attempt_timeout="$1"
+            shift
+        fi
         local -a cmd=("$@")
         local -i attempt_exit=0
         local pid
@@ -978,7 +987,7 @@ PY
         echo "$pid" > "$HTTP_PID_FILE"
         log_info "Starting HTTP server (pid=$pid)"
 
-        if wait_for_tcp 127.0.0.1 "$HTTP_PORT" "$HTTP_START_TIMEOUT_SEC"; then
+        if wait_for_tcp 127.0.0.1 "$HTTP_PORT" "$attempt_timeout"; then
             return 0
         fi
 
@@ -1043,20 +1052,20 @@ PY
         fi
     fi
 
-    for http_python_candidate in "${http_python_candidates[@]}"; do
-        if [ ! -x "$http_python_candidate" ]; then
-            continue
-        fi
+        for http_python_candidate in "${http_python_candidates[@]}"; do
+            if [ ! -x "$http_python_candidate" ]; then
+                continue
+            fi
 
-        http_cmd=(
-            "$http_python_candidate"
-            "$SCRIPT_DIR/mmwk/local_http_server.py"
-            "${http_args[@]}"
-        )
-        if start_http_server_attempt "local_http_server.py (${http_python_candidate})" "${http_cmd[@]}"; then
-            return 0
-        fi
-    done
+            http_cmd=(
+                "$http_python_candidate"
+                "$SCRIPT_DIR/mmwk/local_http_server.py"
+                "${http_args[@]}"
+            )
+            if start_http_server_attempt "local_http_server.py (${http_python_candidate})" 8 "${http_cmd[@]}"; then
+                return 0
+            fi
+        done
 
     for http_python_candidate in "${http_python_candidates[@]}"; do
         if [ ! -x "$http_python_candidate" ]; then
@@ -1068,7 +1077,7 @@ PY
             "$http_fallback_script"
             "${http_args[@]}"
         )
-        if start_http_server_attempt "fallback HTTP server (${http_python_candidate})" "${http_cmd[@]}"; then
+        if start_http_server_attempt "fallback HTTP server (${http_python_candidate})" 8 "${http_cmd[@]}"; then
             return 0
         fi
     done
