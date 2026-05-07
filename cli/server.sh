@@ -806,6 +806,200 @@ start_children() {
         --upload-dir
         "$UPLOAD_DIR"
     )
+    local http_fallback_script
+    local -a http_python_candidates
+    local http_python_candidate
+
+    write_fallback_http_server() {
+        local path="$1"
+
+        cat > "$path" <<'PY'
+"""Fallback HTTP server used when the primary local server entrypoint stalls."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import time
+from http import HTTPStatus
+from http.server import HTTPServer, SimpleHTTPRequestHandler
+
+
+def _safe_path_label(path: str) -> str:
+    text = (path or "/").strip().strip("/")
+    if not text:
+        text = "upload"
+    text = text.replace("/", "_")
+    text = re.sub(r"[^A-Za-z0-9._-]+", "_", text)
+    return text[:80] or "upload"
+
+
+class _FallbackHandler(SimpleHTTPRequestHandler):
+    """Serve files and optionally accept POST uploads into an output directory."""
+
+    def __init__(self, *args, upload_dir: str | None = None, **kwargs):
+        self._upload_dir = upload_dir
+        super().__init__(*args, **kwargs)
+
+    def do_GET(self):
+        if self.path.split("?", 1)[0] == "/healthz":
+            self._send_json({"status": "ok"})
+            return
+        super().do_GET()
+
+    def do_HEAD(self):
+        if self.path.split("?", 1)[0] == "/healthz":
+            payload = json.dumps({"status": "ok"}).encode("utf-8")
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            return
+        super().do_HEAD()
+
+    def do_POST(self):
+        if not self._upload_dir:
+            self._send_json({"status": "error", "msg": "uploads disabled"}, status=HTTPStatus.NOT_FOUND)
+            return
+
+        try:
+            content_len = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            content_len = 0
+        body = self.rfile.read(content_len) if content_len > 0 else b""
+
+        os.makedirs(self._upload_dir, exist_ok=True)
+        ts = time.strftime("%Y%m%d_%H%M%S")
+        millis = int((time.time() % 1) * 1000)
+        label = _safe_path_label(self.path.split("?", 1)[0])
+        out_name = f"{ts}_{millis:03d}_{label}.bin"
+        out_path = os.path.join(self._upload_dir, out_name)
+        with open(out_path, "wb") as fp:
+            fp.write(body)
+
+        self._send_json(
+            {
+                "status": "ok",
+                "bytes": len(body),
+                "path": out_path,
+            }
+        )
+
+    def log_message(self, fmt, *args):
+        print(f"[local_http] {self.address_string()} - {fmt % args}", flush=True)
+
+    def _send_json(self, payload: dict, status: HTTPStatus = HTTPStatus.OK):
+        body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+
+def _main() -> int:
+    parser = argparse.ArgumentParser(description="Run local HTTP server for OTA/download/upload")
+    parser.add_argument("--serve-dir", required=True, help="Directory to serve over HTTP")
+    parser.add_argument("--bind", default="0.0.0.0", help="Bind address")
+    parser.add_argument("--port", type=int, default=8380, help="Listen port")
+    parser.add_argument("--upload-dir", help="Optional directory for POST upload dumps")
+    args = parser.parse_args()
+
+    handler = lambda *handler_args, **handler_kwargs: _FallbackHandler(
+        *handler_args,
+        directory=args.serve_dir,
+        upload_dir=args.upload_dir,
+        **handler_kwargs,
+    )
+    httpd = HTTPServer((args.bind, args.port), handler)
+    print(json.dumps(
+        {
+            "status": "started",
+            "bind": args.bind,
+            "port": args.port,
+            "serve_dir": args.serve_dir,
+            "upload_dir": args.upload_dir or "",
+        },
+        separators=(",", ":"),
+    ))
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        httpd.server_close()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_main())
+PY
+    }
+
+    start_http_server_attempt() {
+        local attempt_label="$1"
+        shift
+        local -a cmd=("$@")
+        local -i attempt_exit=0
+        local pid
+        local attempts=3
+
+        if [ ${#cmd[@]} -eq 0 ]; then
+            echo "Error: HTTP server attempt requested with no command" >&2
+            return 1
+        fi
+
+        rm -f "$HTTP_PID_FILE"
+
+        log_info "Starting HTTP server command (${attempt_label}): ${cmd[*]}"
+        PYTHONUNBUFFERED=1 PYTHONFAULTHANDLER=1 nohup "${cmd[@]}" \
+            >>"$HTTP_LOG" 2>&1 </dev/null &
+        pid="$!"
+        http_pid="$pid"
+        echo "$pid" > "$HTTP_PID_FILE"
+        log_info "Starting HTTP server (pid=$pid)"
+
+        if wait_for_tcp 127.0.0.1 "$HTTP_PORT" "$HTTP_START_TIMEOUT_SEC"; then
+            return 0
+        fi
+
+        echo "Error: HTTP server failed to start with ${attempt_label}. See $HTTP_LOG" >&2
+        if is_pid_running "$pid"; then
+            kill -QUIT "$pid" >/dev/null 2>&1 || true
+            while [ $attempts -gt 0 ]; do
+                if ! is_pid_running "$pid"; then
+                    break
+                fi
+                sleep 0.2
+                attempts=$((attempts - 1))
+            done
+            if is_pid_running "$pid"; then
+                kill "$pid" >/dev/null 2>&1 || true
+            fi
+            attempts=3
+            while [ $attempts -gt 0 ]; do
+                if ! is_pid_running "$pid"; then
+                    break
+                fi
+                sleep 0.2
+                attempts=$((attempts - 1))
+            done
+            if is_pid_running "$pid"; then
+                kill -KILL "$pid" >/dev/null 2>&1 || true
+            fi
+            wait "$pid" 2>/dev/null || attempt_exit=$?
+            if [ "$attempt_exit" -ne 0 ]; then
+                echo "HTTP PID $pid exited with: $attempt_exit" >&2
+            fi
+        fi
+
+        ps -fp "$pid" -o pid=,ppid=,state=,command= >&2 || true
+        [ -f "$HTTP_LOG" ] && sed -n '1,320p' "$HTTP_LOG" >&2
+        rm -f "$HTTP_PID_FILE"
+        return 1
+    }
 
     log_info "MQTT Log   : $MQTT_LOG"
     log_info "HTTP Log   : $HTTP_LOG"
@@ -822,36 +1016,48 @@ start_children() {
     log_info "mosquitto is listening on 127.0.0.1:$MQTT_PORT"
 
     setup_venv >/dev/null
-    http_python="$PYTHON"
-    if [ -x "${pythonLocation:-}/bin/python3" ]; then
-        http_python="${pythonLocation}/bin/python3"
-    fi
-    http_cmd=(
-        "$http_python"
-        "$SCRIPT_DIR/mmwk/local_http_server.py"
-        "${http_args[@]}"
-    )
-    log_info "Starting HTTP server command: ${http_cmd[*]}"
-    PYTHONPATH="$SCRIPT_DIR" PYTHONUNBUFFERED=1 PYTHONFAULTHANDLER=1 nohup "${http_cmd[@]}" \
-        >>"$HTTP_LOG" 2>&1 </dev/null &
-    http_pid="$!"
-    echo "$http_pid" > "$HTTP_PID_FILE"
-    log_info "Starting HTTP server (pid=$http_pid)"
+    http_fallback_script="${STATE_DIR}/http_server_fallback.py"
+    write_fallback_http_server "$http_fallback_script"
 
-    if ! wait_for_tcp 127.0.0.1 "$HTTP_PORT" "$HTTP_START_TIMEOUT_SEC"; then
-        echo "Error: HTTP server failed to start. See $HTTP_LOG" >&2
-        if ! is_pid_running "$http_pid"; then
-            wait "$http_pid" 2>/dev/null || http_exit=$?
-            echo "HTTP PID $http_pid exited with: $http_exit" >&2
-        else
-            kill -QUIT "$http_pid" >/dev/null 2>&1 || true
-            sleep 1
+    http_python_candidates=("$PYTHON")
+    if [ -n "${pythonLocation:-}" ] && [ -x "${pythonLocation}/bin/python3" ]; then
+        if [ -z "$PYTHON" ] || [ "${pythonLocation}/bin/python3" != "$PYTHON" ]; then
+            http_python_candidates+=("${pythonLocation}/bin/python3")
         fi
-        ps -fp "$http_pid" -o pid=,ppid=,state=,command= >&2 || true
-        [ -f "$HTTP_LOG" ] && sed -n '1,320p' "$HTTP_LOG" >&2
-        return 1
     fi
-    log_info "HTTP server is listening on 127.0.0.1:$HTTP_PORT"
+
+    for http_python_candidate in "${http_python_candidates[@]}"; do
+        if [ ! -x "$http_python_candidate" ]; then
+            continue
+        fi
+
+        http_cmd=(
+            "$http_python_candidate"
+            "$SCRIPT_DIR/mmwk/local_http_server.py"
+            "${http_args[@]}"
+        )
+        if start_http_server_attempt "local_http_server.py (${http_python_candidate})" "${http_cmd[@]}"; then
+            return 0
+        fi
+    done
+
+    for http_python_candidate in "${http_python_candidates[@]}"; do
+        if [ ! -x "$http_python_candidate" ]; then
+            continue
+        fi
+
+        http_cmd=(
+            "$http_python_candidate"
+            "$http_fallback_script"
+            "${http_args[@]}"
+        )
+        if start_http_server_attempt "fallback HTTP server (${http_python_candidate})" "${http_cmd[@]}"; then
+            return 0
+        fi
+    done
+
+    echo "Error: all HTTP server startup attempts failed. See $HTTP_LOG" >&2
+    return 1
 
     return 0
 }
