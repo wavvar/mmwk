@@ -773,7 +773,7 @@ start_children() {
     log_info "mosquitto is listening on 127.0.0.1:$MQTT_PORT"
 
     setup_venv >/dev/null
-    nohup env PYTHONPATH="$SCRIPT_DIR" "$PYTHON" -m mmwk.local_http_server \
+    nohup env PYTHONPATH="$SCRIPT_DIR" PYTHONUNBUFFERED=1 "$PYTHON" "$SCRIPT_DIR/mmwk/local_http_server.py" \
         --serve-dir "$SERVE_DIR" \
         --bind 0.0.0.0 \
         --port "$HTTP_PORT" \

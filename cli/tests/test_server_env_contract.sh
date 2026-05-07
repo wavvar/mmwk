@@ -42,6 +42,25 @@ print_start_log() {
     sed -n '1,240p' "${START_LOG}" >&2
 }
 
+print_state_logs() {
+    local server_log
+    local http_log
+    local mqtt_log
+
+    server_log="${STATE_DIR}/server.log"
+    http_log="${STATE_DIR}/http.log"
+    mqtt_log="${STATE_DIR}/mosquitto.log"
+
+    echo "--- server state log (${server_log}) ---" >&2
+    sed -n '1,240p' "${server_log}" >&2
+
+    echo "--- server http log (${http_log}) ---" >&2
+    sed -n '1,240p' "${http_log}" >&2
+
+    echo "--- server mqtt log (${mqtt_log}) ---" >&2
+    sed -n '1,240p' "${mqtt_log}" >&2
+}
+
 # Start server in detached mode from a deterministic IP/port pair.
 "${SERVER_SH}" start \
     --state-dir "${STATE_DIR}" \
@@ -52,6 +71,7 @@ print_start_log() {
     >"${START_LOG}" 2>&1 || {
     echo "FAIL: server start command failed" >&2
     print_start_log
+    print_state_logs
     exit 1
 }
 
@@ -73,6 +93,7 @@ wait_for_ready() {
 if ! wait_for_ready; then
     echo "FAIL: server did not become ready" >&2
     print_start_log
+    print_state_logs
     exit 1
 fi
 
