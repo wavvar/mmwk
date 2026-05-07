@@ -757,6 +757,22 @@ handle_server_signal() {
 start_children() {
     local mqtt_pid
     local http_pid
+    local http_cmd=(
+        env
+        PYTHONPATH="$SCRIPT_DIR"
+        PYTHONUNBUFFERED=1
+        "$PYTHON"
+        "$SCRIPT_DIR/mmwk/local_http_server.py"
+        --serve-dir
+        "$SERVE_DIR"
+        --bind
+        127.0.0.1
+        --port
+        "$HTTP_PORT"
+        --upload-dir
+        "$UPLOAD_DIR"
+    )
+    local http_exit=0
 
     log_info "MQTT Log   : $MQTT_LOG"
     log_info "HTTP Log   : $HTTP_LOG"
@@ -773,17 +789,19 @@ start_children() {
     log_info "mosquitto is listening on 127.0.0.1:$MQTT_PORT"
 
     setup_venv >/dev/null
-    nohup env PYTHONPATH="$SCRIPT_DIR" PYTHONUNBUFFERED=1 "$PYTHON" "$SCRIPT_DIR/mmwk/local_http_server.py" \
-        --serve-dir "$SERVE_DIR" \
-        --bind 0.0.0.0 \
-        --port "$HTTP_PORT" \
-        --upload-dir "$UPLOAD_DIR" >>"$HTTP_LOG" 2>&1 </dev/null &
+    log_info "Starting HTTP server command: ${http_cmd[*]}"
+    nohup "${http_cmd[@]}" >>"$HTTP_LOG" 2>&1 </dev/null &
     http_pid="$!"
     echo "$http_pid" > "$HTTP_PID_FILE"
     log_info "Starting HTTP server (pid=$http_pid)"
 
     if ! wait_for_tcp 127.0.0.1 "$HTTP_PORT" "$HTTP_START_TIMEOUT_SEC"; then
         echo "Error: HTTP server failed to start. See $HTTP_LOG" >&2
+        if ! is_pid_running "$http_pid"; then
+            wait "$http_pid" 2>/dev/null || http_exit=$?
+            echo "HTTP PID $http_pid exited with: $http_exit" >&2
+        fi
+        ps -p "$http_pid" -o pid=,ppid=,state=,command= >&2 || true
         [ -f "$HTTP_LOG" ] && sed -n '1,240p' "$HTTP_LOG" >&2
         return 1
     fi
