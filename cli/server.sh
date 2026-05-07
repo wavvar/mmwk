@@ -828,7 +828,6 @@ start_children() {
     fi
     http_cmd=(
         "$http_python"
-        -S
         "$SCRIPT_DIR/mmwk/local_http_server.py"
         "${http_args[@]}"
     )
