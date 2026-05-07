@@ -1,4 +1,4 @@
-name: CLI Non-Windows Smoke
+name: CLI Shell Smoke
 
 on:
   workflow_dispatch:
@@ -18,7 +18,7 @@ permissions:
   contents: read
 
 jobs:
-  cli-nonwindows-smoke:
+  shell-smoke:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
@@ -32,12 +32,12 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install runtime dependencies
+      - name: Install Python deps
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r cli/requirements.txt
 
-      - name: Install mosquitto (best effort)
+      - name: Install mosquitto
         run: |
           if command -v apt-get >/dev/null 2>&1; then
             sudo apt-get update
@@ -48,11 +48,11 @@ jobs:
             echo "No package manager available; skipping mosquitto install."
           fi
 
-      - name: Compile Python entrypoints
+      - name: Compile Python
         run: |
           python -m py_compile cli/mmwk/server.py cli/mmwk/server_runtime.py
 
-      - name: Validate shell wrapper usage and server contract
+      - name: Check shell wrappers
         run: |
           set -euo pipefail
 
@@ -75,7 +75,7 @@ jobs:
 
           bash cli/tests/test_server_env_contract.sh
 
-      - name: Run public CLI contract test (if mmwk_sdk is available)
+      - name: Run SDK contract test
         run: |
           set -euo pipefail
           if [ -d ../mmwk_sdk ]; then

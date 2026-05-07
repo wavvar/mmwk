@@ -1,4 +1,4 @@
-name: CLI Windows PowerShell Smoke
+name: CLI PowerShell Smoke
 
 on:
   workflow_dispatch:
@@ -18,7 +18,7 @@ permissions:
   contents: read
 
 jobs:
-  windows-ps1-smoke:
+  powershell-smoke:
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -29,16 +29,16 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install Python runtime dependencies
+      - name: Install Python deps
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r cli/requirements.txt
 
-      - name: Compile Python entrypoints
+      - name: Compile Python
         run: |
           python -m py_compile cli/mmwk/server.py cli/mmwk/server_runtime.py
 
-      - name: Validate PowerShell wrappers
+      - name: Check PowerShell wrappers
         shell: pwsh
         run: |
           Set-StrictMode -Version Latest
