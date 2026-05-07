@@ -180,6 +180,7 @@ TARGET_IP=""
 MQTT_PORT="1883"
 HTTP_PORT="8380"
 SERVER_START_TIMEOUT_SEC="${MMWK_SERVER_START_TIMEOUT_SEC:-90}"
+HTTP_START_TIMEOUT_SEC="${MMWK_HTTP_START_TIMEOUT_SEC:-30}"
 DEVICE_OTA=false
 DEVICE_OTA_BOARD=""
 DEVICE_OTA_DIR=""
@@ -764,8 +765,9 @@ start_children() {
     echo "$mqtt_pid" > "$MQTT_PID_FILE"
     log_info "Starting mosquitto (pid=$mqtt_pid)"
 
-    if ! wait_for_tcp 127.0.0.1 "$MQTT_PORT" 15; then
+    if ! wait_for_tcp 127.0.0.1 "$MQTT_PORT" "$HTTP_START_TIMEOUT_SEC"; then
         echo "Error: mosquitto failed to start. See $MQTT_LOG" >&2
+        [ -f "$MQTT_LOG" ] && sed -n '1,200p' "$MQTT_LOG" >&2
         return 1
     fi
     log_info "mosquitto is listening on 127.0.0.1:$MQTT_PORT"
@@ -780,8 +782,9 @@ start_children() {
     echo "$http_pid" > "$HTTP_PID_FILE"
     log_info "Starting HTTP server (pid=$http_pid)"
 
-    if ! wait_for_tcp 127.0.0.1 "$HTTP_PORT" 15; then
+    if ! wait_for_tcp 127.0.0.1 "$HTTP_PORT" "$HTTP_START_TIMEOUT_SEC"; then
         echo "Error: HTTP server failed to start. See $HTTP_LOG" >&2
+        [ -f "$HTTP_LOG" ] && sed -n '1,240p' "$HTTP_LOG" >&2
         return 1
     fi
     log_info "HTTP server is listening on 127.0.0.1:$HTTP_PORT"
