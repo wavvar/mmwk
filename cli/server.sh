@@ -795,6 +795,7 @@ start_children() {
     local http_pid
     local http_exit=0
     local http_cmd
+    local http_python
     local http_args=(
         --serve-dir
         "$SERVE_DIR"
@@ -821,8 +822,12 @@ start_children() {
     log_info "mosquitto is listening on 127.0.0.1:$MQTT_PORT"
 
     setup_venv >/dev/null
+    http_python="$PYTHON"
+    if [ -x "${pythonLocation:-}/bin/python3" ]; then
+        http_python="${pythonLocation}/bin/python3"
+    fi
     http_cmd=(
-        "$PYTHON"
+        "$http_python"
         -S
         "$SCRIPT_DIR/mmwk/local_http_server.py"
         "${http_args[@]}"
