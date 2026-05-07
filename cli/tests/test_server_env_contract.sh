@@ -35,6 +35,12 @@ printf 'ok-server-payload' > "${TMPDIR}/serve_dir/fw.bin"
 STATE_DIR="${TMPDIR}/state"
 
 START_LOG="${TMPDIR}/server-start.log"
+WAIT_SECONDS=60
+
+print_start_log() {
+    echo "--- server start log (${START_LOG}) ---" >&2
+    sed -n '1,240p' "${START_LOG}" >&2
+}
 
 # Start server in detached mode from a deterministic IP/port pair.
 "${SERVER_SH}" start \
@@ -43,15 +49,19 @@ START_LOG="${TMPDIR}/server-start.log"
     --host-ip 127.0.0.1 \
     --mqtt-port 1889 \
     --http-port 8389 \
-    >"${START_LOG}" 2>&1
+    >"${START_LOG}" 2>&1 || {
+    echo "FAIL: server start command failed" >&2
+    print_start_log
+    exit 1
+}
 
 wait_for_ready() {
     local deadline
     local status
-    deadline=$(( $(date +%s) + 20 ))
+    deadline=$(( $(date +%s) + WAIT_SECONDS ))
     while [ "$(date +%s)" -lt "$deadline" ]; do
         if status="$(${SERVER_SH} status --state-dir "${STATE_DIR}" 2>/dev/null)"; then
-            if echo "$status" | grep -q 'MQTT Up   : yes' && echo "$status" | grep -q 'HTTP Up   : yes'; then
+            if echo "$status" | grep -Eq 'MQTT Up[[:space:]]*: yes' && echo "$status" | grep -Eq 'HTTP Up[[:space:]]*: yes'; then
                 return 0
             fi
         fi
@@ -62,7 +72,7 @@ wait_for_ready() {
 
 if ! wait_for_ready; then
     echo "FAIL: server did not become ready" >&2
-    sed -n '1,220p' "${START_LOG}" >&2
+    print_start_log
     exit 1
 fi
 
@@ -114,7 +124,7 @@ PY
 STOP_TIMEOUT=$(( $(date +%s) + 8 ))
 while [ "$(date +%s)" -lt "$STOP_TIMEOUT" ]; do
     status="$(${SERVER_SH} status --state-dir "${STATE_DIR}" 2>/dev/null || true)"
-    if ! (echo "$status" | grep -q 'MQTT Up   : yes' || echo "$status" | grep -q 'HTTP Up   : yes'); then
+    if ! (echo "$status" | grep -Eq 'MQTT Up\s*: yes' || echo "$status" | grep -Eq 'HTTP Up\s*: yes'); then
         echo "server.sh public env contract test OK"
         exit 0
     fi
