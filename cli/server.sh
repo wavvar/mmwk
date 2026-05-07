@@ -821,7 +821,7 @@ start_children() {
         --upload-dir
         "$UPLOAD_DIR"
     )
-    local http_bind_addresses=(127.0.0.1 0.0.0.0)
+    local http_bind_addresses=(0.0.0.0 127.0.0.1)
     local http_bind_addr
     local http_fallback_script
     local http_emergency_script

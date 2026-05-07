@@ -8,6 +8,8 @@
 cd ./cli
 ```
 
+下面示例使用 POSIX shell 写法。Windows PowerShell 下使用 `.\collect.ps1 --trigger ...`；这个 pure-MQTT trigger 模式不需要 Bash，只要求已安装 Python 3.10+ 依赖。如果本机有 Bash，`collect.ps1` 会转调 `collect.sh` 以获得完整 wrapper 行为。
+
 ## 它负责什么
 
 - 把 `raw_data` 写到 `data_resp.sraw`

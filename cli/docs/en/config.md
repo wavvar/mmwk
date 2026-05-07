@@ -10,6 +10,8 @@ The working directory is the `cli` directory:
 cd ./cli
 ```
 
+Examples below use POSIX shell syntax. On Windows PowerShell, run `.\config.ps1 ...` only when Bash is available, for example through Git Bash; the PowerShell wrapper delegates to `config.sh` to keep behavior identical. If Bash is not available, use the main CLI directly with `.\run.ps1 network wifi|mqtt|status ...` for manual configuration, or install Git Bash before using the registry helper.
+
 ## What It Does
 
 - Push Wi-Fi credentials with `network wifi`

@@ -1,8 +1,8 @@
-# MMWK CLI Shell Wrapper
+# MMWK CLI Wrapper
 
-本文档介绍 [`./run.sh`](../../run.sh)。它是推荐在 **macOS** 和 **Linux** 上使用的 MMWK bridge/hub 控制入口。该 shell 包装脚本会自动引导 [`mmwk/`](../../mmwk/) 中的 Python CLI，并通过 UART（串口）和 MQTT 暴露同一套命令面，默认走标准 CLI JSON；在配套的 MCP 固件版本下，也支持 MCP 协议。
+本文档介绍 MMWK 主机侧 CLI wrapper。macOS / Linux / Git Bash 使用 POSIX 入口 [`./run.sh`](../../run.sh)，Windows PowerShell 使用 [`.\run.ps1`](../../run.ps1)。两类入口都会调用 [`mmwk/`](../../mmwk/) 中的 Python CLI，并通过 UART（串口）和 MQTT 暴露同一套命令面，默认走标准 CLI JSON；在配套的 MCP 固件版本下，也支持 MCP 协议。
 
-`run.sh` 现在默认使用标准 CLI JSON 协议。大多数 MMWK 固件版本也默认内置 CLI 控制协议。部分固件版本还提供 MCP 支持；如需 MCP 版本，请联系我们获取对应固件版本。使用这类固件版本配合 `run.sh` 时，请显式指定 `--protocol mcp`。
+CLI 现在默认使用标准 CLI JSON 协议。大多数 MMWK 固件版本也默认内置 CLI 控制协议。部分固件版本还提供 MCP 支持；如需 MCP 版本，请联系我们获取对应固件版本。使用这类固件版本时，请显式指定 `--protocol mcp`。
 
 ## 原始语义契约
 
@@ -17,6 +17,7 @@
 ## 目录
 
 - [安装](#安装)
+- [主机平台入口](#主机平台入口)
 - [快速开始](#快速开始)
 - [核心概念](#核心概念)
 - [通信层](#通信层)
@@ -33,11 +34,12 @@
 
 ### 前置条件
 
-- macOS 或 Linux，并具备 `bash`
 - Python 3.10+
 - 使用 UART 时，需要设备的 USB 串口访问权限
+- POSIX 工作流：macOS / Linux 上的 `bash`，或 Windows 上的 Git Bash
+- Windows PowerShell 工作流：PowerShell，并先用 `pip install -r requirements.txt` 安装 Python 依赖
 
-`run.sh` 是默认推荐入口。直接调用 Python 也可以，但需要显式使用 `python3 -m mmwk ...`；日常工作流建议优先使用 shell wrapper。
+本文档默认示例使用 POSIX shell 写法（`./run.sh`、`./server.sh`）。在 Windows PowerShell 下，请使用对应的 `.ps1` wrapper，并使用 `COM3` 这类 Windows 串口名。
 
 ### 推荐安装方式
 
@@ -47,12 +49,36 @@
 
 shell wrapper 会在第一次执行非 help 命令时创建 `./venv` 并安装依赖。
 
+PowerShell wrapper 不会自动创建 `./venv`，而是使用当前或系统 Python 环境：
+
+```powershell
+py -m pip install -r requirements.txt
+.\run.ps1 --help
+```
+
 ### 手动安装方式
 
 ```bash
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
+```
+
+## 主机平台入口
+
+| 工作流 | macOS / Linux / Git Bash | Windows PowerShell | 说明 |
+|---|---|---|---|
+| 主 CLI | `./run.sh ...` | `.\run.ps1 ...` | `run.sh` 会管理 `./venv`；`run.ps1` 使用当前或系统 Python 3.10+ 环境。 |
+| 本地 MQTT + HTTP server | `./server.sh ...` | `.\server.ps1 ...` | 两者都要求本机 `PATH` 中存在 `mosquitto`。 |
+| 注册表任务 helper | `./config.sh`、`./collect.sh` | `.\config.ps1`、`.\collect.ps1` | `config.ps1` 会转调 `config.sh`，因此需要 Bash，例如 Git Bash。`collect.ps1` 有 Bash 时会转调 `collect.sh`；没有 Bash 时，仍可使用 `--trigger` pure-MQTT 模式和受限的 registry 采集 fallback。 |
+| 直接 Python | `python3 -m mmwk ...` | `py -m mmwk ...` 或 `python -m mmwk ...` | 仅在你明确要绕过 wrapper 时使用。 |
+
+PowerShell 下参数与 POSIX 示例保持一致，主要差异是 wrapper 名和串口名：
+
+```powershell
+.\run.ps1 node info -p COM3
+.\server.ps1 run --serve-dir C:\mmwk\artifacts --host-ip 192.168.4.8
+.\collect.ps1 --trigger device-reboot --device-id dc5475c879c0
 ```
 
 ## Surface 更新（2026-04-13）
@@ -180,7 +206,7 @@ SDK 硬件验收同样保持显式选择：PRO 设备或带 4G 的 WDR 设备测
 
 ### 外挂工具
 
-`collect` 仍然是官方命令。下面这些 helper 都挂在 `run.sh` 之外，工作目录应为 `cli` 目录。
+`collect` 仍然是官方命令。下面这些 helper 都挂在主 CLI wrapper 之外，工作目录应为 `cli` 目录。POSIX 示例使用 `*.sh`；Windows PowerShell 下使用可用的同名 `*.ps1` wrapper，具体差异见 [主机平台入口](#主机平台入口)。
 
 - [Radar Task Tools](radar-task-tools.md)：当你想直接走任务级工作流时，使用 `./config.sh init|update|list` 与 `./collect.sh` 完成基于注册表的 UART 配置、网络更新和 MQTT raw 采集。
 - [通过 Bridge 开发雷达](bridge-ti-radar-debug.md)：面向 6843 和 6432 的端到端 bridge 开发说明，包含 `config.sh init|update|list` 与 `collect.sh` 的使用顺序。
@@ -398,7 +424,7 @@ flowchart LR
 
 ## 使用 `run.sh`
 
-`run.sh` 会自动处理虚拟环境、依赖安装和串口检测：
+`run.sh` 会自动处理虚拟环境、依赖安装和串口检测。Windows PowerShell 下先安装 `requirements.txt`，再使用 `.\run.ps1`；它会把同样的命令参数转发给 Python CLI。
 
 ```bash
 ./run.sh --help
@@ -407,12 +433,12 @@ flowchart LR
 
 ### 本地 Server 辅助脚本 (`server.sh`)
 
-`server.sh` 是一个配套的高效辅助脚本。用于一键启动本地 MQTT Broker 和 HTTP 文件服务器，完美配合 `run.sh` 执行 Wi-Fi OTA 升级和本地 MQTT 数据采集，无需依赖外部云基础设施。
+`server.sh` 是一个配套的高效辅助脚本。Windows PowerShell 下可以使用同一运行时的 `.\server.ps1`。它用于一键启动本地 MQTT Broker 和 HTTP 文件服务器，配合 CLI 执行 Wi-Fi OTA 升级和本地 MQTT 数据采集，无需依赖外部云基础设施。
 
 **核心能力：**
 - **本地 MQTT Broker**：依赖本机已安装且在 `PATH` 中可见的 `mosquitto`。
 - **内置 HTTP 服务器**：封装 Python 自带的 `http.server`，提供固件与配置文件的 OTA 下载服务。
-- **上下文导出**：提供 `env` 命令，输出包含主机 IP、MQTT URI、HTTP Base URL 的 Shell 环境变量（`MMWK_SERVER_XXX`），可直接传递给 `run.sh` 等命令使用。
+- **上下文导出**：提供 `env` 命令，输出包含主机 IP、MQTT URI、HTTP Base URL 的 `MMWK_SERVER_XXX` 变量行，可直接传递给 `run.sh`，或在 PowerShell 中取值后传给 `run.ps1`。
 
 **常用命令：**
 
@@ -447,6 +473,7 @@ eval "$(./server.sh env)"
 - 如果没有显式传入 `--serve-dir`，`server.sh` 会对外提供它启动时的当前工作目录。
 - `server.sh status` 会同时检查 PID 存活和实际 TCP 端口监听状态。
 - `server.sh env` 会输出可直接复用的主机 IP、MQTT URI 和 HTTP Base URL，方便传给 `network mqtt`、`radar fw ota`、`node ota` 和 `collect`。
+- 在 PowerShell 下，`.\server.ps1 env` 会输出同样的 `KEY=value` 行；可以把需要的 URL 值复制到 PowerShell 变量，或直接传给 `.\run.ps1`。
 - 仅适用于已运行设备的 OTA 流程请看 [设备 OTA 指南](../../../docs/zh-cn/ota.md)，出厂刷机请看 [出厂烧录指南](../../../docs/zh-cn/flash.md)。
 - 该助手脚本仅面向本地开发、本地刷机和数据采集工作流设计。
 
@@ -460,8 +487,9 @@ python3 -m mmwk node info -p /dev/cu.usbserial-0001
 
 ## 项目文档
 
-- **[run.sh](../../run.sh)**：推荐的 macOS/Linux shell 入口
-- **[mmwk/](../../mmwk/)**：被包装的 Python 实现
+- **[run.sh](../../run.sh) / [run.ps1](../../run.ps1)**：POSIX 与 Windows PowerShell 主 CLI wrapper
+- **[server.sh](../../server.sh) / [server.ps1](../../server.ps1)**：POSIX 与 Windows PowerShell 本地 MQTT + HTTP helper wrapper
+- **[mmwk/](../../mmwk/)**：被主机入口包装的 Python 实现
 - **[Wavvar MMWK 标准 CLI 控制协议 V1.1](../../../docs/CLIv1_CN.md)**：默认标准 CLI JSON 协议规范
 - **[Wavvar MMWK MCP 协议规范 V1.3](../../../docs/zh-cn/mcpv1.md)**：面向 MCP 固件版本的 MCP/JSON-RPC 协议规范（配套 MCP 固件版本时使用 `--protocol mcp`）
 - **[Radar Task Tools](./radar-task-tools.md)**：在 `cli` 目录下执行的任务导向 wrapper，用于 UART 配置、网络 OTA 和 MQTT raw 采集

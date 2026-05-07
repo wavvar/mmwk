@@ -9,7 +9,7 @@
 - 通过 MQTT 采集原始数据和启动期输出
 - 围绕这条链路反复迭代，并为不同雷达系列选择合适的公开 bridge 板型
 
-下面的例子默认你的当前工作目录是已发布 `mmwk` 包里的 `cli` 目录，示例路径只使用公开包结构。
+下面的例子默认你的当前工作目录是已发布 `mmwk` 包里的 `cli` 目录，示例路径只使用公开包结构，并使用 POSIX shell wrapper 名称。Windows PowerShell 下可使用 `.\server.ps1`、`.\run.ps1` 和 `.\collect.ps1`；`.\config.ps1` 因为会转调 `config.sh`，仍需要 Bash / Git Bash。
 
 ## 先选对 Bridge 板子
 

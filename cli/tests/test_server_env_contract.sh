@@ -10,6 +10,11 @@ if [ ! -x "${SERVER_SH}" ]; then
     exit 1
 fi
 
+if ! grep -q 'local http_bind_addresses=(0.0.0.0 127.0.0.1)' "${SERVER_SH}"; then
+    echo "FAIL: server.sh must try 0.0.0.0 before 127.0.0.1 for detached HTTP startup" >&2
+    exit 1
+fi
+
 if ! command -v mosquitto >/dev/null 2>&1; then
     echo "SKIP: mosquitto not installed"
     exit 0

@@ -25,6 +25,8 @@
 
 以下命令假设当前工作目录为 `mmwk` 项目根目录，也就是同时包含 `firmwares/` 和 `cli/` 的那个目录。
 
+示例使用 POSIX shell wrapper（`./cli/run.sh`、`./cli/server.sh`、`./cli/collect.sh`）。Windows PowerShell 下使用对应 wrapper（`.\cli\run.ps1`、`.\cli\server.ps1`、`.\cli\collect.ps1`），串口使用 `COM3` 这类 Windows 串口名；具体 parity 差异见 [CLI README](../../cli/docs/zh-cn/README.md#主机平台入口)。
+
 文中约定：
 
 - `<artifact-dir>`
@@ -64,6 +66,8 @@
 ./cli/collect.sh --trigger radar-restart
 ./cli/collect.sh --trigger device-reboot
 ```
+
+Windows PowerShell 下，安装 Python 依赖后可用 `.\cli\collect.ps1 --trigger ...` 运行同样的 pure-MQTT trigger 流程。
 
 这个 helper 的控制面和 raw 采集都保持 pure MQTT。需要先下发 Wi-Fi / MQTT 设置时，请先使用 `./cli/config.sh set`，再让 `./cli/collect.sh --trigger ...` 复用对应 broker 或 `server.sh` state。对于注册表路径，优先使用 `./cli/config.sh` 加 `./cli/collect.sh`。
 

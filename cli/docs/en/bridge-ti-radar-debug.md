@@ -9,7 +9,7 @@ Here, "develop radar with bridge" means using the bridge as the public developme
 - capture raw data and startup output over MQTT
 - repeat that loop while choosing the right public bridge board for the target radar family
 
-Assume your current working directory is `cli` inside a published `mmwk` package. The examples below only use that public package layout.
+Assume your current working directory is `cli` inside a published `mmwk` package. The examples below only use that public package layout and POSIX shell wrapper names. On Windows PowerShell, use `.\server.ps1`, `.\run.ps1`, and `.\collect.ps1` where available; `.\config.ps1` requires Bash/Git Bash because it delegates to `config.sh`.
 
 ## Choose The Right Bridge Board
 

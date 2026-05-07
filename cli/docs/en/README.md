@@ -1,8 +1,8 @@
-# MMWK CLI Shell Wrapper
+# MMWK CLI Wrapper
 
-This document is for [`./run.sh`](../../run.sh), the recommended shell entrypoint for controlling and managing MMWK bridge/hub devices on **macOS** and **Linux**. The shell wrapper bootstraps the Python CLI in [`mmwk/`](../../mmwk/) and exposes the same command surface over UART (Serial) and MQTT, defaulting to canonical CLI JSON while also supporting MCP when paired with an MCP-enabled firmware build.
+This document covers the host-side MMWK CLI wrappers for controlling and managing MMWK bridge/hub devices. The POSIX entrypoint is [`./run.sh`](../../run.sh) on macOS/Linux/Git Bash, and the PowerShell entrypoint is [`.\run.ps1`](../../run.ps1) on Windows. Both wrappers call the Python CLI in [`mmwk/`](../../mmwk/) and expose the same command surface over UART (Serial) and MQTT, defaulting to canonical CLI JSON while also supporting MCP when paired with an MCP-enabled firmware build.
 
-`run.sh` now defaults to the canonical CLI JSON protocol. Most MMWK firmware builds also ship with CLI as the built-in control protocol. Some firmware versions additionally provide MCP support; contact us if you need an MCP-enabled firmware version. When using such a firmware version with `run.sh`, select `--protocol mcp`.
+The CLI now defaults to the canonical CLI JSON protocol. Most MMWK firmware builds also ship with CLI as the built-in control protocol. Some firmware versions additionally provide MCP support; contact us if you need an MCP-enabled firmware version. When using such a firmware version, select `--protocol mcp`.
 
 ## Raw Semantics Contract
 
@@ -16,6 +16,7 @@ This document is for [`./run.sh`](../../run.sh), the recommended shell entrypoin
 
 ## Table of Contents
 - [Installation](#installation)
+- [Host Platform Entry Points](#host-platform-entry-points)
 - [Quick Start](#quick-start)
 - [Core Concepts](#core-concepts)
   - [Device Identification](#device-identification)
@@ -34,11 +35,12 @@ This document is for [`./run.sh`](../../run.sh), the recommended shell entrypoin
 ## Installation
 
 ### Prerequisites
-- macOS or Linux with `bash`
 - Python 3.10 or higher
 - USB serial access to the device (when using UART)
+- For POSIX workflows: macOS/Linux with `bash`, or Windows with Git Bash
+- For Windows PowerShell workflows: PowerShell plus Python dependencies installed with `pip install -r requirements.txt`
 
-`run.sh` is the documented entrypoint in this README. Direct Python usage remains available as an advanced fallback via `python3 -m mmwk ...`, but the wrapper is the default workflow.
+The examples in this README use POSIX shell syntax (`./run.sh`, `./server.sh`) unless a PowerShell example is shown. On Windows PowerShell, use the matching `.ps1` wrapper and Windows serial ports such as `COM3`.
 
 ### Setup (Recommended)
 ```bash
@@ -48,11 +50,36 @@ This document is for [`./run.sh`](../../run.sh), the recommended shell entrypoin
 
 The wrapper creates `./venv` and installs dependencies on the first non-help command.
 
+PowerShell wrappers use your active/system Python environment instead of creating `./venv` automatically:
+
+```powershell
+# From the cli directory on Windows PowerShell
+py -m pip install -r requirements.txt
+.\run.ps1 --help
+```
+
 ### Setup (Manual)
 ```bash
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
+```
+
+## Host Platform Entry Points
+
+| Workflow | macOS / Linux / Git Bash | Windows PowerShell | Notes |
+|---|---|---|---|
+| Main CLI | `./run.sh ...` | `.\run.ps1 ...` | `run.sh` manages `./venv`; `run.ps1` uses the active/system Python 3.10+ environment. |
+| Local MQTT + HTTP server | `./server.sh ...` | `.\server.ps1 ...` | Both require `mosquitto` in `PATH` for the MQTT broker. |
+| Registry task helpers | `./config.sh`, `./collect.sh` | `.\config.ps1`, `.\collect.ps1` | `config.ps1` delegates to `config.sh` and requires Bash, for example Git Bash. `collect.ps1` delegates to Bash when available; without Bash, `--trigger` pure-MQTT mode and a limited registry collection fallback remain available. |
+| Direct Python | `python3 -m mmwk ...` | `py -m mmwk ...` or `python -m mmwk ...` | Use only when intentionally bypassing wrappers. |
+
+PowerShell command arguments are the same as the POSIX examples except for the wrapper name and serial-port spelling:
+
+```powershell
+.\run.ps1 node info -p COM3
+.\server.ps1 run --serve-dir C:\mmwk\artifacts --host-ip 192.168.4.8
+.\collect.ps1 --trigger device-reboot --device-id dc5475c879c0
 ```
 
 ## Surface Update (2026-04-13)
@@ -404,7 +431,7 @@ Recommended transport for real applications, dashboards, automation, and fleet/d
 
 ## Using run.sh
 
-The `run.sh` wrapper script handles virtual environment setup, dependency installation, and serial port detection automatically.
+The `run.sh` wrapper script handles virtual environment setup, dependency installation, and serial port detection automatically. On Windows PowerShell, use `.\run.ps1` after installing `requirements.txt`; it forwards the same command arguments to the Python CLI.
 
 ```bash
 # Show help and detected serial ports
@@ -417,12 +444,12 @@ The `run.sh` wrapper script handles virtual environment setup, dependency instal
 
 ### Local Server Helper (`server.sh`)
 
-`server.sh` is a companion script that instantly spins up a local MQTT broker and an HTTP file server. This is highly recommended when you want to use `run.sh` for Wi-Fi-based OTA flashing and local MQTT data collection workflows without relying on external cloud infrastructure.
+`server.sh` is a companion script that instantly spins up a local MQTT broker and an HTTP file server. Use `.\server.ps1` for the same server runtime from Windows PowerShell. This is highly recommended when you want to use the CLI for Wi-Fi-based OTA flashing and local MQTT data collection workflows without relying on external cloud infrastructure.
 
 **Key Capabilities:**
 - **Local MQTT Broker:** Uses your local `mosquitto` installation, which must already be available in `PATH`.
 - **Built-in HTTP Server:** Wraps Python's `http.server` to serve firmware binaries and configuration files required for OTA updates.
-- **Context Export:** Features an `env` command that generates shell variables (`MMWK_SERVER_XXX`) pointing to your host IP, MQTT URI, and HTTP Base URL, ready to be passed to `run.sh`.
+- **Context Export:** Features an `env` command that generates `MMWK_SERVER_XXX` variable lines pointing to your host IP, MQTT URI, and HTTP Base URL. Pass them directly to `run.sh`, or read the values into PowerShell variables before calling `run.ps1`.
 
 **Common Commands:**
 ```bash
@@ -456,6 +483,7 @@ When `--device-ota` is used, `server.sh` first looks for the legacy top-level `f
 - If `--serve-dir` is omitted, `server.sh` serves the current working directory you launched it from.
 - `server.sh status` validates both PID liveness and actual TCP listening state.
 - `server.sh env` prints the resolved host IP, MQTT URI, and HTTP base URL for reuse in `network mqtt`, `radar fw ota`, `node ota`, and `collect`.
+- In PowerShell, `.\server.ps1 env` prints the same `KEY=value` lines; copy the needed URL values into PowerShell variables or pass them directly to `.\run.ps1`.
 - For an OTA-only flow for already-running devices, use [Device OTA Guide](../../../docs/en/ota.md). Factory flashing is covered by [Factory Flash Guide](../../../docs/en/flash.md).
 - This helper is intended only for local development, local flash, and data collection workflows.
 
@@ -470,8 +498,9 @@ python3 -m mmwk node info -p /dev/cu.usbserial-0001
 
 ## Project Documentation
 
-- **[run.sh](../../run.sh)**: Recommended macOS/Linux shell wrapper with auto venv management.
-- **[mmwk/](../../mmwk/)**: Python implementation wrapped by `run.sh` (CLI entrypoint, transport layer, protocol clients, and flash/OTA commands).
+- **[run.sh](../../run.sh) / [run.ps1](../../run.ps1)**: POSIX and Windows PowerShell CLI wrappers.
+- **[server.sh](../../server.sh) / [server.ps1](../../server.ps1)**: POSIX and Windows PowerShell local MQTT + HTTP helper wrappers.
+- **[mmwk/](../../mmwk/)**: Python implementation wrapped by the host entrypoints (CLI entrypoint, transport layer, protocol clients, and flash/OTA commands).
 - **[Wavvar MMWK Canonical CLI Protocol V1.1](../../../docs/CLIv1.md)**: Default canonical CLI JSON protocol specification.
 - **[Wavvar MMWK MCP Protocol Specification V1.3](../../../docs/en/mcpv1.md)**: MCP/JSON-RPC specification for MCP-enabled firmware builds (`--protocol mcp` with the matching MCP firmware version).
 - **[Radar Task Tools](./radar-task-tools.md)**: Task-oriented wrappers for UART setup, network OTA, and MQTT raw collection from the `cli` directory.
@@ -685,7 +714,7 @@ If the radar has already been running for a while and you are only attaching lat
 
 ### External Tools
 
-`collect` remains the official command. The helper scripts below stay outside `run.sh`, and the working directory is the `cli` directory.
+`collect` remains the official command. The helper scripts below stay outside the main CLI wrapper, and the working directory is the `cli` directory. POSIX examples use `*.sh`; on Windows PowerShell use the matching `*.ps1` wrapper where available, with the parity notes in [Host Platform Entry Points](#host-platform-entry-points).
 
 - [Radar Task Tools](radar-task-tools.md): use `./config.sh init|update|list` plus `./collect.sh` when you want registry-backed UART setup, network update, and MQTT raw collection.
 - [Develop Radar With Bridge](bridge-ti-radar-debug.md): end-to-end bridge-development guide for choosing the right board and running `config.sh init|update|list` plus `collect.sh` on 6843- and 6432-series radar.

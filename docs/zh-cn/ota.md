@@ -25,6 +25,13 @@ cd ./cli
 ./server.sh run --device-ota --device-ota-board <board> --host-ip <host_ip>
 ```
 
+Windows PowerShell 下使用同一 helper 的 `.\server.ps1`：
+
+```powershell
+cd .\cli
+.\server.ps1 run --device-ota --device-ota-board <board> --host-ip <host_ip>
+```
+
 然后在另一个终端执行：
 
 ```bash
@@ -50,6 +57,8 @@ cd ..
 ./cli/run.sh node ota --url "$MMWK_SERVER_DEVICE_OTA_URL" -p <port>
 ./cli/run.sh node info -p <port>
 ```
+
+PowerShell 用户可以把 `.\server.ps1 env` 解析出的 URL 传给 `.\cli\run.ps1`，串口使用 `COM3` 这类 Windows 串口名。
 
 成功标准：
 

@@ -5,6 +5,8 @@
 - `config.sh`：统一入口，包含 `init`、`update` 和 `list`
 - `collect.sh`：基于设备注册表的 MQTT raw 采集
 
+本文示例使用 POSIX shell 写法。Windows PowerShell 下，在 `cli` 目录使用可用的 `.\config.ps1` 和 `.\collect.ps1`。其中 `config.ps1` 为了保持完整 registry-task parity，会转调 `config.sh`，因此需要 Bash，例如 Git Bash。`collect.ps1` 在有 Bash 时会转调 `collect.sh`；没有 Bash 时仍支持 pure-MQTT 的 `--trigger` 模式，以及受限的非 trigger registry 采集 fallback。
+
 设备注册表文件固定为 `<working>/device.yml`。默认 `<working>` 的解析顺序是：
 
 1. 当前工作目录下已经存在的 `./collect`

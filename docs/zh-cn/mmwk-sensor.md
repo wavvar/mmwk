@@ -77,7 +77,7 @@ Hub 内部实现、算法、私有模块和具体产品行为不属于这份公�
 
 推荐顺序：
 
-1. 用 `./cli/run.sh node info -p <port>` 确认设备可通过 UART 访问。
+1. POSIX shell 下用 `./cli/run.sh node info -p <port>`，Windows PowerShell 下用 `.\cli\run.ps1 node info -p COM3`，确认设备可通过 UART 访问。
 2. 如果 Wi-Fi 和 MQTT 还没配置好，按 [本地 `server.sh` + `run.sh` Wi-Fi 刷机与 5 分钟采集示例](./collect.md) 里的 bring-up 主线继续。
 3. 用 [本地 `server.sh` + `run.sh` Wi-Fi 刷机与 5 分钟采集示例](./collect.md) 完成经过验证的雷达刷写加 5 分钟数据采集流程。
 
@@ -94,7 +94,7 @@ Hub 内部实现、算法、私有模块和具体产品行为不属于这份公�
 
 ### 4.1 CLI 控制
 
-平台通过 UART 和 MQTT 暴露标准 CLI JSON 控制面。主机侧推荐在 macOS 或 Linux 上使用 `./cli/run.sh` 作为统一入口。
+平台通过 UART 和 MQTT 暴露标准 CLI JSON 控制面。macOS/Linux/Git Bash 使用 `./cli/run.sh`，Windows PowerShell 使用 `.\cli\run.ps1`；两者访问同一套 Python CLI 命令面。
 
 ### 4.2 Wi-Fi 配网
 

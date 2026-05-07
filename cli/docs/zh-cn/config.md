@@ -8,6 +8,8 @@
 cd ./cli
 ```
 
+下面示例使用 POSIX shell 写法。Windows PowerShell 下，只有在本机可用 Bash（例如 Git Bash）时才使用 `.\config.ps1 ...`；这个 PowerShell wrapper 会转调 `config.sh`，以保持行为一致。如果没有 Bash，请直接使用主 CLI 的 `.\run.ps1 network wifi|mqtt|status ...` 手工配置，或先安装 Git Bash 后再使用 registry helper。
+
 ## 它负责什么
 
 - 通过 `network wifi` 下发 Wi-Fi 凭据

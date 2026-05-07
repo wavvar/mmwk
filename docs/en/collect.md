@@ -25,6 +25,8 @@ The following constraints were respected during validation:
 
 The commands below assume the current working directory is the `mmwk` project root, meaning the directory that contains `firmwares/` and `cli/`.
 
+Examples use POSIX shell wrappers (`./cli/run.sh`, `./cli/server.sh`, `./cli/collect.sh`). On Windows PowerShell, use the matching wrappers (`.\cli\run.ps1`, `.\cli\server.ps1`, `.\cli\collect.ps1`) and Windows serial ports such as `COM3`; see the [CLI README](../../cli/docs/en/README.md#host-platform-entry-points) for parity notes.
+
 Placeholders used in this document:
 
 - `<artifact-dir>`
@@ -64,6 +66,8 @@ From the package root, the direct pure-MQTT helper supports:
 ./cli/collect.sh --trigger radar-restart
 ./cli/collect.sh --trigger device-reboot
 ```
+
+On Windows PowerShell, the same pure-MQTT trigger flow is available as `.\cli\collect.ps1 --trigger ...` after installing the Python requirements.
 
 This helper is pure MQTT for both control and raw capture. Use `./cli/config.sh set` when you need to push Wi-Fi/MQTT settings first, and let `./cli/collect.sh --trigger ...` consume the resulting broker or `server.sh` state. For the registry-backed path, prefer `./cli/config.sh` plus `./cli/collect.sh`.
 

@@ -25,6 +25,13 @@ cd ./cli
 ./server.sh run --device-ota --device-ota-board <board> --host-ip <host_ip>
 ```
 
+On Windows PowerShell, run the same helper through `.\server.ps1`:
+
+```powershell
+cd .\cli
+.\server.ps1 run --device-ota --device-ota-board <board> --host-ip <host_ip>
+```
+
 Then in another terminal:
 
 ```bash
@@ -50,6 +57,8 @@ cd ..
 ./cli/run.sh node ota --url "$MMWK_SERVER_DEVICE_OTA_URL" -p <port>
 ./cli/run.sh node info -p <port>
 ```
+
+PowerShell users can pass the resolved URL from `.\server.ps1 env` to `.\cli\run.ps1` and use a Windows serial port such as `COM3`.
 
 Success criteria:
 

@@ -10,6 +10,8 @@ The working directory is the `cli` directory:
 cd ./cli
 ```
 
+Examples below use POSIX shell syntax. On Windows PowerShell, use `.\collect.ps1 --trigger ...`; this pure-MQTT trigger mode runs without Bash as long as Python 3.10+ dependencies are installed. If Bash is installed, `collect.ps1` delegates to `collect.sh` for full wrapper behavior.
+
 ## What It Does
 
 - Captures `raw_data` into `data_resp.sraw`

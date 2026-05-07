@@ -5,6 +5,8 @@ These task-oriented wrappers stay outside `run.sh` and center on two local radar
 - `config.sh`: one registry-backed entrypoint with `init`, `update`, and `list`
 - `collect.sh`: registry-backed MQTT raw collection
 
+Examples in this guide use POSIX shell syntax. On Windows PowerShell, use `.\config.ps1` and `.\collect.ps1` from the `cli` directory where available. `config.ps1` requires Bash, for example Git Bash, because it delegates to `config.sh` for full registry-task parity. `collect.ps1` delegates to `collect.sh` when Bash is present; without Bash, it still supports pure-MQTT `--trigger` mode and a limited non-trigger registry fallback.
+
 The registry file is `<working>/device.yml`. The default `<working>` resolution is:
 
 1. `./collect` if it already exists under your current working directory

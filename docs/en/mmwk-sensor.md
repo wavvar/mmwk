@@ -77,7 +77,7 @@ Choose this path if `node info` already reports a reachable `mmwk_sensor` firmwa
 
 Recommended order:
 
-1. Confirm the device is reachable over UART with `./cli/run.sh node info -p <port>`.
+1. Confirm the device is reachable over UART with `./cli/run.sh node info -p <port>` on POSIX shells, or `.\cli\run.ps1 node info -p COM3` on Windows PowerShell.
 2. If Wi-Fi and MQTT are not configured yet, follow the bring-up sequence in [Local `server.sh` + `run.sh` Wi-Fi Flash and 5-Minute Collection Example](./collect.md).
 3. Use [Local `server.sh` + `run.sh` Wi-Fi Flash and 5-Minute Collection Example](./collect.md) for the validated radar flash plus 5-minute collection walkthrough.
 
@@ -94,7 +94,7 @@ Choose this path if the device is already running the current public `mmwk_senso
 
 ### 4.1 CLI Control
 
-The platform exposes the canonical CLI JSON control surface over UART and MQTT. The host-side `./cli/run.sh` wrapper is the recommended entry point on macOS and Linux.
+The platform exposes the canonical CLI JSON control surface over UART and MQTT. Use `./cli/run.sh` on macOS/Linux/Git Bash and `.\cli\run.ps1` on Windows PowerShell; both reach the same Python CLI command surface.
 
 ### 4.2 Wi-Fi Provisioning
 
