@@ -9,6 +9,7 @@ on:
   push:
     branches:
       - "main"
+      - "dev"
     paths:
       - "cli/**"
       - ".github/workflows/cli-nonwindows-smoke.yml"
