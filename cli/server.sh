@@ -861,7 +861,7 @@ run_server() {
 start_server() {
     local server_pid
     local attempts
-    local run_cmd=("$0" run
+    local run_cmd=("${SCRIPT_DIR}/server.sh" run
         --state-dir "$STATE_DIR"
         --serve-dir "$SERVE_DIR"
         --upload-dir "$UPLOAD_DIR"
