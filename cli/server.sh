@@ -20,6 +20,42 @@ find_python() {
     local ver
     local major
     local minor
+    local python_path
+
+    python_path="${pythonLocation:+${pythonLocation}/bin/python3}"
+    if [ -n "$python_path" ] && [ -x "$python_path" ]; then
+        ver="$("$python_path" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null)" || ver=""
+        case "$ver" in
+            ''|*[!0-9.]*|*.*.*|.*|*.) :
+                ;;
+            *)
+                major="${ver%%.*}"
+                minor="${ver#*.}"
+                if [ "$major" -ge 3 ] && [ "$minor" -ge 10 ]; then
+                    echo "$python_path"
+                    return 0
+                fi
+                ;;
+        esac
+    fi
+
+    python_path="${pythonLocation:+${pythonLocation}/bin/python}"
+    if [ -n "$python_path" ] && [ -x "$python_path" ]; then
+        ver="$("$python_path" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null)" || ver=""
+        case "$ver" in
+            ''|*[!0-9.]*|*.*.*|.*|*.) :
+                ;;
+            *)
+                major="${ver%%.*}"
+                minor="${ver#*.}"
+                if [ "$major" -ge 3 ] && [ "$minor" -ge 10 ]; then
+                    echo "$python_path"
+                    return 0
+                fi
+                ;;
+        esac
+    fi
+
     for cmd in python3 python; do
         if command -v "$cmd" >/dev/null 2>&1; then
             ver="$("$cmd" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null)" || continue
@@ -757,12 +793,9 @@ handle_server_signal() {
 start_children() {
     local mqtt_pid
     local http_pid
-    local http_cmd=(
-        env
-        PYTHONPATH="$SCRIPT_DIR"
-        PYTHONUNBUFFERED=1
-        "$PYTHON"
-        "$SCRIPT_DIR/mmwk/local_http_server.py"
+    local http_exit=0
+    local http_cmd
+    local http_args=(
         --serve-dir
         "$SERVE_DIR"
         --bind
@@ -772,7 +805,6 @@ start_children() {
         --upload-dir
         "$UPLOAD_DIR"
     )
-    local http_exit=0
 
     log_info "MQTT Log   : $MQTT_LOG"
     log_info "HTTP Log   : $HTTP_LOG"
@@ -789,8 +821,15 @@ start_children() {
     log_info "mosquitto is listening on 127.0.0.1:$MQTT_PORT"
 
     setup_venv >/dev/null
+    http_cmd=(
+        "$PYTHON"
+        -S
+        "$SCRIPT_DIR/mmwk/local_http_server.py"
+        "${http_args[@]}"
+    )
     log_info "Starting HTTP server command: ${http_cmd[*]}"
-    nohup "${http_cmd[@]}" >>"$HTTP_LOG" 2>&1 </dev/null &
+    PYTHONPATH="$SCRIPT_DIR" PYTHONUNBUFFERED=1 PYTHONFAULTHANDLER=1 nohup "${http_cmd[@]}" \
+        >>"$HTTP_LOG" 2>&1 </dev/null &
     http_pid="$!"
     echo "$http_pid" > "$HTTP_PID_FILE"
     log_info "Starting HTTP server (pid=$http_pid)"
@@ -800,9 +839,12 @@ start_children() {
         if ! is_pid_running "$http_pid"; then
             wait "$http_pid" 2>/dev/null || http_exit=$?
             echo "HTTP PID $http_pid exited with: $http_exit" >&2
+        else
+            kill -QUIT "$http_pid" >/dev/null 2>&1 || true
+            sleep 1
         fi
-        ps -p "$http_pid" -o pid=,ppid=,state=,command= >&2 || true
-        [ -f "$HTTP_LOG" ] && sed -n '1,240p' "$HTTP_LOG" >&2
+        ps -fp "$http_pid" -o pid=,ppid=,state=,command= >&2 || true
+        [ -f "$HTTP_LOG" ] && sed -n '1,320p' "$HTTP_LOG" >&2
         return 1
     fi
     log_info "HTTP server is listening on 127.0.0.1:$HTTP_PORT"
