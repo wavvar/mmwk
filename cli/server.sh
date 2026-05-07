@@ -781,6 +781,7 @@ cleanup_server() {
         kill "$server_pid" >/dev/null 2>&1 || true
     fi
 
+    rm -rf "$STATE_DIR/http_server_fallback_root"
     rm -f "$HTTP_PID_FILE" "$MQTT_PID_FILE" "$SERVER_PID_FILE" "$STOP_FILE"
 }
 
@@ -809,6 +810,22 @@ start_children() {
     local http_fallback_script
     local -a http_python_candidates
     local http_python_candidate
+    local http_fallback_root
+
+    prepare_http_fallback_root() {
+        local root="$1"
+        local entry
+
+        rm -rf "$root"
+        mkdir -p "$root"
+        printf '%s\n' '{"status":"ok"}' > "${root}/healthz"
+
+        while IFS= read -r -d '' entry; do
+            ln -s "$entry" "${root}/$(basename "$entry")"
+        done < <(
+            find "$SERVE_DIR" -mindepth 1 -maxdepth 1 -print0
+        )
+    }
 
     write_fallback_http_server() {
         local path="$1"
@@ -1056,6 +1073,32 @@ PY
         fi
     done
 
+    for http_python_candidate in "${http_python_candidates[@]}"; do
+        if [ ! -x "$http_python_candidate" ]; then
+            continue
+        fi
+
+        http_fallback_root="${STATE_DIR}/http_server_fallback_root"
+        if ! prepare_http_fallback_root "$http_fallback_root"; then
+            echo "Error: failed to prepare static HTTP fallback root at $http_fallback_root" >&2
+            continue
+        fi
+
+        http_cmd=(
+            "$http_python_candidate"
+            -m
+            http.server
+            --bind
+            127.0.0.1
+            "$HTTP_PORT"
+            --directory
+            "$http_fallback_root"
+        )
+        if start_http_server_attempt "simple http.server fallback (${http_python_candidate})" "${http_cmd[@]}"; then
+            return 0
+        fi
+    done
+
     echo "Error: all HTTP server startup attempts failed. See $HTTP_LOG" >&2
     return 1
 
@@ -1205,6 +1248,7 @@ stop_server() {
     fi
 
     rm -f "$STOP_FILE" "$SERVER_PID_FILE" "$MQTT_PID_FILE" "$HTTP_PID_FILE"
+    rm -rf "$STATE_DIR/http_server_fallback_root"
     log_info "State Dir : $STATE_DIR"
     echo "Local server stopped"
 }
