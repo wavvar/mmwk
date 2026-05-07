@@ -813,17 +813,16 @@ start_children() {
     local http_pid
     local http_exit=0
     local http_cmd
-    local http_python
     local http_args=(
         --serve-dir
         "$SERVE_DIR"
-        --bind
-        127.0.0.1
         --port
         "$HTTP_PORT"
         --upload-dir
         "$UPLOAD_DIR"
     )
+    local http_bind_addresses=(127.0.0.1 0.0.0.0)
+    local http_bind_addr
     local http_fallback_script
     local http_emergency_script
     local -a http_python_candidates
@@ -1160,86 +1159,76 @@ PY
         fi
     fi
 
-    for http_python_candidate in "${http_python_candidates[@]}"; do
-        if [ ! -x "$http_python_candidate" ]; then
-            continue
-        fi
+    for http_bind_addr in "${http_bind_addresses[@]}"; do
+        for http_python_candidate in "${http_python_candidates[@]}"; do
+            if [ ! -x "$http_python_candidate" ]; then
+                continue
+            fi
 
-        http_cmd=(
-            "$http_python_candidate"
-            "$SCRIPT_DIR/mmwk/local_http_server.py"
-            "${http_args[@]}"
-        )
-        if start_http_server_attempt "local_http_server.py (${http_python_candidate})" "${http_cmd[@]}"; then
-            return 0
-        fi
+            http_cmd=(
+                "$http_python_candidate"
+                "$SCRIPT_DIR/mmwk/local_http_server.py"
+                --bind
+                "$http_bind_addr"
+                "${http_args[@]}"
+            )
+            if start_http_server_attempt "local_http_server.py (${http_python_candidate}, bind=${http_bind_addr})" "${http_cmd[@]}"; then
+                return 0
+            fi
+
+            http_cmd=(
+                "$http_python_candidate"
+                "$http_fallback_script"
+                --bind
+                "$http_bind_addr"
+                "${http_args[@]}"
+            )
+            if start_http_server_attempt "fallback HTTP server (${http_python_candidate}, bind=${http_bind_addr})" "${http_cmd[@]}"; then
+                return 0
+            fi
+        done
     done
 
-    for http_python_candidate in "${http_python_candidates[@]}"; do
-        if [ ! -x "$http_python_candidate" ]; then
-            continue
-        fi
+    for http_bind_addr in "${http_bind_addresses[@]}"; do
+        for http_python_candidate in "${http_python_candidates[@]}"; do
+            if [ ! -x "$http_python_candidate" ]; then
+                continue
+            fi
 
-        http_cmd=(
-            "$http_python_candidate"
-            "$http_fallback_script"
-            "${http_args[@]}"
-        )
-        if start_http_server_attempt "fallback HTTP server (${http_python_candidate})" "${http_cmd[@]}"; then
-            return 0
-        fi
-    done
+            http_fallback_root="${STATE_DIR}/http_server_fallback_root"
+            if ! prepare_http_fallback_root "$http_fallback_root"; then
+                echo "Error: failed to prepare static HTTP fallback root at $http_fallback_root" >&2
+                continue
+            fi
 
-    for http_python_candidate in "${http_python_candidates[@]}"; do
-        if [ ! -x "$http_python_candidate" ]; then
-            continue
-        fi
+            http_cmd=(
+                "$http_python_candidate"
+                -m
+                http.server
+                --bind
+                "$http_bind_addr"
+                "$HTTP_PORT"
+                --directory
+                "$http_fallback_root"
+            )
+            if start_http_server_attempt "simple http.server fallback (${http_python_candidate}, bind=${http_bind_addr})" "${http_cmd[@]}"; then
+                return 0
+            fi
 
-        http_fallback_root="${STATE_DIR}/http_server_fallback_root"
-        if ! prepare_http_fallback_root "$http_fallback_root"; then
-            echo "Error: failed to prepare static HTTP fallback root at $http_fallback_root" >&2
-            continue
-        fi
-
-        http_cmd=(
-            "$http_python_candidate"
-            -m
-            http.server
-            --bind
-            127.0.0.1
-            "$HTTP_PORT"
-            --directory
-            "$http_fallback_root"
-        )
-        if start_http_server_attempt "simple http.server fallback (${http_python_candidate})" "${http_cmd[@]}"; then
-            return 0
-        fi
-    done
-
-    for http_python_candidate in "${http_python_candidates[@]}"; do
-        if [ ! -x "$http_python_candidate" ]; then
-            continue
-        fi
-
-        http_fallback_root="${STATE_DIR}/http_server_fallback_root"
-        if ! prepare_http_fallback_root "$http_fallback_root"; then
-            echo "Error: failed to prepare static HTTP fallback root at $http_fallback_root" >&2
-            continue
-        fi
-
-        http_cmd=(
-            "$http_python_candidate"
-            "$http_emergency_script"
-            --serve-dir
-            "$http_fallback_root"
-            --bind
-            127.0.0.1
-            --port
-            "$HTTP_PORT"
-        )
-        if start_http_server_attempt "emergency HTTP fallback (${http_python_candidate})" "${http_cmd[@]}"; then
-            return 0
-        fi
+            http_cmd=(
+                "$http_python_candidate"
+                "$http_emergency_script"
+                --serve-dir
+                "$http_fallback_root"
+                --bind
+                "$http_bind_addr"
+                --port
+                "$HTTP_PORT"
+            )
+            if start_http_server_attempt "emergency HTTP fallback (${http_python_candidate}, bind=${http_bind_addr})" "${http_cmd[@]}"; then
+                return 0
+            fi
+        done
     done
 
     echo "Error: all HTTP server startup attempts failed. See $HTTP_LOG" >&2
