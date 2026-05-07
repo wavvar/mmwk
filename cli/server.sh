@@ -1052,20 +1052,20 @@ PY
         fi
     fi
 
-        for http_python_candidate in "${http_python_candidates[@]}"; do
-            if [ ! -x "$http_python_candidate" ]; then
-                continue
-            fi
+    for http_python_candidate in "${http_python_candidates[@]}"; do
+        if [ ! -x "$http_python_candidate" ]; then
+            continue
+        fi
 
-            http_cmd=(
-                "$http_python_candidate"
-                "$SCRIPT_DIR/mmwk/local_http_server.py"
-                "${http_args[@]}"
-            )
-            if start_http_server_attempt "local_http_server.py (${http_python_candidate})" 8 "${http_cmd[@]}"; then
-                return 0
-            fi
-        done
+        http_cmd=(
+            "$http_python_candidate"
+            "$SCRIPT_DIR/mmwk/local_http_server.py"
+            "${http_args[@]}"
+        )
+        if start_http_server_attempt "local_http_server.py (${http_python_candidate})" "${http_cmd[@]}"; then
+            return 0
+        fi
+    done
 
     for http_python_candidate in "${http_python_candidates[@]}"; do
         if [ ! -x "$http_python_candidate" ]; then
@@ -1077,7 +1077,7 @@ PY
             "$http_fallback_script"
             "${http_args[@]}"
         )
-        if start_http_server_attempt "fallback HTTP server (${http_python_candidate})" 8 "${http_cmd[@]}"; then
+        if start_http_server_attempt "fallback HTTP server (${http_python_candidate})" "${http_cmd[@]}"; then
             return 0
         fi
     done
