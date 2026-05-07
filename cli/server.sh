@@ -532,6 +532,23 @@ PY
     done
 }
 
+print_tcp_listener_state() {
+    local port="$1"
+    local pid="$2"
+
+    if [ -z "$port" ]; then
+        return 0
+    fi
+
+    echo "Listener check for 127.0.0.1:$port (pid=${pid:-unknown})" >&2
+    if command -v lsof >/dev/null 2>&1; then
+        lsof -nP -iTCP:"$port" -sTCP:LISTEN -P 2>/dev/null || true
+        if [ -n "$pid" ]; then
+            lsof -a -p "$pid" -nP -iTCP:"$port" -sTCP:LISTEN -P 2>/dev/null || true
+        fi
+    fi
+}
+
 tcp_connects() {
     local host="$1"
     local port="$2"
@@ -808,6 +825,7 @@ start_children() {
         "$UPLOAD_DIR"
     )
     local http_fallback_script
+    local http_emergency_script
     local -a http_python_candidates
     local http_python_candidate
     local http_fallback_root
@@ -955,6 +973,93 @@ if __name__ == "__main__":
 PY
     }
 
+    write_emergency_http_server() {
+        local path="$1"
+
+        cat > "$path" <<'PY'
+"""Emergency HTTP fallback server used when all Python helpers fail."""
+
+from __future__ import annotations
+
+import argparse
+import json
+from functools import partial
+from http import HTTPStatus
+from http.server import HTTPServer, SimpleHTTPRequestHandler
+
+
+class _EmergencyHandler(SimpleHTTPRequestHandler):
+    """Serve files from a fixed directory and respond to /healthz."""
+
+    def do_GET(self):
+        if self.path.split("?", 1)[0] == "/healthz":
+            self._send_json({"status": "ok"})
+            return
+        super().do_GET()
+
+    def do_HEAD(self):
+        if self.path.split("?", 1)[0] == "/healthz":
+            payload = json.dumps({"status": "ok"}).encode("utf-8")
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            return
+        super().do_HEAD()
+
+    def do_POST(self):
+        self.send_error(HTTPStatus.NOT_FOUND, "POST unsupported")
+
+    def _send_json(self, payload: dict, status: HTTPStatus = HTTPStatus.OK):
+        body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, fmt, *args):
+        print(f"[emergency_http] {self.address_string()} - {fmt % args}", flush=True)
+
+
+def _main() -> int:
+    parser = argparse.ArgumentParser(description="Emergency fallback HTTP server")
+    parser.add_argument("--serve-dir", required=True, help="Directory to serve over HTTP")
+    parser.add_argument("--bind", default="0.0.0.0", help="Bind address")
+    parser.add_argument("--port", type=int, default=8380, help="Listen port")
+    args = parser.parse_args()
+
+    handler = partial(
+        _EmergencyHandler,
+        directory=args.serve_dir,
+    )
+    httpd = HTTPServer((args.bind, args.port), handler)
+    print(
+        json.dumps(
+            {
+                "status": "started",
+                "bind": args.bind,
+                "port": args.port,
+                "serve_dir": args.serve_dir,
+            },
+            separators=(",", ":"),
+        ),
+        flush=True,
+    )
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        httpd.server_close()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_main())
+PY
+    }
+
     start_http_server_attempt() {
         local attempt_label="$1"
         local attempt_timeout="$HTTP_START_TIMEOUT_SEC"
@@ -992,6 +1097,7 @@ PY
         fi
 
         echo "Error: HTTP server failed to start with ${attempt_label}. See $HTTP_LOG" >&2
+        print_tcp_listener_state "$HTTP_PORT" "$pid"
         if is_pid_running "$pid"; then
             kill -QUIT "$pid" >/dev/null 2>&1 || true
             while [ $attempts -gt 0 ]; do
@@ -1044,6 +1150,8 @@ PY
     setup_venv >/dev/null
     http_fallback_script="${STATE_DIR}/http_server_fallback.py"
     write_fallback_http_server "$http_fallback_script"
+    http_emergency_script="${STATE_DIR}/http_server_emergency.py"
+    write_emergency_http_server "$http_emergency_script"
 
     http_python_candidates=("$PYTHON")
     if [ -n "${pythonLocation:-}" ] && [ -x "${pythonLocation}/bin/python3" ]; then
@@ -1104,6 +1212,32 @@ PY
             "$http_fallback_root"
         )
         if start_http_server_attempt "simple http.server fallback (${http_python_candidate})" "${http_cmd[@]}"; then
+            return 0
+        fi
+    done
+
+    for http_python_candidate in "${http_python_candidates[@]}"; do
+        if [ ! -x "$http_python_candidate" ]; then
+            continue
+        fi
+
+        http_fallback_root="${STATE_DIR}/http_server_fallback_root"
+        if ! prepare_http_fallback_root "$http_fallback_root"; then
+            echo "Error: failed to prepare static HTTP fallback root at $http_fallback_root" >&2
+            continue
+        fi
+
+        http_cmd=(
+            "$http_python_candidate"
+            "$http_emergency_script"
+            --serve-dir
+            "$http_fallback_root"
+            --bind
+            127.0.0.1
+            --port
+            "$HTTP_PORT"
+        )
+        if start_http_server_attempt "emergency HTTP fallback (${http_python_candidate})" "${http_cmd[@]}"; then
             return 0
         fi
     done
