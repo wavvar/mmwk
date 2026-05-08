@@ -390,8 +390,8 @@ If BRIDGE firmware receives `hub` tool call, it returns "Unknown tool".
 
 Schema actions:
 
-- BRIDGE: `agent`, `heartbeat`, `hi`, `reboot`
-- HUB: `agent`, `heartbeat`, `hi`
+- BRIDGE: `agent`, `heartbeat`, `hi`, `claim`, `reboot`
+- HUB: `agent`, `heartbeat`, `hi`, `claim`
 
 Legacy removal:
 
@@ -415,6 +415,8 @@ Legacy removal:
 - `fw.switch` contains the profile-gated switch capability flags `persist` and `temp`.
 - `fw.boot_mode` reports the current radar boot path: `flash`, `uart`, `spi`, or `host`.
 - legacy aliases `radar_fw`, `radar_fw_version`, and `radar_cfg` remain mapped to `fw.running`.
+- `factory: INIT` is present only while the device is still in factory state.
+- `cid` and `oid` are present only after device identity has been claimed.
 
 Profile capability contract:
 
@@ -422,6 +424,28 @@ Profile capability contract:
 - HUB radar-facing status surfaces report `supported_start_modes: ["auto"]`.
 - BRIDGE currently reports `fw.switch.persist=true` and `fw.switch.temp=false`.
 - HUB currently reports `fw.switch.persist=false` and `fw.switch.temp=false`.
+
+#### `action=claim`
+
+`claim` obtains device identity and optional MQTT credentials from a claim provider. In the public MCP tool surface, call it through `node`:
+
+```json
+{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"node","arguments":{"action":"claim","endpoint":"https://claim.example.com/device","token":"ONE_TIME_TOKEN"}}}
+```
+
+Rules:
+
+- UART/local transport only; MQTT returns `unsupported_transport`.
+- `endpoint` and `token` are optional strings.
+- Successful provider responses must include `dev.cid` and `dev.oid`.
+- Already claimed devices return `already_claimed` and do not include identity in the error response.
+- Secrets are never returned: `token`, `mqtt.user`, and `mqtt.pass` stay out of responses.
+
+Success payload text contains:
+
+```json
+{"claimed":true,"cid":"CID123","oid":"OID456","mqtt":{"cid":"CID123","uri":"mqtt://broker.local"}}
+```
 
 #### `action=heartbeat`
 

@@ -87,6 +87,7 @@ PowerShell 下参数与 POSIX 示例保持一致，主要差异是 wrapper 名�
 - hub 唯一新增的公开面是 `scene`，以及那些只有在 requested sensor set 通过 support check 后才会暴露出来的额外 sensor endpoint/event。
 - 能力发现统一收敛到 `endpoint list` 和 `proto list|status|manifest`。
 - 原始录制/配置统一收敛到 `radar raw status`、`radar raw config get|set --json ...`、`radar raw start|stop|trigger`。
+- `node claim` 是 UART/local 的设备身份 claim 流程，用来获取 `cid`/`oid` 和可选 MQTT 凭据；`network prov` 仍然只是 Wi-Fi 配网。
 - `scene` 仅 hub 支持；bridge 上直接调用 `scene` 会返回 unknown tool。
 
 ---
@@ -110,6 +111,16 @@ PowerShell 下参数与 POSIX 示例保持一致，主要差异是 wrapper 名�
 
 当 key 保护启用时，`node factory-reset` 同样需要正确的 `--key`。成功后 CLI 只输出一行：`已触发重置`。设备会在 1 秒后重启。这个短暂 pending 窗口内，只允许 `node info` 与重复 `node factory-reset`；其他命令会被拒绝并返回 reset pending 状态错误。窗口期间 `node info` 会返回 `factory_reset_pending=true`。
 
+## 设备身份 Claim
+
+`node claim` 从 claim provider 获取设备身份（`cid` / `oid`）和可选 MQTT 凭据。它只能通过本地 UART 执行；MQTT transport 会被拒绝。
+
+```bash
+./run.sh node claim --endpoint https://claim.example.com/device --token ONE_TIME_TOKEN -p /dev/cu.usbserial-0001
+```
+
+`--endpoint` 只覆盖本次 claim 的固件默认地址。`--token` 是一次性输入，不会持久化，也不会在响应中返回。claim 成功后会持久化 `dev.cid` 和 `dev.oid`，之后 `node info` 会显示 `cid` 和 `oid`。设备仍处于工厂状态时，`node info` 还会显示 `factory: INIT`；claim 或用户 reset 之后该字段不再显示。`network prov` 仍只负责 Wi-Fi 配网，不负责 claim 设备身份。
+
 ---
 
 ## 快速开始
@@ -128,7 +139,7 @@ PowerShell 下参数与 POSIX 示例保持一致，主要差异是 wrapper 名�
 ./run.sh node info -p /dev/cu.usbserial-0001
 ```
 
-期望 `node info` 返回的字段包括 `name`、`board`、`version`、`id`，以及在 MQTT 已配置时返回的 `uri`、`client_id`、`raw_data_topic`、`raw_resp_topic`。同时会返回 `factory_reset_pending`，用于表示短暂的重置过渡状态。其中 `name` / `version` 是 ESP 固件身份的标准字段。
+期望 `node info` 返回的字段包括 `name`、`board`、`version`、`id`，以及在 MQTT 已配置时返回的 `uri`、`client_id`、`raw_data_topic`、`raw_resp_topic`。同时会返回 `factory_reset_pending`，用于表示短暂的重置过渡状态。处于工厂状态时会返回 `factory: INIT`；执行 `node claim` 后会返回 claim 得到的设备身份字段 `cid` 和 `oid`。其中 `name` / `version` 是 ESP 固件身份的标准字段。
 启动所有权现在改为由雷达面暴露：`radar status` 返回 `mode` 与 `modes`，`fw.boot_mode` 则表示当前运行态的雷达 boot path。BRIDGE 报告 `["auto", "host"]`，HUB 报告 `["auto"]`。
 
 ### 2. 刷写雷达固件与配置
@@ -231,23 +242,23 @@ SDK 硬件验收同样保持显式选择：PRO 设备或带 4G 的 WDR 设备测
 
 设备的硬件唯一标识，可通过 `node info` 获取。
 
-### MQTT Client ID
+### Claimed ID / MQTT Client ID
 
-MQTT `client_id` 固定绑定 Wi-Fi STA MAC，格式为 12 位小写十六进制，无分隔符。它是只读派生值，用于 MQTT 会话和 canonical topic 推导：
+执行 `node claim` 后，标准设备身份是 `cid` / `oid`。MQTT 优先使用 claim provider 下发的 `mqtt.cid`；如果没有 `mqtt.cid`，则使用 `dev.cid`；没有 claim 身份时，回退到 Wi-Fi STA MAC 的大写十六进制形式，并带上固件配置的前缀。该值用于 MQTT 会话和 canonical topic 推导：
 
-- `mmwk/{mac}/device/cmd`
-- `mmwk/{mac}/device/resp`
-- `mmwk/{mac}/raw/data`
-- `mmwk/{mac}/raw/resp`
-- `mmwk/{mac}/raw/cmd`（仅 host 模式）
+- `mmwk/{client_id}/device/cmd`
+- `mmwk/{client_id}/device/resp`
+- `mmwk/{client_id}/raw/data`
+- `mmwk/{client_id}/raw/resp`
+- `mmwk/{client_id}/raw/cmd`（仅 host 模式）
 
 ### MQTT 通道职责
 
-- `network mqtt`：配置 broker / 鉴权，设备控制 topic 固定为 `mmwk/{mac}/device/...`
-- MQTT raw 透传平面固定发布到 `mmwk/{mac}/raw/...`；host 模式下会额外派生 `raw/cmd`
+- `network mqtt`：配置 broker / 鉴权，设备控制 topic 固定为 `mmwk/{client_id}/device/...`
+- MQTT raw 透传平面固定发布到 `mmwk/{client_id}/raw/...`；host 模式下会额外派生 `raw/cmd`
 - 公开的 `radar raw` 命令族只负责录制器状态/配置和录制触发；`collect` / `collect.sh --trigger` 负责订阅 MQTT raw topic
 - `raw_resp` 对应 `on_cmd_data` 的启动 trim 后命令口输出，`raw_data` 对应 `on_radar_data` 的数据口原始字节
-- bridge/auto 模式下 MQTT raw 平面是只出不进的，只对外发布 `mmwk/{mac}/raw/data` 和 `mmwk/{mac}/raw/resp`；host 模式下才会额外开放 `mmwk/{mac}/raw/cmd`
+- bridge/auto 模式下 MQTT raw 平面是只出不进的，只对外发布 `mmwk/{client_id}/raw/data` 和 `mmwk/{client_id}/raw/resp`；host 模式下才会额外开放 `mmwk/{client_id}/raw/cmd`
 - `on_cmd_resp`、`on_radar_frame` 属于应用层回调，与 raw capture 不同
 - 推荐真实应用通过 MQTT 集成，UART 主要用于刷写、bring-up、调试和兜底
 
@@ -336,6 +347,7 @@ flowchart LR
 | Command | 说明 |
 |---------|------|
 | `node info` | 读取设备身份与已发布元数据 |
+| `node claim` | 通过 UART/local claim 设备身份与凭据 |
 | `node factory-reset` | 触发恢复出厂（清 NVS + 运行期资源，1 秒后重启） |
 | `node reboot` | 重启设备 |
 | `node ota` | 升级 ESP 固件 |
@@ -367,6 +379,7 @@ flowchart LR
 ```bash
 # --- Node ---
 ./run.sh node info -p /dev/cu.usbserial-0001
+./run.sh node claim --endpoint https://claim.example.com/device --token ONE_TIME_TOKEN -p /dev/cu.usbserial-0001
 ./run.sh node factory-reset --key YOUR_KEY -p /dev/cu.usbserial-0001
 ./run.sh endpoint list -p /dev/cu.usbserial-0001
 ./run.sh proto list -p /dev/cu.usbserial-0001

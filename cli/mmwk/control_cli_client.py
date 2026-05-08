@@ -32,6 +32,7 @@ def _action_property(actions: list[str], description: str) -> dict:
 
 def _build_node_tool(profile: str) -> dict:
     actions = ["agent", "heartbeat", "info", "ota", "factory_reset"]
+    actions.append("claim")
     if profile == "hub":
         actions.append("inquiry")
     else:
@@ -49,6 +50,8 @@ def _build_node_tool(profile: str) -> dict:
             "reboot_ms": {"type": "number", "description": "Reboot threshold when MQTT stays disconnected"},
             "interval": {"type": "number", "description": "Heartbeat interval"},
             "fields": {"type": "array", "items": {"type": "string"}, "description": "Heartbeat fields"},
+            "endpoint": {"type": "string", "description": "Claim endpoint override"},
+            "token": {"type": "string", "description": "One-time claim token"},
             "url": {"type": "string", "description": "ESP OTA firmware URL (.bin)"},
         },
         ["action"],

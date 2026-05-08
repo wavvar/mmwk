@@ -359,8 +359,8 @@ BRIDGE 专属扩展：
 
 Schema 中的 action：
 
-- BRIDGE：`agent`、`heartbeat`、`hi`、`reboot`
-- HUB：`agent`、`heartbeat`、`hi`
+- BRIDGE：`agent`、`heartbeat`、`hi`、`claim`、`reboot`
+- HUB：`agent`、`heartbeat`、`hi`、`claim`
 
 已删除的旧接口：
 
@@ -384,6 +384,8 @@ Schema 中的 action：
 - `fw.switch` 包含当前 profile 门控出来的切换能力标志 `persist` 和 `temp`
 - `fw.boot_mode` 表示当前雷达会话的启动路径：`flash`、`uart`、`spi`、`host`
 - 旧字段 `radar_fw`、`radar_fw_version`、`radar_cfg` 仍然保留，它们与 `fw.running` 对齐
+- `factory: INIT` 只在设备仍处于工厂状态时返回
+- `cid` 和 `oid` 只在设备身份已 claim 后返回
 
 profile 能力契约：
 
@@ -391,6 +393,28 @@ profile 能力契约：
 - HUB 的雷达状态面会报告 `supported_start_modes: ["auto"]`
 - BRIDGE 当前报告 `fw.switch.persist=true`、`fw.switch.temp=false`
 - HUB 当前报告 `fw.switch.persist=false`、`fw.switch.temp=false`
+
+#### `action=claim`
+
+`claim` 用来从 claim provider 获取设备身份和可选 MQTT 凭据。公开 MCP tool 面通过 `node` 调用：
+
+```json
+{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"node","arguments":{"action":"claim","endpoint":"https://claim.example.com/device","token":"ONE_TIME_TOKEN"}}}
+```
+
+规则：
+
+- 只能通过 UART/local transport 执行；MQTT 返回 `unsupported_transport`
+- `endpoint` 和 `token` 是可选字符串
+- 成功的 provider 响应必须包含 `dev.cid` 和 `dev.oid`
+- 已 claim 的设备返回 `already_claimed`，错误响应不带身份字段
+- 不会返回密钥：`token`、`mqtt.user`、`mqtt.pass` 都不会出现在响应中
+
+成功载荷文本包含：
+
+```json
+{"claimed":true,"cid":"CID123","oid":"OID456","mqtt":{"cid":"CID123","uri":"mqtt://broker.local"}}
+```
 
 #### `action=heartbeat`
 

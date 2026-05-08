@@ -155,6 +155,7 @@ ENVIRONMENT:
 
 COMMANDS:
     node info             Node status handshake
+    node claim            Claim device identity and credentials
     node reboot           Reboot the node
     node ota              Update ESP firmware via HTTP OTA
     node agent            Enable/disable built-in agent services

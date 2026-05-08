@@ -88,6 +88,7 @@ PowerShell command arguments are the same as the POSIX examples except for the w
 - The hub-only public increment is `scene` plus the extra sensor endpoints/events that appear only after the requested sensor set passes support check.
 - Public capability introspection now uses `endpoint list` and `proto list|status|manifest`.
 - Public raw recorder/config control now uses `radar raw status`, `radar raw config get|set --json ...`, and `radar raw start|stop|trigger`.
+- `node claim` is the UART/local device identity claim flow; it obtains `cid`/`oid` and optional MQTT credentials. `network prov` remains Wi-Fi provisioning.
 - Legacy discovery roots were removed from public help/discovery; the command reference below reflects the current public surface.
 - `scene` is hub-only. On bridge, direct `scene` calls return unknown tool.
 
@@ -112,6 +113,16 @@ Factory or empty-key devices remain open for bring-up. After you set a key, prot
 
 `node factory-reset` is key-protected whenever key protection is enabled. On success, CLI prints exactly one line: `已触发重置`. The device reboots after 1 second. During that short pending window, only `node info` and repeated `node factory-reset` are accepted; other commands are rejected with a pending-reset state error. `node info` reports `factory_reset_pending=true` during that window.
 
+## Device Claim
+
+`node claim` obtains the device identity (`cid` and `oid`) and optional MQTT credentials from a claim provider. It is local only and must use UART; MQTT transport is rejected.
+
+```bash
+./run.sh node claim --endpoint https://claim.example.com/device --token ONE_TIME_TOKEN -p /dev/cu.usbserial-0001
+```
+
+`--endpoint` overrides the firmware default for that attempt. `--token` is one-time input only: it is not persisted and is never returned. A successful claim persists `dev.cid` and `dev.oid`; later `node info` shows `cid` and `oid`. If the device is still in factory state, `node info` also shows `factory: INIT`; after claim or user reset this field is omitted. `network prov` is still only Wi-Fi provisioning and does not claim device identity.
+
 ---
 
 ## Quick Start
@@ -129,7 +140,7 @@ Check the shell wrapper and discover device identity:
 ./run.sh node info -p /dev/cu.usbserial-0001
 ```
 
-Expected `node info` fields include `name`, `board`, `version`, `id`, plus, when MQTT is configured, `uri`, `client_id`, `raw_data_topic`, and `raw_resp_topic`. It also includes `factory_reset_pending` to expose the short reset transition state. Here `name` / `version` are the canonical ESP firmware identity fields.
+Expected `node info` fields include `name`, `board`, `version`, `id`, plus, when MQTT is configured, `uri`, `client_id`, `raw_data_topic`, and `raw_resp_topic`. It also includes `factory_reset_pending` to expose the short reset transition state. In factory state it includes `factory: INIT`; after `node claim`, it includes claimed device identity fields `cid` and `oid`. Here `name` / `version` are the canonical ESP firmware identity fields.
 Startup ownership is now exposed on radar-facing surfaces instead: `radar status` returns `mode` and `modes`, while `fw.boot_mode` inside the `fw` object reports the runtime radar boot path. BRIDGE reports `["auto", "host"]`; HUB reports `["auto"]`.
 
 ### 2. Flash Your Radar Firmware + Config (UART, simplest)
@@ -223,15 +234,15 @@ The **Device ID** is a unique, fixed identifier derived from the hardware MAC ad
 - **Discovery**: Use the `node info` command.
 - **Usage**: Stable hardware identity for the board itself.
 
-#### 2. MQTT Client ID / Topic ID
-The MQTT **Client ID** is fixed to the Wi-Fi STA MAC rendered as 12 lowercase hex characters with no separators. It is a read-only derived value exposed by `node info` and `network mqtt`.
-- **Default device command topics**: `mmwk/{mac}/device/cmd` and `mmwk/{mac}/device/resp`
-- **Default raw data topics**: `mmwk/{mac}/raw/data` and `mmwk/{mac}/raw/resp` in every mode; host mode additionally exposes `mmwk/{mac}/raw/cmd`
-- **CLI note**: when using `--transport mqtt`, pass the derived MAC-form `client_id` as `--device-id`.
+#### 2. Claimed ID / MQTT Client ID / Topic ID
+After `node claim`, the canonical device identity is `cid` / `oid`, and MQTT uses `mqtt.cid` when supplied by the claim provider. If `mqtt.cid` is absent, MQTT falls back to `dev.cid`; before claim, it falls back to the Wi-Fi STA MAC rendered as uppercase hex with the firmware-configured prefix.
+- **Default device command topics**: `mmwk/{client_id}/device/cmd` and `mmwk/{client_id}/device/resp`
+- **Default raw data topics**: `mmwk/{client_id}/raw/data` and `mmwk/{client_id}/raw/resp` in every mode; host mode additionally exposes `mmwk/{client_id}/raw/cmd`
+- **CLI note**: when using `--transport mqtt`, pass the current `client_id` from `node info` or `network mqtt` as `--device-id`.
 
 #### 3. MQTT Channels and Responsibilities
-- `network mqtt` configures the broker connection plus the CLI JSON interaction topics used by the built-in control plane: `mmwk/{mac}/device/cmd` and `mmwk/{mac}/device/resp`.
-- The MQTT raw passthrough plane publishes to the fixed topics `mmwk/{mac}/raw/data` and `mmwk/{mac}/raw/resp`. In host mode it also derives the optional `mmwk/{mac}/raw/cmd`.
+- `network mqtt` configures the broker connection plus the CLI JSON interaction topics used by the built-in control plane: `mmwk/{client_id}/device/cmd` and `mmwk/{client_id}/device/resp`.
+- The MQTT raw passthrough plane publishes to the fixed topics `mmwk/{client_id}/raw/data` and `mmwk/{client_id}/raw/resp`. In host mode it also derives the optional `mmwk/{client_id}/raw/cmd`.
 - Public `radar raw` commands manage recorder/config surfaces, while host-side `collect` and `collect.sh --trigger` subscribe to the MQTT raw passthrough topics.
 - `raw_data` corresponds to raw data-port bytes from `on_radar_data` and is typically collected as `data_resp.sraw`.
 - `raw_resp` corresponds to startup-trimmed command-port output from `on_cmd_data` and is typically collected as `cmd_resp.log`.
@@ -338,6 +349,7 @@ Recommended transport for real applications, dashboards, automation, and fleet/d
 | Command | Action Description |
 |---------|---------------------|
 | `node info` | Handshake: identify model, version, and published metadata |
+| `node claim` | Claim device identity and credentials over UART/local transport |
 | `node factory-reset` | Trigger factory reset (clear NVS + runtime assets, reboot after 1s) |
 | `node reboot` | Reboot the device |
 | `node ota` | Update the ESP firmware via HTTP OTA |
@@ -369,6 +381,7 @@ Recommended transport for real applications, dashboards, automation, and fleet/d
 ```bash
 # --- Node ---
 ./run.sh node info -p /dev/cu.usbserial-0001
+./run.sh node claim --endpoint https://claim.example.com/device --token ONE_TIME_TOKEN -p /dev/cu.usbserial-0001
 ./run.sh node factory-reset --key YOUR_KEY -p /dev/cu.usbserial-0001
 ./run.sh node reboot -p /dev/cu.usbserial-0001
 ./run.sh node ota --fw mmwk_sensor_bridge_full.bin -p /dev/cu.usbserial-0001

@@ -451,6 +451,20 @@ def cmd_node_factory_reset(args):
         transport.close()
 
 
+def cmd_node_claim(args):
+    """Handle: mmwk node claim ..."""
+    if getattr(args, "transport", "uart") != "uart":
+        print("Error: node claim is only supported over UART/local transport")
+        sys.exit(1)
+
+    payload = {"action": "claim"}
+    if getattr(args, "endpoint", None):
+        payload["endpoint"] = args.endpoint
+    if getattr(args, "token", None):
+        payload["token"] = args.token
+    _call_tool_and_print_json(args, "node", payload)
+
+
 def cmd_device_ota(args):
     """Handle: mmwk device ota ..."""
     if args.https and not args.fw:
@@ -1158,6 +1172,12 @@ def main():
     )
     add_transport_args(node_factory_reset_parser)
     node_factory_reset_parser.set_defaults(func=cmd_node_factory_reset)
+
+    node_claim_parser = node_sub.add_parser("claim", help="Claim device identity and credentials")
+    node_claim_parser.add_argument("--endpoint", help="Claim endpoint override for this attempt")
+    node_claim_parser.add_argument("--token", help="One-time claim token for this attempt")
+    add_transport_args(node_claim_parser)
+    node_claim_parser.set_defaults(func=cmd_node_claim)
 
     node_key_parser = node_sub.add_parser("key", help="Manage CLI protection key")
     node_key_sub = node_key_parser.add_subparsers(dest="key_action", required=True)

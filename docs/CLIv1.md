@@ -22,6 +22,7 @@ CLIv1.1 reports `protocolVersion` as `control.v1.1` during host initialization.
 - Defines top-level per-request `key` protection for UART and MQTT.
 - Defines public/private `node info` views after a device key is stored.
 - Defines `node key status`, `node key set`, and `node key clear` for key management.
+- Defines `node claim` for UART/local device identity claim, returning `cid` / `oid` and non-secret MQTT metadata.
 - Keeps public protocol directory discovery available without a key through `proto list`, `proto status`, and `proto manifest`.
 
 ### V1.0
@@ -96,6 +97,33 @@ Key management is under `node key`:
 - `clear` removes the stored key and requires the current correct top-level `key`.
 - There is no `rotate` operation; updating is handled by `set`.
 
+## Node Claim
+
+`node claim` obtains concrete device identity from a claim provider. It is intentionally separate from `network prov`: `network prov` starts Wi-Fi provisioning, while `node claim` obtains `dev.cid`, `dev.oid`, and optional MQTT credentials.
+
+Request:
+
+```json
+{"type":"req","seq":6,"service":"node","action":"claim","args":{"endpoint":"https://claim.example.com/device","token":"ONE_TIME_TOKEN"}}
+```
+
+Rules:
+
+- `node claim` is UART/local only; MQTT transport returns `unsupported_transport`.
+- `endpoint` is optional and overrides the firmware default only for this attempt.
+- `token` is optional, one-time input; it is never persisted or echoed.
+- A successful claim requires both `dev.cid` and `dev.oid`.
+- Already claimed devices return `already_claimed` and do not include identity in the error response.
+- Secrets such as `token`, `mqtt.user`, and `mqtt.pass` are never returned.
+- `node info` includes `cid` and `oid` only when identity exists.
+- `node info` includes `factory: INIT` only while the device is still in factory state.
+
+Success response:
+
+```json
+{"type":"res","seq":6,"ok":true,"result":{"claimed":true,"cid":"CID123","oid":"OID456","mqtt":{"cid":"CID123","uri":"mqtt://broker.local"}}}
+```
+
 ## Success Response
 
 ```json
@@ -122,6 +150,12 @@ Error code strings currently include:
 - `not.found`
 - `invalid.arg`
 - `unauthorized`
+- `unsupported_transport`
+- `already_claimed`
+- `provider_unavailable`
+- `invalid_response`
+- `persist_failed`
+- `claim_failed`
 - `internal`
 
 ## Event
