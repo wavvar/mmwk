@@ -79,7 +79,7 @@ PowerShell command arguments are the same as the POSIX examples except for the w
 ```powershell
 .\run.ps1 node info -p COM3
 .\server.ps1 run --serve-dir C:\mmwk\artifacts --host-ip 192.168.4.8
-.\collect.ps1 --trigger device-reboot --device-id dc5475c879c0
+.\collect.ps1 --trigger device-reboot --device-id DC5475C879C0
 ```
 
 ## Surface Update (2026-04-13)
@@ -247,7 +247,7 @@ After `node claim`, the canonical device identity is `cid` / `oid`, and MQTT use
 - `raw_data` corresponds to raw data-port bytes from `on_radar_data` and is typically collected as `data_resp.sraw`.
 - `raw_resp` corresponds to startup-trimmed command-port output from `on_cmd_data` and is typically collected as `cmd_resp.log`.
 - `on_cmd_resp` and `on_radar_frame` are application-layer callbacks and are different from raw capture outputs.
-- `raw_cmd` is an optional host-mode MQTT ingress for radar CMD UART passthrough and is distinct from the CLI JSON command topic `mmwk/{mac}/device/cmd`.
+- `raw_cmd` is an optional host-mode MQTT ingress for radar CMD UART passthrough and is distinct from the CLI JSON command topic `mmwk/{client_id}/device/cmd`.
 - Recommended practice: real applications, services, dashboards, and agents should integrate through MQTT. UART is mainly for factory setup, initial flashing, bring-up, bench debugging, and emergency fallback.
 
 #### 4. Startup Ownership Contract
@@ -301,8 +301,8 @@ flowchart LR
     U["UART Host\nfactory / debug / recovery"] <-->|"UART CLI JSON\nbuiltin control"| D["MMWK Device (ESP)\nCLIv1 builtin control + radar bridge"]
     D -->|"CMD UART"| RC["Radar CMD UART"]
     RD["Radar DATA UART"] --> D
-    D <-->|"MQTT CLI JSON\nnetwork mqtt\n mmwk/{mac}/device/cmd + resp"| B["MQTT Broker"]
-    D <-->|"MQTT RAW\nradar raw\n mmwk/{mac}/raw/data + resp\n(+ cmd in host)"| B
+    D <-->|"MQTT CLI JSON\nnetwork mqtt\n mmwk/{client_id}/device/cmd + resp"| B["MQTT Broker"]
+    D <-->|"MQTT RAW\nradar raw\n mmwk/{client_id}/raw/data + resp\n(+ cmd in host)"| B
     A["Application / Cloud / AI Agent"] <-->|"Primary integration path"| B
 ```
 
@@ -324,12 +324,12 @@ Primary transport for factory setup, local debugging, and recovery. Ordinary UAR
 ### MQTT (Remote)
 Recommended transport for real applications, dashboards, automation, and fleet/device management over the network.
 ```bash
-./run.sh radar status --transport mqtt --broker 192.168.1.5 --device-id dc5475c879c0
+./run.sh radar status --transport mqtt --broker 192.168.1.5 --device-id DC5475C879C0
 ```
-- **Topics**: `mmwk/{mac}/device/cmd` (input) and `mmwk/{mac}/device/resp` (output).
+- **Topics**: `mmwk/{client_id}/device/cmd` (input) and `mmwk/{client_id}/device/resp` (output).
 - **Configured by**: `network mqtt`
-- **`--device-id` meaning**: pass the derived MAC-form `client_id` used in `mmwk/{mac}/...`.
-- **Raw passthrough relation**: the device publishes MQTT raw passthrough traffic to `mmwk/{mac}/raw/data` and `mmwk/{mac}/raw/resp`. Host mode can additionally derive `mmwk/{mac}/raw/cmd`.
+- **`--device-id` meaning**: pass the current `client_id` used in `mmwk/{client_id}/...`; before claim, the MAC-form fallback is uppercase hex.
+- **Raw passthrough relation**: the device publishes MQTT raw passthrough traffic to `mmwk/{client_id}/raw/data` and `mmwk/{client_id}/raw/resp`. Host mode can additionally derive `mmwk/{client_id}/raw/cmd`.
 - **Default QoS**: 1 (At least once delivery).
 
 ---
@@ -636,7 +636,7 @@ Runtime reconf behavior:
 Related startup-mode behavior:
 - BRIDGE reports `modes: ["auto", "host"]` on radar-facing status surfaces, while device-facing surfaces no longer expose startup policy.
 - BRIDGE supports `["auto", "host"]`; HUB supports `["auto"]`.
-- In bridge `host`, `raw_auto=1` auto-starts `mmwk/{mac}/raw/data`, `mmwk/{mac}/raw/resp`, and `mmwk/{mac}/raw/cmd`.
+- In bridge `host`, `raw_auto=1` auto-starts `mmwk/{client_id}/raw/data`, `mmwk/{client_id}/raw/resp`, and `mmwk/{client_id}/raw/cmd`.
 
 ### Method D: Read Back the Current Radar CFG
 
@@ -662,7 +662,7 @@ Both methods also work over MQTT instead of UART. Add `--transport mqtt` and pro
 ```bash
 ./run.sh radar fw flash \
   --fw fw.bin --cfg config.cfg \
-  --transport mqtt --broker 192.168.1.100 --device-id dc5475c879c0 \
+  --transport mqtt --broker 192.168.1.100 --device-id DC5475C879C0 \
   --mqtt-delay 0.05
 ```
 
@@ -692,7 +692,7 @@ What happens under the hood:
 2. Waits for the device to regain a usable runtime IP when Wi-Fi/MQTT is still recovering
 3. Queries `node agent` and `radar fw list` to backfill any missing fields
 4. Uses the bridge raw bootstrap path to make sure MQTT raw passthrough is active on the device
-5. Connects to the MQTT broker and subscribes to `mmwk/{mac}/raw/data` and `mmwk/{mac}/raw/resp`
+5. Connects to the MQTT broker and subscribes to `mmwk/{client_id}/raw/data` and `mmwk/{client_id}/raw/resp`
 6. Writes received payloads to the output files for the specified duration, keeping `cmd_resp.log` as startup-trimmed command-port text
 
 Recommended smoke-test criteria after the run:
@@ -717,9 +717,9 @@ You can also provide explicit MQTT parameters to skip auto-discovery:
 ```bash
 ./run.sh collect --duration 30 \
   --broker mqtt://192.168.1.100:1883 \
-  --device-id dc5475c879c0 \
-  --data-topic mmwk/dc5475c879c0/raw/data \
-  --resp-topic mmwk/dc5475c879c0/raw/resp \
+  --device-id DC5475C879C0 \
+  --data-topic mmwk/DC5475C879C0/raw/data \
+  --resp-topic mmwk/DC5475C879C0/raw/resp \
   --data-output ./data_resp.sraw --resp-output ./cmd_resp.log
 ```
 
@@ -761,8 +761,8 @@ On fresh bridge devices this is enough to bring up MQTT control. Use `node agent
 mosquitto_sub -h 192.168.1.100 -t 'mmwk/#' -v
 
 # Or subscribe to specific topics
-mosquitto_sub -h 192.168.1.100 -t 'mmwk/dc5475c879c0/raw/data'
-mosquitto_sub -h 192.168.1.100 -t 'mmwk/dc5475c879c0/raw/resp'
+mosquitto_sub -h 192.168.1.100 -t 'mmwk/DC5475C879C0/raw/data'
+mosquitto_sub -h 192.168.1.100 -t 'mmwk/DC5475C879C0/raw/resp'
 ```
 
 ### Method C: Device-Side Recording

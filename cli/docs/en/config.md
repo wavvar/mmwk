@@ -109,12 +109,12 @@ Use this when the device is already online and you want to re-point it without o
 ./config.sh set --transport mqtt \
   --broker 192.168.1.100 \
   --mqtt-port 1883 \
-  --device-id dc5475c879c0 \
+  --device-id DC5475C879C0 \
   --mqtt-uri mqtt://192.168.1.200:1883 \
   --reboot
 ```
 
-`--transport mqtt` uses the current control-plane broker and topics only to deliver the configuration commands. The device-side MQTT identity is fixed to the Wi-Fi STA MAC, so `network mqtt` now stores only broker/auth settings and exposes the canonical topics as read-only derived values.
+`--transport mqtt` uses the current control-plane broker and topics only to deliver the configuration commands. The device-side MQTT identity is the current `client_id` from `node info` / `network mqtt`; before claim that fallback is the Wi-Fi STA MAC rendered as uppercase hex. `network mqtt` stores broker/auth settings and exposes the canonical topics as read-only derived values.
 
 ### 4. 4G and network priority
 
@@ -193,7 +193,7 @@ When the host is connected to a device provisioning AP but the interface does no
 ## Notes
 
 - If you use `--server-local`, do not also pass `--mqtt-uri`; the tool resolves the broker from `server.sh`.
-- Device-side MQTT identity and canonical topics are fixed to the Wi-Fi STA MAC. `--device-id`, `--cmd-topic`, and `--resp-topic` only help `config.sh set` reach the current MQTT control path; they do not rewrite the stored topic identity.
+- Device-side MQTT identity and canonical topics derive from the current `client_id`. Before claim, that fallback is the Wi-Fi STA MAC rendered as uppercase hex. `--device-id`, `--cmd-topic`, and `--resp-topic` only help `config.sh set` reach the current MQTT control path; they do not rewrite the stored topic identity.
 - If you skip `--reboot`, the tool still writes the settings, but the device may not use them until the next reboot.
 - `config.sh search` depends on mDNS multicast, so it discovers devices on the current local link rather than through routed networks.
 - `config.sh search` does not discover MQTT broker endpoints. Discovery callers still need a broker from arguments, env, local server state, or `device.yml`.

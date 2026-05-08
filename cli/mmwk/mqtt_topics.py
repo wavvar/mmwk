@@ -5,24 +5,24 @@ from __future__ import annotations
 import re
 
 
-_HEX_MAC_RE = re.compile(r"^[0-9a-f]{12}$")
+_HEX_MAC_RE = re.compile(r"^[0-9a-fA-F]{12}$")
 
 
 def normalize_topic_id(value: str) -> str:
-    """Normalize a topic id to the canonical lowercase MAC form when possible."""
+    """Normalize MAC-like topic ids while preserving configured CID casing."""
 
-    topic_id = str(value or "").strip().lower()
+    topic_id = str(value or "").strip()
     if not topic_id:
         raise ValueError("MQTT topic id is required")
 
-    if topic_id.startswith("mmwk_"):
+    if topic_id.lower().startswith("mmwk_"):
         suffix = topic_id[5:]
         if _HEX_MAC_RE.fullmatch(suffix):
-            return suffix
+            return suffix.upper()
 
     compact = topic_id.replace(":", "").replace("-", "")
     if _HEX_MAC_RE.fullmatch(compact):
-        return compact
+        return compact.upper()
 
     return topic_id
 

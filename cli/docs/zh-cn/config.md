@@ -107,12 +107,12 @@ sudo ifconfig <wifi-iface> -alias 192.168.4.2
 ./config.sh set --transport mqtt \
   --broker 192.168.1.100 \
   --mqtt-port 1883 \
-  --device-id dc5475c879c0 \
+  --device-id DC5475C879C0 \
   --mqtt-uri mqtt://192.168.1.200:1883 \
   --reboot
 ```
 
-`--transport mqtt` 只表示“当前这次配置命令”通过现有 MQTT 控制链路送达。设备侧 MQTT 身份现在固定绑定 Wi-Fi STA MAC，所以 `network mqtt` 只保存 broker / 鉴权设置，对外返回的 canonical topic 只是只读派生值。
+`--transport mqtt` 只表示“当前这次配置命令”通过现有 MQTT 控制链路送达。设备侧 MQTT 身份是 `node info` / `network mqtt` 当前返回的 `client_id`；未 claim 时回退为 Wi-Fi STA MAC 的大写十六进制形式。`network mqtt` 保存 broker / 鉴权设置，对外返回的 canonical topic 是只读派生值。
 
 ### 4. 4G 与网络优先级
 
@@ -191,7 +191,7 @@ mDNS 发现只发布设备身份、板型、版本、模式、hostname 和本地
 ## 说明
 
 - 使用 `--server-local` 时不要再手动传 `--mqtt-uri`；broker 由 `server.sh` 决定。
-- 设备侧 MQTT 身份和 canonical topics 固定绑定 Wi-Fi STA MAC。`--device-id`、`--cmd-topic`、`--resp-topic` 只用于让 `config.sh set` 接入当前 MQTT 控制链路，不会改写设备保存下来的 topic 身份。
+- 设备侧 MQTT 身份和 canonical topics 来自当前 `client_id`。未 claim 时，回退为 Wi-Fi STA MAC 的大写十六进制形式。`--device-id`、`--cmd-topic`、`--resp-topic` 只用于让 `config.sh set` 接入当前 MQTT 控制链路，不会改写设备保存下来的 topic 身份。
 - 如果你不传 `--reboot`，设置仍会写入，但设备可能要到下一次重启后才真正使用它们。
 - `config.sh search` 依赖 mDNS multicast，因此发现的是当前本地链路上的设备，不会跨路由网络搜索。
 - `config.sh search` 不发现 MQTT broker 端点。发现流程的调用方仍需要从参数、环境、本地 server 状态或 `device.yml` 获得 broker。

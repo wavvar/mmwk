@@ -78,7 +78,7 @@ PowerShell 下参数与 POSIX 示例保持一致，主要差异是 wrapper 名�
 ```powershell
 .\run.ps1 node info -p COM3
 .\server.ps1 run --serve-dir C:\mmwk\artifacts --host-ip 192.168.4.8
-.\collect.ps1 --trigger device-reboot --device-id dc5475c879c0
+.\collect.ps1 --trigger device-reboot --device-id DC5475C879C0
 ```
 
 ## Surface 更新（2026-04-13）
@@ -307,8 +307,8 @@ flowchart LR
     U["UART Host\nfactory / debug / recovery"] <-->|"UART CLI JSON\n内置控制协议"| D["MMWK Device (ESP)\nCLIv1 内置控制 + 雷达桥接"]
     D -->|"CMD UART"| RC["Radar CMD UART"]
     RD["Radar DATA UART"] --> D
-    D <-->|"MQTT CLI JSON\nnetwork mqtt\n mmwk/{mac}/device/cmd + resp"| B["MQTT Broker"]
-    D <-->|"MQTT RAW\nradar raw\n mmwk/{mac}/raw/data + resp\n(+ cmd in host)"| B
+    D <-->|"MQTT CLI JSON\nnetwork mqtt\n mmwk/{client_id}/device/cmd + resp"| B["MQTT Broker"]
+    D <-->|"MQTT RAW\nradar raw\n mmwk/{client_id}/raw/data + resp\n(+ cmd in host)"| B
     A["Application / Cloud / AI Agent"] <-->|"Primary integration path"| B
 ```
 
@@ -327,7 +327,7 @@ flowchart LR
 ### MQTT（远程）
 
 ```bash
-./run.sh radar status --transport mqtt --broker 192.168.1.5 --device-id dc5475c879c0
+./run.sh radar status --transport mqtt --broker 192.168.1.5 --device-id DC5475C879C0
 ```
 
 ---
@@ -589,7 +589,7 @@ OTA 后第一次上电时，ESP 侧可能还在等待雷达 app 真正启动完�
 相关启动模式行为：
 - BRIDGE 会在雷达相关状态面暴露 `modes: ["auto", "host"]`，设备面不再暴露启动模式配置。
 - BRIDGE 支持 `["auto", "host"]`；HUB 支持 `["auto"]`。
-- 在 bridge `host` 且 `raw_auto=1` 时，会自动启动 `mmwk/{mac}/raw/data`、`mmwk/{mac}/raw/resp` 和 `mmwk/{mac}/raw/cmd`。
+- 在 bridge `host` 且 `raw_auto=1` 时，会自动启动 `mmwk/{client_id}/raw/data`、`mmwk/{client_id}/raw/resp` 和 `mmwk/{client_id}/raw/cmd`。
 
 ### 方法 D：回读当前雷达 CFG
 
@@ -613,7 +613,7 @@ OTA 后第一次上电时，ESP 侧可能还在等待雷达 app 真正启动完�
 ```bash
 ./run.sh radar fw flash \
   --fw fw.bin --cfg config.cfg \
-  --transport mqtt --broker 192.168.1.100 --device-id dc5475c879c0
+  --transport mqtt --broker 192.168.1.100 --device-id DC5475C879C0
 ```
 
 ---
