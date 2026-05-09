@@ -20,6 +20,11 @@ if ! grep -q 'TCP_PROBE_PYTHON=' "${SERVER_SH}" || ! grep -q '"$TCP_PROBE_PYTHON
     exit 1
 fi
 
+if ! grep -q 'HTTP_START_TIMEOUT_SEC="${MMWK_HTTP_START_TIMEOUT_SEC:-8}"' "${SERVER_SH}"; then
+    echo "FAIL: server.sh default HTTP attempt timeout must leave time for fallback bind addresses" >&2
+    exit 1
+fi
+
 if ! command -v mosquitto >/dev/null 2>&1; then
     echo "SKIP: mosquitto not installed"
     exit 0
