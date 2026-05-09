@@ -51,4 +51,5 @@ def build_mqtt_topics(
         "raw_data": f"{prefix}/raw/data",
         "raw_resp": f"{prefix}/raw/resp",
         "raw_cmd": f"{prefix}/raw/cmd" if include_raw_cmd else "",
+        "stream_in": f"{prefix}/stream/in",
     }
