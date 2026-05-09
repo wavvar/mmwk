@@ -112,6 +112,7 @@ PYTHON="$(find_python)" || {
     echo "Error: Python 3.10+ not found."
     exit 1
 }
+TCP_PROBE_PYTHON="$PYTHON"
 
 timestamp_now() {
     date '+%Y-%m-%d %H:%M:%S'
@@ -507,7 +508,7 @@ wait_for_tcp() {
     local start_ts
     start_ts="$(date +%s)"
     while true; do
-        if "$PYTHON" - "$host" "$port" <<'PY' >/dev/null 2>&1
+        if "$TCP_PROBE_PYTHON" - "$host" "$port" <<'PY' >/dev/null 2>&1
 import socket
 import sys
 
@@ -552,7 +553,7 @@ print_tcp_listener_state() {
 tcp_connects() {
     local host="$1"
     local port="$2"
-    "$PYTHON" - "$host" "$port" <<'PY' >/dev/null 2>&1
+    "$TCP_PROBE_PYTHON" - "$host" "$port" <<'PY' >/dev/null 2>&1
 import socket
 import sys
 

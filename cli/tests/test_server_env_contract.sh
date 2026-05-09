@@ -15,6 +15,11 @@ if ! grep -q 'local http_bind_addresses=(0.0.0.0 127.0.0.1)' "${SERVER_SH}"; the
     exit 1
 fi
 
+if ! grep -q 'TCP_PROBE_PYTHON=' "${SERVER_SH}" || ! grep -q '"$TCP_PROBE_PYTHON" - "$host" "$port"' "${SERVER_SH}"; then
+    echo "FAIL: server.sh TCP probes must use a stable Python executable independent from runtime venv setup" >&2
+    exit 1
+fi
+
 if ! command -v mosquitto >/dev/null 2>&1; then
     echo "SKIP: mosquitto not installed"
     exit 0
