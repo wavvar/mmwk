@@ -187,7 +187,7 @@ For PRO devices and 4G-equipped WDR devices, store the mobile profile and then c
 
 For SDK hardware acceptance runs, 4G is also explicit: pass the runner's `--4g` for PRO devices or 4G-equipped WDR devices; omit it to keep Wi-Fi as the test default.
 
-Provisioning AP SSID follows `MMWK-[board][app]-[MAC suffix]`. Factory default Wi-Fi is `MMWK / mmwk123456`. Automated portal provisioning may temporarily connect the test host to the device AP and then restore the previous Wi-Fi network. Set `TEST_PROVISIONING_AP_SSID` when multiple `MMWK-*` APs are visible, or set `TEST_PORTAL_PROVISION_AUTO=false` to use the old manual checkpoint.
+Provisioning AP SSID follows `MMWK-[board][app]-[MAC suffix]`. Factory default Wi-Fi is `MMWK / mmwk123456`. Automated portal provisioning may temporarily connect the test host to the device AP and then restore the previous Wi-Fi network. On WSL, automated portal provisioning controls Windows Wi-Fi through PowerShell/netsh and submits the portal request from Windows. Set `TEST_PROVISIONING_AP_SSID` when multiple `MMWK-*` APs are visible, or set `TEST_PORTAL_PROVISION_AUTO=false` to use the old manual checkpoint.
 
 The recovery portal is a self-help portal for MQTT broker configuration and diagnostics; it is not Wi-Fi provisioning. The portal remains visible after factory onboarding, but firmware policy controls whether MQTT fields are editable. CLI bridge firmware may expose editable MQTT recovery fields; HUB care/rmaker sidecars expose status only. Status-only portal pages expose MQTT state, last phase/code, remaining window seconds, and 4G diagnostics when preferred 4G is offline; they do not expose MQTT URI, user, or password.
 

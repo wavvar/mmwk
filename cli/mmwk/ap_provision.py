@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -10,6 +12,7 @@ import time
 from dataclasses import dataclass
 from typing import Callable, Sequence
 from urllib import request
+from xml.sax.saxutils import escape as xml_escape
 
 from mmwk import ap_link
 
@@ -52,11 +55,142 @@ def select_ap_ssid(explicit_ssid: str, ap_prefix: str, scan_results: Sequence[st
     return matches[0]
 
 
+def _is_wsl() -> bool:
+    if "WSL_DISTRO_NAME" in os.environ:
+        return True
+    release = platform.uname().release.lower()
+    return "microsoft" in release or "wsl" in release
+
+
+def _wifi_backend(system: str, *, auto_detect_wsl: bool) -> str:
+    if system == "WSL":
+        return "WSL"
+    if auto_detect_wsl and system == "Linux" and _is_wsl():
+        return "WSL"
+    return system
+
+
+def _ps_quote(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def _powershell_command(script: str) -> list[str]:
+    return ["powershell.exe", "-NoProfile", "-Command", script]
+
+
+def _wsl_wifi_adapter_filter() -> str:
+    return (
+        "Get-NetAdapter | "
+        "Where-Object { "
+        "$_.Name -match 'Wi-Fi|Wireless|WLAN' -or "
+        "$_.InterfaceDescription -match 'Wi-Fi|Wireless|WLAN|802.11' "
+        "}"
+    )
+
+
+def _first_output_line(output: str) -> str:
+    for line in output.splitlines():
+        value = line.strip()
+        if value:
+            return value
+    return ""
+
+
+def _wsl_wifi_interfaces(runner: CommandRunner) -> list[str]:
+    script = _wsl_wifi_adapter_filter() + " | ForEach-Object { $_.Name }"
+    output = runner(_powershell_command(script))
+    return [line.strip() for line in output.splitlines() if line.strip()]
+
+
+def _wsl_current_ssid(runner: CommandRunner, iface: str) -> str:
+    script = (
+        "$ErrorActionPreference = 'Stop'; "
+        f"$iface = {_ps_quote(iface)}; "
+        "try { "
+        "$profile = Get-NetConnectionProfile -InterfaceAlias $iface -ErrorAction Stop; "
+        "if ($profile) { $profile.Name } "
+        "} catch { }; "
+        "exit 0"
+    )
+    try:
+        return _first_output_line(runner(_powershell_command(script)))
+    except ApProvisionError:
+        return ""
+
+
+def _wsl_scan(runner: CommandRunner, iface: str) -> list[str]:
+    script = (
+        f"$iface = {_ps_quote(iface)}; "
+        '& netsh wlan show networks interface="$iface" mode=bssid'
+    )
+    output = runner(_powershell_command(script))
+    ssids: list[str] = []
+    for line in output.splitlines():
+        match = re.match(r"\s*SSID\s+\d+\s*:\s*(.*)\s*$", line)
+        if match:
+            ssid = match.group(1).strip()
+            if ssid:
+                ssids.append(ssid)
+    return ssids
+
+
+def _wlan_profile_xml(ssid: str) -> str:
+    escaped_ssid = xml_escape(ssid)
+    hex_ssid = ssid.encode("utf-8").hex().upper()
+    return f"""<?xml version="1.0"?>
+<WLANProfile xmlns="http://www.microsoft.com/networking/WLAN/profile/v1">
+    <name>{escaped_ssid}</name>
+    <SSIDConfig>
+        <SSID>
+            <hex>{hex_ssid}</hex>
+            <name>{escaped_ssid}</name>
+        </SSID>
+    </SSIDConfig>
+    <connectionType>ESS</connectionType>
+    <connectionMode>manual</connectionMode>
+    <MSM>
+        <security>
+            <authEncryption>
+                <authentication>open</authentication>
+                <encryption>none</encryption>
+                <useOneX>false</useOneX>
+            </authEncryption>
+        </security>
+    </MSM>
+</WLANProfile>"""
+
+
+def build_wsl_open_profile_command(iface: str, ssid: str) -> list[str]:
+    script = (
+        "$ErrorActionPreference = 'Stop'; "
+        f"$iface = {_ps_quote(iface)}; "
+        f"$profile = {_ps_quote(_wlan_profile_xml(ssid))}; "
+        "$path = Join-Path $env:TEMP ('mmwk-open-ap-' + [guid]::NewGuid().ToString() + '.xml'); "
+        "try { "
+        "Set-Content -LiteralPath $path -Value $profile -Encoding UTF8; "
+        '& netsh wlan add profile filename="$path" interface="$iface"; '
+        "if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } "
+        "} finally { "
+        "Remove-Item -LiteralPath $path -ErrorAction SilentlyContinue "
+        "}"
+    )
+    return _powershell_command(script)
+
+
 def build_connect_command(system: str, iface: str, ssid: str) -> list[str]:
     if system == "Linux":
         return ["nmcli", "dev", "wifi", "connect", ssid, "ifname", iface]
     if system == "Darwin":
         return ["networksetup", "-setairportnetwork", iface, ssid]
+    if system == "WSL":
+        script = (
+            "$ErrorActionPreference = 'Stop'; "
+            f"$iface = {_ps_quote(iface)}; "
+            f"$ssid = {_ps_quote(ssid)}; "
+            '& netsh wlan connect name="$ssid" ssid="$ssid" interface="$iface"; '
+            "exit $LASTEXITCODE"
+        )
+        return _powershell_command(script)
     raise ApProvisionError("wifi_tool_missing", f"unsupported platform: {system}")
 
 
@@ -81,7 +215,7 @@ def submit_portal_credentials(base_url: str, target_ssid: str, target_password: 
 
 def _run_command(command: Sequence[str]) -> str:
     try:
-        return subprocess.check_output(command, stderr=subprocess.STDOUT, text=True, timeout=30)
+        return subprocess.check_output(command, stderr=subprocess.STDOUT, text=True, errors="replace", timeout=30)
     except FileNotFoundError as exc:
         raise ApProvisionError("wifi_tool_missing", command[0]) from exc
     except subprocess.CalledProcessError as exc:
@@ -130,11 +264,13 @@ def _darwin_scan(runner: CommandRunner) -> list[str]:
     return ssids
 
 
-def _default_wifi_iface(system: str) -> str:
+def _default_wifi_iface(system: str, runner: CommandRunner = _run_command) -> str:
     if system == "Linux":
         names = ap_link.linux_wifi_interfaces()
     elif system == "Darwin":
         names = ap_link.darwin_wifi_interfaces()
+    elif system == "WSL":
+        names = _wsl_wifi_interfaces(runner)
     else:
         names = ()
 
@@ -155,6 +291,37 @@ def _require_tool(system: str, runner: CommandRunner) -> None:
         raise ApProvisionError("wifi_tool_missing", "nmcli not found")
     if system == "Darwin" and shutil.which("networksetup") is None:
         raise ApProvisionError("wifi_tool_missing", "networksetup not found")
+    if system == "WSL" and shutil.which("powershell.exe") is None:
+        raise ApProvisionError("wifi_tool_missing", "powershell.exe not found")
+
+
+def _wsl_submit_portal_credentials(
+    runner: CommandRunner,
+    base_url: str,
+    target_ssid: str,
+    target_password: str,
+    timeout: float,
+) -> None:
+    url = base_url.rstrip("/") + "/submit"
+    body = json.dumps({"ssid": target_ssid, "password": target_password})
+    timeout_sec = max(1, int(timeout))
+    script = (
+        "$ErrorActionPreference = 'Stop'; "
+        f"$uri = {_ps_quote(url)}; "
+        f"$body = {_ps_quote(body)}; "
+        "$response = Invoke-WebRequest -UseBasicParsing -Method Post -Uri $uri "
+        "-ContentType 'application/json' -Body $body "
+        f"-TimeoutSec {timeout_sec}; "
+        "if ([int]$response.StatusCode -lt 200 -or [int]$response.StatusCode -ge 300) { "
+        "throw ('HTTP ' + $response.StatusCode + ': ' + $response.Content) "
+        "} "
+        "$data = $response.Content | ConvertFrom-Json; "
+        "if ($data.success -ne $true) { throw ('portal returned ' + $response.Content) }"
+    )
+    try:
+        runner(_powershell_command(script))
+    except ApProvisionError as exc:
+        raise ApProvisionError("portal_submit_failed", str(exc)) from exc
 
 
 def run_provision(
@@ -172,29 +339,38 @@ def run_provision(
     submitter: Submitter = submit_portal_credentials,
     ensure_link: EnsureLink = _ensure_ap_link,
 ) -> ProvisionResult:
-    current_system = system or platform.system()
+    current_system = _wifi_backend(system or platform.system(), auto_detect_wsl=system is None)
     if not target_ssid:
         raise ApProvisionError("portal_submit_failed", "target Wi-Fi SSID is required")
-    if current_system not in {"Linux", "Darwin"}:
+    if current_system not in {"Linux", "Darwin", "WSL"}:
         raise ApProvisionError("wifi_tool_missing", f"unsupported platform: {current_system}")
 
     _require_tool(current_system, runner)
 
-    iface = wifi_iface or _default_wifi_iface(current_system)
+    iface = wifi_iface or _default_wifi_iface(current_system, runner)
     if current_system == "Linux":
         original_ssid = _linux_current_ssid(runner)
         scan_results = _linux_scan(runner, iface)
-    else:
+    elif current_system == "Darwin":
         original_ssid = _darwin_current_ssid(runner, iface)
         scan_results = _darwin_scan(runner) if not ap_ssid else [ap_ssid]
+    else:
+        original_ssid = _wsl_current_ssid(runner, iface)
+        scan_results = _wsl_scan(runner, iface) if not ap_ssid else [ap_ssid]
 
     selected_ap = select_ap_ssid(ap_ssid, ap_prefix, scan_results)
+    if current_system == "WSL":
+        runner(build_wsl_open_profile_command(iface, selected_ap))
     runner(build_connect_command(current_system, iface, selected_ap))
     time.sleep(2)
-    ensured_iface = ensure_link(iface)
-    if ensured_iface:
-        iface = ensured_iface
-    submitter(base_url, target_ssid, target_password, timeout)
+    if current_system != "WSL":
+        ensured_iface = ensure_link(iface)
+        if ensured_iface:
+            iface = ensured_iface
+    if current_system == "WSL" and submitter is submit_portal_credentials:
+        _wsl_submit_portal_credentials(runner, base_url, target_ssid, target_password, timeout)
+    else:
+        submitter(base_url, target_ssid, target_password, timeout)
 
     restored = False
     if restore_wifi and original_ssid:
