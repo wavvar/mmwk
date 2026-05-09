@@ -25,6 +25,11 @@ if ! grep -q 'HTTP_START_TIMEOUT_SEC="${MMWK_HTTP_START_TIMEOUT_SEC:-8}"' "${SER
     exit 1
 fi
 
+if [ "$(uname -s)" = "Darwin" ] && [ "${GITHUB_ACTIONS:-}" = "true" ]; then
+    echo "SKIP: hosted macOS does not expose detached Python HTTP listeners reliably; live server contract runs on Linux"
+    exit 0
+fi
+
 if ! command -v mosquitto >/dev/null 2>&1; then
     echo "SKIP: mosquitto not installed"
     exit 0
