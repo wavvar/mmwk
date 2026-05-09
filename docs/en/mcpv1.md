@@ -15,7 +15,7 @@ The default builtin protocol is canonical CLI JSON (CLIv1). See [CLIv1.md](./CLI
 ## Transport and Framing
 
 - **UART**: UART0, 115200 baud, newline-delimited JSON-RPC (`\n`/`\r\n`).
-- **MQTT**: JSON-RPC on configured `cmd_topic` (request) / `resp_topic` (response).
+- **MQTT**: JSON-RPC on the configured route topics `cmd` (request) and `resp` (response), derived as `{prod}/{oid}/{cid-or-did}/device/cmd` and `{prod}/{oid}/{cid-or-did}/device/resp`.
 
 Notes:
 
@@ -274,16 +274,16 @@ Set mode (when `enabled` exists):
 - `uri` (string, optional; if omitted or same as device `mqtt_uri`, reuses shared MQTT client)
 
 Raw topics are fixed in both BRIDGE and HUB:
-- runtime always derives `mmwk/{mac}/raw/data` and `mmwk/{mac}/raw/resp`
-- in host mode runtime additionally derives `mmwk/{mac}/raw/cmd`
-- bridge/auto mode keeps the MQTT raw plane output-only, so `raw_cmd_topic` is empty there
-- explicit `data_topic` / `resp_topic` / `cmd_topic` requests with `enabled=true` are rejected
+- runtime always derives `{prod}/{oid}/{cid-or-did}/raw/data` and `{prod}/{oid}/{cid-or-did}/raw/resp`
+- in host mode runtime additionally derives `{prod}/{oid}/{cid-or-did}/raw/cmd`
+- bridge/auto mode keeps the MQTT raw plane output-only, so `raw_cmd` is empty there
+- explicit raw topic override requests with `enabled=true` are rejected
 
 Wire-level meaning of these topics:
-- `data_topic` carries raw bytes mirrored from the radar DATA UART path (`data_resp`, typically collected as `data_resp.sraw`).
-- `resp_topic` carries startup-trimmed command-port output from `on_cmd_data` (`cmd_resp.log` starts at the first printable ASCII byte).
+- `raw_data` carries raw bytes mirrored from the radar DATA UART path (`data_resp`, typically collected as `data_resp.sraw`).
+- `raw_resp` carries startup-trimmed command-port output from `on_cmd_data` (`cmd_resp.log` starts at the first printable ASCII byte).
 - `on_cmd_resp` and `on_radar_frame` are application-layer callbacks and must stay separate from raw topic capture.
-- `cmd_topic` is an optional radar CMD UART passthrough ingress available only in host mode. It is distinct from the MCP interaction topic `mmwk/{mac}/device/cmd`.
+- `raw_cmd` is an optional radar CMD UART passthrough ingress available only in host mode. It is distinct from the MCP interaction topic `{prod}/{oid}/{cid-or-did}/device/cmd`.
 
 BRIDGE-only extension:
 
@@ -406,10 +406,10 @@ Legacy removal:
 - BRIDGE runtime includes extended fields for zero-config collection:
   - `radar_fw`, `radar_fw_version`, `radar_cfg`
   - `fw.default`, `fw.running`, `fw.switch`, `fw.boot_mode`
-  - `mqtt_uri`, `client_id`, `cmd_topic`, `resp_topic`
+  - `uri`, `did`, `prod`, `oid`, `cid`, `cmd`, `resp`
   - `mqtt_en`, `uart_en`, `raw_auto`
-  - `raw_data_topic`, `raw_resp_topic`
-  - `raw_cmd_topic` when the current bridge runtime boot mode is `host`
+  - `raw_data`, `raw_resp`
+  - `raw_cmd` when the current bridge runtime boot mode is `host`
 - `fw.default` and `fw.running` are objects with `source`, `index`, `name`, `version`, and `config`.
 - `fw.default` is the saved persistent default entry; `fw.running` is the live runtime entry for the current session.
 - `fw.switch` contains the profile-gated switch capability flags `persist` and `temp`.
@@ -437,14 +437,14 @@ Rules:
 
 - UART/local transport only; MQTT returns `unsupported_transport`.
 - `endpoint` and `token` are optional strings.
-- Successful provider responses must include `dev.cid` and `dev.oid`.
+- Successful provider responses must include `cid` and `oid`; `prod` defaults to `mmwk` unless supplied.
 - Already claimed devices return `already_claimed` and do not include identity in the error response.
 - Secrets are never returned: `token`, `mqtt.user`, and `mqtt.pass` stay out of responses.
 
 Success payload text contains:
 
 ```json
-{"claimed":true,"cid":"CID123","oid":"OID456","mqtt":{"cid":"CID123","uri":"mqtt://broker.local"}}
+{"claimed":true,"prod":"mmwk","cid":"cid123","oid":"oid456","did":"dc5475c879c0","cmd":"mmwk/oid456/cid123/device/cmd","resp":"mmwk/oid456/cid123/device/resp","mqtt":{"uri":"mqtt://broker.local"}}
 ```
 
 #### `action=heartbeat`
@@ -487,12 +487,10 @@ Schema actions: `config`, `prov`, `ntp`, `mqtt`, `status`, `diag`.
 
 Supports:
 
-- `cid`
-- `mqtt_uri`
-- `mqtt_user`
-- `mqtt_pass`
-- `cmd_topic`
-- `resp_topic`
+- write: `uri`, `user`, `pass`
+- compatibility aliases: `mqtt_uri`, `mqtt_user`, `mqtt_pass`
+- readback includes route identity fields `prod`, `oid`, `cid`, `did`, `cmd`, and `resp`
+- route identity fields are read-only here; use `node claim` to set `prod` / `oid` / `cid`
 
 #### `action=ntp`
 
@@ -632,11 +630,11 @@ Current schema and runtime behavior are aligned with these rules:
 - `device.mqtt` is removed. MQTT configuration is unified under `network.mqtt`.
 - `fw` is advertised in BRIDGE `tools/list` and callable in both BRIDGE and HUB.
 - `device.agent` schema/runtime both support `mqtt_en`, `uart_en`, and `raw_auto`.
-- `network.mqtt` schema/runtime support `mqtt_uri`, `mqtt_user`, and `mqtt_pass`; `cid`, `cmd_topic`, and `resp_topic` remain read-only derived fields in responses and reject write attempts.
+- `network.mqtt` schema/runtime support broker and credential fields (`uri`, `user`, `pass`, plus `mqtt_*` aliases); `prod`, `oid`, `cid`, `did`, `cmd`, and `resp` remain read-only derived fields in responses and reject write attempts.
 - MCP MQTT transport initialization consumes stored `mqtt_user`/`mqtt_pass` credentials.
 - `radar.raw` uses unified semantics in both modes:
-  - runtime always derives `mmwk/{mac}/raw/data` and `mmwk/{mac}/raw/resp`
-  - host mode additionally derives `mmwk/{mac}/raw/cmd`
+  - runtime always derives `{prod}/{oid}/{cid-or-did}/raw/data` and `{prod}/{oid}/{cid-or-did}/raw/resp`
+  - host mode additionally derives `{prod}/{oid}/{cid-or-did}/raw/cmd`
   - topic override fields are rejected explicitly when enabling raw forwarding
 - `radar.raw` is configuration-only; diagnostics are exposed under `radar.debug`.
 - `radar.debug` (`set/get/snapshot/reset`) is available in both BRIDGE and HUB.

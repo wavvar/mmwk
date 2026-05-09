@@ -215,8 +215,8 @@ Canonical control topics:
 
 | Topic | Content |
 | --- | --- |
-| `mmwk/{mac}/device/cmd` | CLI JSON command input configured by `network mqtt`. |
-| `mmwk/{mac}/device/resp` | CLI JSON command responses and status events configured by `network mqtt`. |
+| `{prod}/{oid}/{cid-or-did}/device/cmd` | CLI JSON command input configured by `network mqtt`. |
+| `{prod}/{oid}/{cid-or-did}/device/resp` | CLI JSON command responses and status events configured by `network mqtt`. |
 
 
 ### 6.5 Raw Semantics Contract
@@ -234,9 +234,9 @@ Canonical control topics:
 
 | Topic | Content |
 | --- | --- |
-| `mmwk/{mac}/raw/data` | Raw radar DATA UART payloads derived by `radar raw`. |
-| `mmwk/{mac}/raw/resp` | Raw radar command-port bytes from `on_cmd_data`, derived by `radar raw`. |
-| `mmwk/{mac}/raw/cmd` | Optional radar CMD UART ingress channel derived by `radar raw`, available only in host mode. |
+| `{prod}/{oid}/{cid-or-did}/raw/data` | Raw radar DATA UART payloads derived by `radar raw`. |
+| `{prod}/{oid}/{cid-or-did}/raw/resp` | Raw radar command-port bytes from `on_cmd_data`, derived by `radar raw`. |
+| `{prod}/{oid}/{cid-or-did}/raw/cmd` | Optional radar CMD UART ingress channel derived by `radar raw`, available only in host mode. |
 
 On fresh `mmwk_sensor_bridge` devices, `network mqtt` plus reboot is enough to bring up MQTT control.
 When the agent keys are missing from NVS, `mmwk_sensor_bridge` defaults are `mqtt_en=1` and `raw_auto=1`.
@@ -244,7 +244,7 @@ Other profiles may choose different profile defaults while preserving the same p
 
 ### 6.7 Host Mode Raw Command Ingress
 
-`mmwk/{mac}/raw/cmd` is available only when the current radar session is in host mode. It is distinct from the CLI JSON topic `mmwk/{mac}/device/cmd`.
+`{prod}/{oid}/{cid-or-did}/raw/cmd` is available only when the current radar session is in host mode. It is distinct from the CLI JSON topic `{prod}/{oid}/{cid-or-did}/device/cmd`.
 
 In auto mode, the MQTT raw plane is output-only.
 
@@ -377,7 +377,7 @@ Startup mode boundaries:
 
 **Host mode:** `start_mode=host` means the saved default policy is host-controlled bring-up, not "auto mode plus one more raw topic". The device still exposes transport surfaces, but it does not automatically send radar configuration, does not automatically wait for welcome text, and does not automatically verify version metadata as part of startup ownership.
 
-**Runtime boot path:** `fw.boot_mode=host` means the current radar session actually booted through the host path. `mmwk/{mac}/raw/cmd` is available only when the current radar session is in host mode.
+**Runtime boot path:** `fw.boot_mode=host` means the current radar session actually booted through the host path. `{prod}/{oid}/{cid-or-did}/raw/cmd` is available only when the current radar session is in host mode.
 
 Real applications, services, dashboards, and agents should normally integrate through MQTT. UART remains valuable for factory setup, flashing, bring-up, bench debugging, and emergency fallback.
 
@@ -474,7 +474,7 @@ Minimum pass criteria:
 - `cmd_resp.log` is non-empty
 - `cmd_resp.log` starts at the first printable ASCII byte and reads as startup-trimmed command-port text
 
-`Resp topic frames` and `Data topic frames` count MQTT messages, not mmWave TLV frames. On single-UART `WDR/xWRL6432` boards with `single_uart_split=1`, it is normal for `resp_topic` to show only a small number of boot or command-response chunks while the steady runtime payload appears on `data_topic`.
+`Resp topic frames` and `Data topic frames` count MQTT messages, not mmWave TLV frames. On single-UART `WDR/xWRL6432` boards with `single_uart_split=1`, it is normal for `raw_resp` to show only a small number of boot or command-response chunks while the steady runtime payload appears on `raw_data`.
 
 ### 9.7 Record and Upload Verification
 

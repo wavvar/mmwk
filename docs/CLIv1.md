@@ -32,7 +32,7 @@ CLIv1.1 reports `protocolVersion` as `control.v1.1` during host initialization.
 ## Transport and Framing
 
 - **UART**: newline-delimited JSON objects on UART0 at 115200 baud
-- **MQTT**: JSON objects published to the configured `cmd_topic` / `resp_topic`
+- **MQTT**: JSON objects published to the configured route topics `cmd` / `resp`
 
 Each request is a single JSON object. Batch arrays are not part of this protocol.
 
@@ -99,7 +99,7 @@ Key management is under `node key`:
 
 ## Node Claim
 
-`node claim` obtains concrete device identity from a claim provider. It is intentionally separate from `network prov`: `network prov` starts Wi-Fi provisioning, while `node claim` obtains `dev.cid`, `dev.oid`, and optional MQTT credentials.
+`node claim` obtains concrete route identity from a claim provider. It is intentionally separate from `network prov`: `network prov` starts Wi-Fi provisioning, while `node claim` obtains `prod`, `oid`, `cid`, and optional MQTT credentials.
 
 Request:
 
@@ -112,16 +112,16 @@ Rules:
 - `node claim` is UART/local only; MQTT transport returns `unsupported_transport`.
 - `endpoint` is optional and overrides the firmware default only for this attempt.
 - `token` is optional, one-time input; it is never persisted or echoed.
-- A successful claim requires both `dev.cid` and `dev.oid`.
+- A successful provider claim requires both `cid` and `oid`; `prod` defaults to `mmwk` unless supplied.
 - Already claimed devices return `already_claimed` and do not include identity in the error response.
 - Secrets such as `token`, `mqtt.user`, and `mqtt.pass` are never returned.
-- `node info` includes `cid` and `oid` only when identity exists.
+- `node info` includes `prod`, `oid`, `cid`, and `did`.
 - `node info` includes `factory: INIT` only while the device is still in factory state.
 
 Success response:
 
 ```json
-{"type":"res","seq":6,"ok":true,"result":{"claimed":true,"cid":"CID123","oid":"OID456","mqtt":{"cid":"CID123","uri":"mqtt://broker.local"}}}
+{"type":"res","seq":6,"ok":true,"result":{"claimed":true,"prod":"mmwk","cid":"cid123","oid":"oid456","did":"dc5475c879c0","cmd":"mmwk/oid456/cid123/device/cmd","resp":"mmwk/oid456/cid123/device/resp","mqtt":{"uri":"mqtt://broker.local"}}}
 ```
 
 ## Success Response

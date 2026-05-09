@@ -119,7 +119,7 @@ PowerShell 下参数与 POSIX 示例保持一致，主要差异是 wrapper 名�
 ./run.sh node claim --endpoint https://claim.example.com/device --token ONE_TIME_TOKEN -p /dev/cu.usbserial-0001
 ```
 
-`--endpoint` 只覆盖本次 claim 的固件默认地址。`--token` 是一次性输入，不会持久化，也不会在响应中返回。claim 成功后会持久化 `dev.cid` 和 `dev.oid`，之后 `node info` 会显示 `cid` 和 `oid`。设备仍处于工厂状态时，`node info` 还会显示 `factory: INIT`；claim 或用户 reset 之后该字段不再显示。`network prov` 仍只负责 Wi-Fi 配网，不负责 claim 设备身份。
+`--endpoint` 只覆盖本次 claim 的固件默认地址。`--token` 是一次性输入，不会持久化，也不会在响应中返回。provider claim 成功后会持久化路由身份（`prod`、`oid` 和 `cid`），之后 `node info` 会显示这些字段和 `did`。设备仍处于工厂状态时，`node info` 还会显示 `factory: INIT`；claim 或用户 reset 之后该字段不再显示。`network prov` 仍只负责 Wi-Fi 配网，不负责 claim 设备身份。
 
 ---
 

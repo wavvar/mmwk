@@ -168,7 +168,7 @@ def _endpoint_id_arg(args):
     return getattr(args, "endpoint", None)
 
 
-def add_transport_args(parser):
+def add_transport_args(parser, include_route_args=True):
     """Add common transport arguments to a parser."""
     group = parser.add_argument_group("Transport")
     group.add_argument("--protocol", choices=["mcp", "cli"],
@@ -186,13 +186,14 @@ def add_transport_args(parser):
                        help="MQTT broker address (default: localhost)")
     group.add_argument("--mqtt-port", type=int, default=1883,
                        help="MQTT broker port (default: 1883)")
-    group.add_argument("--did", help="DID for MQTT route fallback")
-    group.add_argument("--prod", default="mmwk",
-                       help="MQTT product route segment (default: mmwk)")
-    group.add_argument("--oid", default="mmwk",
-                       help="MQTT organization route segment (default: mmwk)")
-    group.add_argument("--cid", default="",
-                       help="MQTT claimed route id; when set it takes precedence over --did")
+    if include_route_args:
+        group.add_argument("--did", help="DID for MQTT route fallback")
+        group.add_argument("--prod", default="mmwk",
+                           help="MQTT product route segment (default: mmwk)")
+        group.add_argument("--oid", default="mmwk",
+                           help="MQTT organization route segment (default: mmwk)")
+        group.add_argument("--cid", default="",
+                           help="MQTT claimed route id; when set it takes precedence over --did")
     group.add_argument("--transport-retries", type=int, default=None,
                        help="Transport connection attempts (default: 3 for MQTT, 1 for UART)")
     group.add_argument("--transport-retry-delay", type=float, default=2.0,
@@ -1188,9 +1189,15 @@ def main():
     node_factory_reset_parser.set_defaults(func=cmd_node_factory_reset)
 
     node_claim_parser = node_sub.add_parser("claim", help="Claim route identity and credentials")
+    node_claim_parser.add_argument("--prod", default="mmwk",
+                                   help="Product route segment to store (default: mmwk)")
+    node_claim_parser.add_argument("--oid", default="mmwk",
+                                   help="Organization route segment to store (default: mmwk)")
+    node_claim_parser.add_argument("--cid", default="",
+                                   help="Claimed device route segment to store")
     node_claim_parser.add_argument("--endpoint", help="Claim endpoint override for this attempt")
     node_claim_parser.add_argument("--token", help="One-time claim token for this attempt")
-    add_transport_args(node_claim_parser)
+    add_transport_args(node_claim_parser, include_route_args=False)
     node_claim_parser.set_defaults(func=cmd_node_claim)
 
     node_key_parser = node_sub.add_parser("key", help="Manage CLI protection key")

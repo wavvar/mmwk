@@ -202,8 +202,8 @@ UART 和 USB 复用会在启动或恢复后的空闲窗口内，在 UART 和 USB
 
 | Topic | 内容 |
 | --- | --- |
-| `mmwk/{mac}/device/cmd` | 由 `network mqtt` 配置的 CLI JSON 命令输入。 |
-| `mmwk/{mac}/device/resp` | 由 `network mqtt` 配置的 CLI JSON 响应和状态事件。 |
+| `{prod}/{oid}/{cid-or-did}/device/cmd` | 由 `network mqtt` 配置的 CLI JSON 命令输入。 |
+| `{prod}/{oid}/{cid-or-did}/device/resp` | 由 `network mqtt` 配置的 CLI JSON 响应和状态事件。 |
 
 
 ### 6.5 原始语义契约
@@ -221,9 +221,9 @@ UART 和 USB 复用会在启动或恢复后的空闲窗口内，在 UART 和 USB
 
 | Topic | 内容 |
 | --- | --- |
-| `mmwk/{mac}/raw/data` | 由 `radar raw` 派生的雷达 DATA UART 原始透传。 |
-| `mmwk/{mac}/raw/resp` | 由 `radar raw` 派生的雷达 CMD UART 启动 trim 后命令口输出（来源 `on_cmd_data`）。 |
-| `mmwk/{mac}/raw/cmd` | 可选的雷达 CMD UART 输入通道，仅在 host 模式下可用。 |
+| `{prod}/{oid}/{cid-or-did}/raw/data` | 由 `radar raw` 派生的雷达 DATA UART 原始透传。 |
+| `{prod}/{oid}/{cid-or-did}/raw/resp` | 由 `radar raw` 派生的雷达 CMD UART 启动 trim 后命令口输出（来源 `on_cmd_data`）。 |
+| `{prod}/{oid}/{cid-or-did}/raw/cmd` | 可选的雷达 CMD UART 输入通道，仅在 host 模式下可用。 |
 
 对于 fresh `mmwk_sensor_bridge` 设备，执行 `network mqtt` 并重启后，就应具备 MQTT 控制能力。
 当 NVS 里还没有这些 agent key 时，`mmwk_sensor_bridge` 默认 `mqtt_en=1`、`raw_auto=1`。
@@ -231,7 +231,7 @@ UART 和 USB 复用会在启动或恢复后的空闲窗口内，在 UART 和 USB
 
 ### 6.7 Host 模式 raw 命令输入
 
-`mmwk/{mac}/raw/cmd` 仅在当前雷达会话运行于 host 模式时可用。它与 CLI JSON 的 `mmwk/{mac}/device/cmd` 是两条不同通道。
+`{prod}/{oid}/{cid-or-did}/raw/cmd` 仅在当前雷达会话运行于 host 模式时可用。它与 CLI JSON 的 `{prod}/{oid}/{cid-or-did}/device/cmd` 是两条不同通道。
 
 auto 模式下，MQTT raw 平面是只出不进的。
 
@@ -364,7 +364,7 @@ sensor 文档和 CLI 统一采用以下含义：
 
 **Host 模式：** `start_mode=host` 表示保存下来的默认策略是由主机接管启动，不是“auto 模式外加一个 raw topic”。设备仍然暴露传输面，但不会在启动期自动下发雷达配置，不会自动等待 welcome 文本，也不会作为启动所有权的一部分自动验证版本 metadata。
 
-**运行态 Boot Path：** `fw.boot_mode=host` 表示当前这次雷达会话实际上走的是 host 启动路径。`mmwk/{mac}/raw/cmd` 仅在当前雷达会话运行于 host 模式时可用。
+**运行态 Boot Path：** `fw.boot_mode=host` 表示当前这次雷达会话实际上走的是 host 启动路径。`{prod}/{oid}/{cid-or-did}/raw/cmd` 仅在当前雷达会话运行于 host 模式时可用。
 
 对真实应用、服务、仪表盘和 AI Agent，优先推荐 MQTT；UART 更适合工厂初始化、刷写、bring-up、台架调试和故障兜底。
 
@@ -461,7 +461,7 @@ ESP 侧 KEY 与 LED 行为默认在所有受支持板型上一致。上电后按
 - `cmd_resp.log` 非空
 - `cmd_resp.log` 从第一个 printable ASCII 字节开始，用户看到的是启动 trim 后的命令口文本
 
-这里的 `Resp topic frames` 和 `Data topic frames` 统计的是 MQTT 消息条数，不是毫米波 TLV 帧数。对开启 `single_uart_split=1` 的单 UART `WDR/xWRL6432` 来说，`resp_topic` 里只有少量启动或命令响应分片是正常现象，持续运行期 payload 应主要出现在 `data_topic`。
+这里的 `Resp topic frames` 和 `Data topic frames` 统计的是 MQTT 消息条数，不是毫米波 TLV 帧数。对开启 `single_uart_split=1` 的单 UART `WDR/xWRL6432` 来说，`raw_resp` 里只有少量启动或命令响应分片是正常现象，持续运行期 payload 应主要出现在 `raw_data`。
 
 ### 9.7 录制与上传验证
 

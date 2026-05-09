@@ -45,15 +45,15 @@ Example values used below:
 - Wi-Fi password: `ve12345678`
 - MQTT client id: `dc5475c879c0`
 - Device control topics:
-  - `mmwk/dc5475c879c0/device/cmd`
-  - `mmwk/dc5475c879c0/device/resp`
+  - `mmwk/mmwk/dc5475c879c0/device/cmd`
+  - `mmwk/mmwk/dc5475c879c0/device/resp`
 - Raw topics:
-  - `mmwk/dc5475c879c0/raw/data`
-  - `mmwk/dc5475c879c0/raw/resp`
+  - `mmwk/mmwk/dc5475c879c0/raw/data`
+  - `mmwk/mmwk/dc5475c879c0/raw/resp`
 - Radar firmware: `<artifact-dir>/vital_signs_tracking_6843AOP_demo.bin`
 - Radar config: `<artifact-dir>/vital_signs_AOP_2m.cfg`
 
-For your own run, do not assume the example MQTT id and topics above. After `network mqtt` plus reboot, use `node info --transport mqtt` to read the actual `client_id`, control topics, and raw topics, then substitute those values into the later MQTT commands.
+For your own run, do not assume the example MQTT id and topics above. After `network mqtt` plus reboot, use `node info --transport mqtt` to read the actual `did`, `cmd`, `resp`, `raw_data`, and `raw_resp` values, then substitute those values into the later MQTT commands.
 
 `collect` remains the official command for the strict startup-aware flow in this document. If you want the published task wrappers, use `./cli/config.sh` plus `./cli/collect.sh`; see [Radar Task Tools](../../cli/docs/en/radar-task-tools.md) and [Develop Radar With Bridge](../../cli/docs/en/bridge-ti-radar-debug.md). If you explicitly need pure-MQTT capture outside that registry-backed flow, use `./cli/config.sh set` plus `./cli/collect.sh --trigger ...`.
 
@@ -100,10 +100,8 @@ This helper is pure MQTT for both control and raw capture. Use `./cli/config.sh 
   - Controls the device over MQTT instead of direct UART CLI JSON transport.
 - `--broker 192.168.4.9 --mqtt-port 1883`
   - Points to the broker provided by the local `server.sh`.
-- `--device-id dc5475c879c0`
-  - Here this is only an example MQTT `client_id` / topic id. In your own run, use the value returned by `node info --transport mqtt`.
-- `--cmd-topic` / `--resp-topic`
-  - Explicitly pins the device control topics. Use the topics returned by `node info --transport mqtt` in your own run.
+- `--did dc5475c879c0`
+  - Here this is only an example DID route fallback. In your own run, use the value returned by `node info`.
 - `--base-url http://192.168.4.9:8380/`
   - Makes the device download OTA files from the local HTTP service.
 - `--welcome`
@@ -126,10 +124,10 @@ This helper is pure MQTT for both control and raw capture. Use `./cli/config.sh 
   - Subscribes to startup-trimmed radar command-port output (`raw_resp` from `on_cmd_data`).
 
 Topic split reminder:
-- `mmwk/{mac}/device/cmd` and `mmwk/{mac}/device/resp` are the MQTT CLI JSON control topics configured by `network mqtt`.
-- `mmwk/{mac}/raw/data` and `mmwk/{mac}/raw/resp` are the radar passthrough output topics.
-- `mmwk/{mac}/raw/cmd` is a separate optional radar ingress topic that exists only in host mode and is distinct from `mmwk/{mac}/device/cmd`.
-- In bridge/auto mode the MQTT raw plane is intentionally output-only, so collection only needs `mmwk/{mac}/raw/data` and `mmwk/{mac}/raw/resp`.
+- `{prod}/{oid}/{cid-or-did}/device/cmd` and `{prod}/{oid}/{cid-or-did}/device/resp` are the MQTT CLI JSON control topics configured by `network mqtt`.
+- `{prod}/{oid}/{cid-or-did}/raw/data` and `{prod}/{oid}/{cid-or-did}/raw/resp` are the radar passthrough output topics.
+- `{prod}/{oid}/{cid-or-did}/raw/cmd` is a separate optional radar ingress topic that exists only in host mode and is distinct from `{prod}/{oid}/{cid-or-did}/device/cmd`.
+- In bridge/auto mode the MQTT raw plane is intentionally output-only, so collection only needs `{prod}/{oid}/{cid-or-did}/raw/data` and `{prod}/{oid}/{cid-or-did}/raw/resp`.
 
 ### 3.3 Important Validated Caveats
 
@@ -236,8 +234,8 @@ Success evidence:
 
 Important:
 
-- This step stores the broker settings; MQTT topic identity remains fixed to the Wi-Fi STA MAC.
-- The MQTT `client_id` is now fixed to the Wi-Fi STA MAC. After reboot, use `node info --transport mqtt` to confirm the derived `client_id` and canonical topics.
+- This step stores the broker settings; the route id defaults to the device `did` until a claim stores `cid`.
+- After reboot, use `node info --transport mqtt` to confirm the derived `did`, `cmd`, `resp`, and raw topics.
 - On a fresh bridge device, rebooting after this step should be enough to make MQTT CLI JSON control usable.
 
 ### Step 4: Optional Manual Override for Older Persisted Agent Settings
@@ -280,14 +278,12 @@ Command:
   --transport mqtt \
   --broker 192.168.4.9 \
   --mqtt-port 1883 \
-  --device-id dc5475c879c0 \
-  --cmd-topic mmwk/dc5475c879c0/device/cmd \
-  --resp-topic mmwk/dc5475c879c0/device/resp
+  --did dc5475c879c0 \
 ```
 
 Success evidence:
 
-- `MQTT connected, subscribing to mmwk/dc5475c879c0/device/resp`
+- `MQTT connected, subscribing to mmwk/mmwk/dc5475c879c0/device/resp`
 - Returned:
   - `ip = 192.168.4.8`
   - `uri = mqtt://192.168.4.9:1883`
@@ -304,9 +300,7 @@ Command:
   --transport mqtt \
   --broker 192.168.4.9 \
   --mqtt-port 1883 \
-  --device-id dc5475c879c0 \
-  --cmd-topic mmwk/dc5475c879c0/device/cmd \
-  --resp-topic mmwk/dc5475c879c0/device/resp
+  --did dc5475c879c0 \
 ```
 
 Success evidence:
@@ -331,9 +325,7 @@ Command:
   --transport mqtt \
   --broker 192.168.4.9 \
   --mqtt-port 1883 \
-  --device-id dc5475c879c0 \
-  --cmd-topic mmwk/dc5475c879c0/device/cmd \
-  --resp-topic mmwk/dc5475c879c0/device/resp \
+  --did dc5475c879c0 \
   --base-url http://192.168.4.9:8380/
 ```
 
@@ -364,9 +356,7 @@ Recommended command:
   --transport mqtt \
   --broker 192.168.4.9 \
   --mqtt-port 1883 \
-  --device-id dc5475c879c0 \
-  --cmd-topic mmwk/dc5475c879c0/device/cmd \
-  --resp-topic mmwk/dc5475c879c0/device/resp
+  --did dc5475c879c0 \
 ```
 
 Validated observations:
@@ -391,9 +381,9 @@ Command:
 ./cli/run.sh collect \
   --duration 300 \
   --broker mqtt://192.168.4.9:1883 \
-  --device-id dc5475c879c0 \
-  --data-topic mmwk/dc5475c879c0/raw/data \
-  --resp-topic mmwk/dc5475c879c0/raw/resp \
+  --did dc5475c879c0 \
+  --data-topic mmwk/mmwk/dc5475c879c0/raw/data \
+  --resp-topic mmwk/mmwk/dc5475c879c0/raw/resp \
   --data-output <demo-output-dir>/data_resp_300s.sraw \
   --resp-output <demo-output-dir>/cmd_resp_300s.log \
   -p /dev/cu.usbserial-0001
@@ -458,9 +448,7 @@ Command:
   --transport mqtt \
   --broker 192.168.4.9 \
   --mqtt-port 1883 \
-  --device-id dc5475c879c0 \
-  --cmd-topic mmwk/dc5475c879c0/device/cmd \
-  --resp-topic mmwk/dc5475c879c0/device/resp
+  --did dc5475c879c0 \
 ```
 
 Success evidence:
@@ -497,8 +485,8 @@ In terminal B:
 ./cli/run.sh network wifi --ssid ventropic --pass ve12345678 --reset -p /dev/cu.usbserial-0001
 ./cli/run.sh network mqtt --uri mqtt://192.168.4.9:1883 --reset -p /dev/cu.usbserial-0001
 ./cli/run.sh node reboot --reset -p /dev/cu.usbserial-0001
-./cli/run.sh node info --transport mqtt --broker 192.168.4.9 --mqtt-port 1883 --device-id dc5475c879c0 --cmd-topic mmwk/dc5475c879c0/device/cmd --resp-topic mmwk/dc5475c879c0/device/resp
-./cli/run.sh radar fw ota --fw <artifact-dir>/vital_signs_tracking_6843AOP_demo.bin --cfg <artifact-dir>/vital_signs_AOP_2m.cfg --welcome --no-verify --raw-resp-output ./ota_cmd_resp.log --transport mqtt --broker 192.168.4.9 --mqtt-port 1883 --device-id dc5475c879c0 --cmd-topic mmwk/dc5475c879c0/device/cmd --resp-topic mmwk/dc5475c879c0/device/resp --base-url http://192.168.4.9:8380/
+./cli/run.sh node info --transport mqtt --broker 192.168.4.9 --mqtt-port 1883 --did dc5475c879c0
+./cli/run.sh radar fw ota --fw <artifact-dir>/vital_signs_tracking_6843AOP_demo.bin --cfg <artifact-dir>/vital_signs_AOP_2m.cfg --welcome --no-verify --raw-resp-output ./ota_cmd_resp.log --transport mqtt --broker 192.168.4.9 --mqtt-port 1883 --did dc5475c879c0 --base-url http://192.168.4.9:8380/
 ```
 
 If MQTT control is still disabled because the device is carrying older persisted agent values, run this manual override before rebooting:
@@ -511,7 +499,7 @@ If `radar fw ota` times out, or if you want an explicit ready gate before collec
 
 ```bash
 while true; do
-  ./cli/run.sh radar status --transport mqtt --broker 192.168.4.9 --mqtt-port 1883 --device-id dc5475c879c0 --cmd-topic mmwk/dc5475c879c0/device/cmd --resp-topic mmwk/dc5475c879c0/device/resp
+  ./cli/run.sh radar status --transport mqtt --broker 192.168.4.9 --mqtt-port 1883 --did dc5475c879c0
   sleep 10
 done
 ```
@@ -519,7 +507,7 @@ done
 After the radar returns `running`:
 
 ```bash
-./cli/run.sh collect --duration 300 --broker mqtt://192.168.4.9:1883 --device-id dc5475c879c0 --data-topic mmwk/dc5475c879c0/raw/data --resp-topic mmwk/dc5475c879c0/raw/resp --data-output ./data_resp_300s.sraw --resp-output ./cmd_resp_300s.log -p /dev/cu.usbserial-0001
+./cli/run.sh collect --duration 300 --broker mqtt://192.168.4.9:1883 --did dc5475c879c0 --data-topic mmwk/mmwk/dc5475c879c0/raw/data --resp-topic mmwk/mmwk/dc5475c879c0/raw/resp --data-output ./data_resp_300s.sraw --resp-output ./cmd_resp_300s.log -p /dev/cu.usbserial-0001
 ```
 
 If an immediate post-reboot UART CLI JSON query fails, retry once with `--reset` instead of assuming the device is broken.

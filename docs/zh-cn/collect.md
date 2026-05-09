@@ -45,15 +45,15 @@
 - Wi-Fi 密码：`ve12345678`
 - MQTT client id：`dc5475c879c0`
 - 设备控制 topic：
-  - `mmwk/dc5475c879c0/device/cmd`
-  - `mmwk/dc5475c879c0/device/resp`
+  - `mmwk/mmwk/dc5475c879c0/device/cmd`
+  - `mmwk/mmwk/dc5475c879c0/device/resp`
 - 原始数据 topic：
-  - `mmwk/dc5475c879c0/raw/data`
-  - `mmwk/dc5475c879c0/raw/resp`
+  - `mmwk/mmwk/dc5475c879c0/raw/data`
+  - `mmwk/mmwk/dc5475c879c0/raw/resp`
 - 雷达固件：`<artifact-dir>/vital_signs_tracking_6843AOP_demo.bin`
 - 雷达配置：`<artifact-dir>/vital_signs_AOP_2m.cfg`
 
-在你自己的运行里，不要假设上面的 MQTT id 和 topic 一定相同。执行完 `network mqtt` 并重启后，请先用 `node info --transport mqtt` 读取实际的 `client_id`、控制 topic 和 raw topic，再把这些值替换到后续 MQTT 命令中。
+在你自己的运行里，不要假设上面的 MQTT id 和 topic 一定相同。执行完 `network mqtt` 并重启后，请先用 `node info --transport mqtt` 读取实际的 `did`、`cmd`、`resp`、`raw_data`、`raw_resp`，再把这些值替换到后续 MQTT 命令中。
 
 本文档里的严格启动期流程仍以 `collect` 作为官方命令。如果你要直接使用已发布包里的 task wrapper，请使用 `./cli/config.sh` 加 `./cli/collect.sh`；对应说明见 [Radar Task Tools](../../cli/docs/zh-cn/radar-task-tools.md) 和 [通过 Bridge 开发雷达](../../cli/docs/zh-cn/bridge-ti-radar-debug.md)。如果你明确需要脱离注册表工作流、并且控制面与 raw 面都只走 pure MQTT，再使用 `./cli/config.sh set` 加 `./cli/collect.sh --trigger ...`。
 
@@ -100,10 +100,8 @@ Windows PowerShell 下，安装 Python 依赖后可用 `.\cli\collect.ps1 --trig
   - 通过 MQTT 控制设备，而不是通过串口直连 CLI JSON。
 - `--broker 192.168.4.9 --mqtt-port 1883`
   - 指向本地 `server.sh` 提供的 broker。
-- `--device-id dc5475c879c0`
-  - 这里展示的只是示例 MQTT `client_id` / topic id。你自己的运行应以 `node info --transport mqtt` 返回的值为准。
-- `--cmd-topic` / `--resp-topic`
-  - 显式指定设备控制 topic，避免默认推导歧义。你自己的运行请使用 `node info --transport mqtt` 返回的 topic。
+- `--did dc5475c879c0`
+  - 这里展示的只是示例 DID 路由 fallback。你自己的运行应以 `node info` 返回的值为准。
 - `--base-url http://192.168.4.9:8380/`
   - 让设备从本地 HTTP 服务下载 OTA 文件。
 - `--welcome`
@@ -126,10 +124,10 @@ Windows PowerShell 下，安装 Python 依赖后可用 `.\cli\collect.ps1 --trig
   - 订阅雷达 CMD UART 对应的 `raw_resp`。
 
 再次强调 topic 分工：
-- `mmwk/{mac}/device/cmd` 和 `mmwk/{mac}/device/resp` 是由 `network mqtt` 配置的 MQTT CLI JSON 控制 topic。
-- `mmwk/{mac}/raw/data` 和 `mmwk/{mac}/raw/resp` 才是雷达透传输出 topic。
-- `mmwk/{mac}/raw/cmd` 是独立的可选雷达输入 topic，只在 host 模式下存在，并且与 `mmwk/{mac}/device/cmd` 不同。
-- 在 bridge/auto 模式下，MQTT raw 平面刻意保持“只出不进”，因此采集只需要 `mmwk/{mac}/raw/data` 和 `mmwk/{mac}/raw/resp`。
+- `{prod}/{oid}/{cid-or-did}/device/cmd` 和 `{prod}/{oid}/{cid-or-did}/device/resp` 是由 `network mqtt` 配置的 MQTT CLI JSON 控制 topic。
+- `{prod}/{oid}/{cid-or-did}/raw/data` 和 `{prod}/{oid}/{cid-or-did}/raw/resp` 才是雷达透传输出 topic。
+- `{prod}/{oid}/{cid-or-did}/raw/cmd` 是独立的可选雷达输入 topic，只在 host 模式下存在，并且与 `{prod}/{oid}/{cid-or-did}/device/cmd` 不同。
+- 在 bridge/auto 模式下，MQTT raw 平面刻意保持“只出不进”，因此采集只需要 `{prod}/{oid}/{cid-or-did}/raw/data` 和 `{prod}/{oid}/{cid-or-did}/raw/resp`。
 
 ### 3.3 本次验证中确认的重要现象
 
@@ -236,8 +234,8 @@ Windows PowerShell 下，安装 Python 依赖后可用 `.\cli\collect.ps1 --trig
 
 重要说明：
 
-- 这一步只负责写入 broker 设置；MQTT topic 身份固定绑定 Wi-Fi STA MAC。
-- MQTT `client_id` 现在固定绑定 Wi-Fi STA MAC。重启后请通过 `node info --transport mqtt` 确认派生出的 `client_id` 和 canonical topic。
+- 这一步只负责写入 broker 设置；route id 在未 claim 前默认使用设备 `did`，claim 后优先使用 `cid`。
+- 重启后请通过 `node info --transport mqtt` 确认派生出的 `did`、`cmd`、`resp` 和 raw topic。
 - 对 fresh bridge 来说，执行完这一步并重启后，就应能启用 MQTT CLI JSON 控制。
 
 ### 步骤 4：针对旧持久化 agent 设置的可选手动 override
@@ -280,14 +278,12 @@ Windows PowerShell 下，安装 Python 依赖后可用 `.\cli\collect.ps1 --trig
   --transport mqtt \
   --broker 192.168.4.9 \
   --mqtt-port 1883 \
-  --device-id dc5475c879c0 \
-  --cmd-topic mmwk/dc5475c879c0/device/cmd \
-  --resp-topic mmwk/dc5475c879c0/device/resp
+  --did dc5475c879c0 \
 ```
 
 成功证明：
 
-- `MQTT connected, subscribing to mmwk/dc5475c879c0/device/resp`
+- `MQTT connected, subscribing to mmwk/mmwk/dc5475c879c0/device/resp`
 - 返回：
   - `ip = 192.168.4.8`
   - `uri = mqtt://192.168.4.9:1883`
@@ -304,9 +300,7 @@ Windows PowerShell 下，安装 Python 依赖后可用 `.\cli\collect.ps1 --trig
   --transport mqtt \
   --broker 192.168.4.9 \
   --mqtt-port 1883 \
-  --device-id dc5475c879c0 \
-  --cmd-topic mmwk/dc5475c879c0/device/cmd \
-  --resp-topic mmwk/dc5475c879c0/device/resp
+  --did dc5475c879c0 \
 ```
 
 成功证明：
@@ -331,9 +325,7 @@ Windows PowerShell 下，安装 Python 依赖后可用 `.\cli\collect.ps1 --trig
   --transport mqtt \
   --broker 192.168.4.9 \
   --mqtt-port 1883 \
-  --device-id dc5475c879c0 \
-  --cmd-topic mmwk/dc5475c879c0/device/cmd \
-  --resp-topic mmwk/dc5475c879c0/device/resp \
+  --did dc5475c879c0 \
   --base-url http://192.168.4.9:8380/
 ```
 
@@ -364,9 +356,7 @@ Windows PowerShell 下，安装 Python 依赖后可用 `.\cli\collect.ps1 --trig
   --transport mqtt \
   --broker 192.168.4.9 \
   --mqtt-port 1883 \
-  --device-id dc5475c879c0 \
-  --cmd-topic mmwk/dc5475c879c0/device/cmd \
-  --resp-topic mmwk/dc5475c879c0/device/resp
+  --did dc5475c879c0 \
 ```
 
 本次验证观察到：
@@ -391,9 +381,9 @@ Windows PowerShell 下，安装 Python 依赖后可用 `.\cli\collect.ps1 --trig
 ./cli/run.sh collect \
   --duration 300 \
   --broker mqtt://192.168.4.9:1883 \
-  --device-id dc5475c879c0 \
-  --data-topic mmwk/dc5475c879c0/raw/data \
-  --resp-topic mmwk/dc5475c879c0/raw/resp \
+  --did dc5475c879c0 \
+  --data-topic mmwk/mmwk/dc5475c879c0/raw/data \
+  --resp-topic mmwk/mmwk/dc5475c879c0/raw/resp \
   --data-output <demo-output-dir>/data_resp_300s.sraw \
   --resp-output <demo-output-dir>/cmd_resp_300s.log \
   -p /dev/cu.usbserial-0001
@@ -458,9 +448,7 @@ Windows PowerShell 下，安装 Python 依赖后可用 `.\cli\collect.ps1 --trig
   --transport mqtt \
   --broker 192.168.4.9 \
   --mqtt-port 1883 \
-  --device-id dc5475c879c0 \
-  --cmd-topic mmwk/dc5475c879c0/device/cmd \
-  --resp-topic mmwk/dc5475c879c0/device/resp
+  --did dc5475c879c0 \
 ```
 
 成功证明：
@@ -497,8 +485,8 @@ Windows PowerShell 下，安装 Python 依赖后可用 `.\cli\collect.ps1 --trig
 ./cli/run.sh network wifi --ssid ventropic --pass ve12345678 --reset -p /dev/cu.usbserial-0001
 ./cli/run.sh network mqtt --uri mqtt://192.168.4.9:1883 --reset -p /dev/cu.usbserial-0001
 ./cli/run.sh node reboot --reset -p /dev/cu.usbserial-0001
-./cli/run.sh node info --transport mqtt --broker 192.168.4.9 --mqtt-port 1883 --device-id dc5475c879c0 --cmd-topic mmwk/dc5475c879c0/device/cmd --resp-topic mmwk/dc5475c879c0/device/resp
-./cli/run.sh radar fw ota --fw <artifact-dir>/vital_signs_tracking_6843AOP_demo.bin --cfg <artifact-dir>/vital_signs_AOP_2m.cfg --welcome --no-verify --raw-resp-output ./ota_cmd_resp.log --transport mqtt --broker 192.168.4.9 --mqtt-port 1883 --device-id dc5475c879c0 --cmd-topic mmwk/dc5475c879c0/device/cmd --resp-topic mmwk/dc5475c879c0/device/resp --base-url http://192.168.4.9:8380/
+./cli/run.sh node info --transport mqtt --broker 192.168.4.9 --mqtt-port 1883 --did dc5475c879c0
+./cli/run.sh radar fw ota --fw <artifact-dir>/vital_signs_tracking_6843AOP_demo.bin --cfg <artifact-dir>/vital_signs_AOP_2m.cfg --welcome --no-verify --raw-resp-output ./ota_cmd_resp.log --transport mqtt --broker 192.168.4.9 --mqtt-port 1883 --did dc5475c879c0 --base-url http://192.168.4.9:8380/
 ```
 
 如果设备沿用了较旧的持久化 agent 值，导致 MQTT 控制仍未开启，再在重启前执行下面这个手动 override：
@@ -511,7 +499,7 @@ Windows PowerShell 下，安装 Python 依赖后可用 `.\cli\collect.ps1 --trig
 
 ```bash
 while true; do
-  ./cli/run.sh radar status --transport mqtt --broker 192.168.4.9 --mqtt-port 1883 --device-id dc5475c879c0 --cmd-topic mmwk/dc5475c879c0/device/cmd --resp-topic mmwk/dc5475c879c0/device/resp
+  ./cli/run.sh radar status --transport mqtt --broker 192.168.4.9 --mqtt-port 1883 --did dc5475c879c0
   sleep 10
 done
 ```
@@ -519,7 +507,7 @@ done
 等雷达返回 `running` 后：
 
 ```bash
-./cli/run.sh collect --duration 300 --broker mqtt://192.168.4.9:1883 --device-id dc5475c879c0 --data-topic mmwk/dc5475c879c0/raw/data --resp-topic mmwk/dc5475c879c0/raw/resp --data-output ./data_resp_300s.sraw --resp-output ./cmd_resp_300s.log -p /dev/cu.usbserial-0001
+./cli/run.sh collect --duration 300 --broker mqtt://192.168.4.9:1883 --did dc5475c879c0 --data-topic mmwk/mmwk/dc5475c879c0/raw/data --resp-topic mmwk/mmwk/dc5475c879c0/raw/resp --data-output ./data_resp_300s.sraw --resp-output ./cmd_resp_300s.log -p /dev/cu.usbserial-0001
 ```
 
 如果设备刚重启后 UART CLI JSON 查询失败，不要立刻判断设备异常，先用 `--reset` 重试一次。

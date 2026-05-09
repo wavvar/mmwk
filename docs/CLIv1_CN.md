@@ -32,7 +32,7 @@ CLIv1.1 在主机初始化时返回的 `protocolVersion` 为 `control.v1.1`。
 ## 传输与封包
 
 - **UART**：UART0，115200 波特率，按行分隔 JSON 对象
-- **MQTT**：向配置好的 `cmd_topic` / `resp_topic` 收发 JSON 对象
+- **MQTT**：向配置好的路由 topic `cmd` / `resp` 收发 JSON 对象
 
 每次请求都是单个 JSON 对象；这套协议不定义 batch 数组。
 
@@ -99,7 +99,7 @@ key 管理位于 `node key`：
 
 ## Node Claim
 
-`node claim` 用来从 claim provider 获取具体设备身份。它和 `network prov` 语义不同：`network prov` 启动 Wi-Fi 配网，`node claim` 获取 `dev.cid`、`dev.oid` 和可选 MQTT 凭据。
+`node claim` 用来从 claim provider 获取具体路由身份。它和 `network prov` 语义不同：`network prov` 启动 Wi-Fi 配网，`node claim` 获取 `prod`、`oid`、`cid` 和可选 MQTT 凭据。
 
 请求：
 
@@ -112,16 +112,16 @@ key 管理位于 `node key`：
 - `node claim` 只能通过 UART/local 执行；MQTT transport 返回 `unsupported_transport`。
 - `endpoint` 可选，只覆盖本次请求的固件默认 claim 地址。
 - `token` 可选，是一次性输入；不会持久化，也不会在响应中回显。
-- claim 成功必须同时得到 `dev.cid` 和 `dev.oid`。
+- provider claim 成功必须同时得到 `cid` 和 `oid`；`prod` 未提供时默认为 `mmwk`。
 - 已 claim 的设备返回 `already_claimed`，错误响应里不带身份字段。
 - `token`、`mqtt.user`、`mqtt.pass` 等密钥不会返回。
-- `node info` 只在身份存在时显示 `cid` 和 `oid`。
+- `node info` 显示 `prod`、`oid`、`cid` 和 `did`。
 - `node info` 只在设备仍处于工厂状态时显示 `factory: INIT`。
 
 成功响应：
 
 ```json
-{"type":"res","seq":6,"ok":true,"result":{"claimed":true,"cid":"CID123","oid":"OID456","mqtt":{"cid":"CID123","uri":"mqtt://broker.local"}}}
+{"type":"res","seq":6,"ok":true,"result":{"claimed":true,"prod":"mmwk","cid":"cid123","oid":"oid456","did":"dc5475c879c0","cmd":"mmwk/oid456/cid123/device/cmd","resp":"mmwk/oid456/cid123/device/resp","mqtt":{"uri":"mqtt://broker.local"}}}
 ```
 
 ## 成功响应

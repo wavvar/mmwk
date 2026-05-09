@@ -15,7 +15,7 @@
 ## 传输与封包
 
 - **UART**：UART0，115200 波特率，按行分隔的 JSON-RPC（`\n` / `\r\n`）
-- **MQTT**：在已配置的 `cmd_topic`（请求）和 `resp_topic`（响应）上承载 JSON-RPC
+- **MQTT**：在已配置的路由 topic `cmd`（请求）和 `resp`（响应）上承载 JSON-RPC，对应 `{prod}/{oid}/{cid-or-did}/device/cmd` 和 `{prod}/{oid}/{cid-or-did}/device/resp`
 
 说明：
 
@@ -274,17 +274,17 @@ BRIDGE 和 HUB 均已实现。
 
 BRIDGE 和 HUB 都使用固定的 raw topic：
 
-- 运行时始终派生 `mmwk/{mac}/raw/data` 和 `mmwk/{mac}/raw/resp`
-- 在 host 模式下，运行时还会派生 `mmwk/{mac}/raw/cmd`
-- 在 bridge/auto 模式下，MQTT raw 平面仍然只出不进，因此不会暴露 `raw_cmd_topic`
-- `enabled=true` 时显式传入 `data_topic` / `resp_topic` / `cmd_topic` 会被拒绝
+- 运行时始终派生 `{prod}/{oid}/{cid-or-did}/raw/data` 和 `{prod}/{oid}/{cid-or-did}/raw/resp`
+- 在 host 模式下，运行时还会派生 `{prod}/{oid}/{cid-or-did}/raw/cmd`
+- 在 bridge/auto 模式下，MQTT raw 平面仍然只出不进，因此 `raw_cmd` 为空
+- `enabled=true` 时显式传入 raw topic override 会被拒绝
 
 各 topic 的含义：
 
-- `data_topic`：镜像雷达 DATA UART 路径的原始字节，通常保存为 `data_resp.sraw`
-- `resp_topic`：来自 `on_cmd_data` 的启动 trim 后命令口输出，`cmd_resp.log` 会从第一个 printable ASCII 字节开始
+- `raw_data`：镜像雷达 DATA UART 路径的原始字节，通常保存为 `data_resp.sraw`
+- `raw_resp`：来自 `on_cmd_data` 的启动 trim 后命令口输出，`cmd_resp.log` 会从第一个 printable ASCII 字节开始
 - `on_cmd_resp` 和 `on_radar_frame` 是应用层回调，必须与 raw 采集分离
-- `cmd_topic`：可选的雷达 CMD UART 输入 topic，仅在 host 模式下可用，与 MCP 交互 topic `mmwk/{mac}/device/cmd` 不同
+- `raw_cmd`：可选的雷达 CMD UART 输入 topic，仅在 host 模式下可用，与 MCP 交互 topic `{prod}/{oid}/{cid-or-did}/device/cmd` 不同
 
 BRIDGE 专属扩展：
 
@@ -375,10 +375,10 @@ Schema 中的 action：
 - BRIDGE 运行时还会返回：
   - `radar_fw`、`radar_fw_version`、`radar_cfg`
   - `fw.default`、`fw.running`、`fw.switch`、`fw.boot_mode`
-  - `mqtt_uri`、`client_id`、`cmd_topic`、`resp_topic`
+  - `uri`、`did`、`prod`、`oid`、`cid`、`cmd`、`resp`
   - `mqtt_en`、`uart_en`、`raw_auto`
-  - `raw_data_topic`、`raw_resp_topic`
-  - 当前 bridge 运行态 boot mode 为 `host` 时还会返回 `raw_cmd_topic`
+  - `raw_data`、`raw_resp`
+  - 当前 bridge 运行态 boot mode 为 `host` 时还会返回 `raw_cmd`
 - `fw.default` 和 `fw.running` 都是对象，包含 `source`、`index`、`name`、`version`、`config`
 - `fw.default` 表示保存下来的持久化默认条目；`fw.running` 表示当前会话真实运行中的条目
 - `fw.switch` 包含当前 profile 门控出来的切换能力标志 `persist` 和 `temp`
@@ -406,14 +406,14 @@ profile 能力契约：
 
 - 只能通过 UART/local transport 执行；MQTT 返回 `unsupported_transport`
 - `endpoint` 和 `token` 是可选字符串
-- 成功的 provider 响应必须包含 `dev.cid` 和 `dev.oid`
+- 成功的 provider 响应必须包含 `cid` 和 `oid`；`prod` 未提供时默认为 `mmwk`
 - 已 claim 的设备返回 `already_claimed`，错误响应不带身份字段
 - 不会返回密钥：`token`、`mqtt.user`、`mqtt.pass` 都不会出现在响应中
 
 成功载荷文本包含：
 
 ```json
-{"claimed":true,"cid":"CID123","oid":"OID456","mqtt":{"cid":"CID123","uri":"mqtt://broker.local"}}
+{"claimed":true,"prod":"mmwk","cid":"cid123","oid":"oid456","did":"dc5475c879c0","cmd":"mmwk/oid456/cid123/device/cmd","resp":"mmwk/oid456/cid123/device/resp","mqtt":{"uri":"mqtt://broker.local"}}
 ```
 
 #### `action=heartbeat`
@@ -441,7 +441,7 @@ Schema actions：`config`、`prov`、`ntp`、`mqtt`、`status`、`diag`
 
 - `action=config`：`ssid`、`password`
 - `action=prov`：`enable`
-- `action=mqtt`：支持 `cid`、`mqtt_uri`、`mqtt_user`、`mqtt_pass`、`cmd_topic`、`resp_topic`
+- `action=mqtt`：写入字段为 `uri`、`user`、`pass`，兼容别名为 `mqtt_uri`、`mqtt_user`、`mqtt_pass`；返回中包含只读路由身份字段 `prod`、`oid`、`cid`、`did`、`cmd`、`resp`，如需设置 `prod` / `oid` / `cid` 请使用 `node claim`
 - `action=ntp`：支持 `server`、`tz_offset`、`interval`
 - `action=status`：返回 `state`、`sta_ip`、`ip_ready`、`prov_wait_remaining_sec`、`led_state`
 
@@ -540,8 +540,8 @@ HUB 传感器激活时，`notifications/message` 中常见字段包括：
 - `device.mqtt` 已移除，MQTT 配置统一归入 `network.mqtt`
 - `fw` 在 BRIDGE/HUB 都可调用
 - `device.agent` 同时支持 `mqtt_en`、`uart_en`、`raw_auto`
-- `network.mqtt` 支持 `mqtt_uri`、`mqtt_user`、`mqtt_pass`；`cid`、`cmd_topic`、`resp_topic` 在返回值里仍可观测，但写入时会被拒绝
-- `radar.raw` 在两种模式下都使用固定 topic：始终派生 `mmwk/{mac}/raw/data` 和 `mmwk/{mac}/raw/resp`，host 额外派生 `mmwk/{mac}/raw/cmd`，topic override 会被显式拒绝
+- `network.mqtt` 支持 broker 与凭据字段（`uri`、`user`、`pass` 以及 `mqtt_*` 兼容别名）；`prod`、`oid`、`cid`、`did`、`cmd`、`resp` 在返回值里仍可观测，但写入时会被拒绝
+- `radar.raw` 在两种模式下都使用固定 topic：始终派生 `{prod}/{oid}/{cid-or-did}/raw/data` 和 `{prod}/{oid}/{cid-or-did}/raw/resp`，host 额外派生 `{prod}/{oid}/{cid-or-did}/raw/cmd`，topic override 会被显式拒绝
 - `radar.raw` 仅负责配置，诊断功能归入 `radar.debug`
 - `radar.debug` 在 BRIDGE/HUB 都可用
 - HUB `radar ota` 支持 `fw_topic` 与 `cert_url`

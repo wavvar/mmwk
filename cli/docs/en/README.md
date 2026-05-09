@@ -121,7 +121,7 @@ Factory or empty-key devices remain open for bring-up. After you set a key, prot
 ./run.sh node claim --endpoint https://claim.example.com/device --token ONE_TIME_TOKEN -p /dev/cu.usbserial-0001
 ```
 
-`--endpoint` overrides the firmware default for that attempt. `--token` is one-time input only: it is not persisted and is never returned. A successful claim persists `dev.cid` and `dev.oid`; later `node info` shows `cid` and `oid`. If the device is still in factory state, `node info` also shows `factory: INIT`; after claim or user reset this field is omitted. `network prov` is still only Wi-Fi provisioning and does not claim route identity.
+`--endpoint` overrides the firmware default for that attempt. `--token` is one-time input only: it is not persisted and is never returned. A successful provider claim persists the route identity (`prod`, `oid`, and `cid`); later `node info` shows those fields plus `did`. If the device is still in factory state, `node info` also shows `factory: INIT`; after claim or user reset this field is omitted. `network prov` is still only Wi-Fi provisioning and does not claim route identity.
 
 ---
 
