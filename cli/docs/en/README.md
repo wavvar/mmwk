@@ -19,7 +19,7 @@ The CLI now defaults to the canonical CLI JSON protocol. Most MMWK firmware buil
 - [Host Platform Entry Points](#host-platform-entry-points)
 - [Quick Start](#quick-start)
 - [Core Concepts](#core-concepts)
-  - [Device Identification](#device-identification)
+  - [Route Identity](#route-identity)
   - [Network & Provisioning](#network--provisioning)
 - [Communication Layers](#communication-layers)
   - [Recommended Architecture](#recommended-architecture)
@@ -79,7 +79,7 @@ PowerShell command arguments are the same as the POSIX examples except for the w
 ```powershell
 .\run.ps1 node info -p COM3
 .\server.ps1 run --serve-dir C:\mmwk\artifacts --host-ip 192.168.4.8
-.\collect.ps1 --trigger device-reboot --device-id DC5475C879C0
+.\collect.ps1 --trigger device-reboot --did dc5475c879c0
 ```
 
 ## Surface Update (2026-04-13)
@@ -88,7 +88,7 @@ PowerShell command arguments are the same as the POSIX examples except for the w
 - The hub-only public increment is `scene` plus the extra sensor endpoints/events that appear only after the requested sensor set passes support check.
 - Public capability introspection now uses `endpoint list` and `proto list|status|manifest`.
 - Public raw recorder/config control now uses `radar raw status`, `radar raw config get|set --json ...`, and `radar raw start|stop|trigger`.
-- `node claim` is the UART/local device identity claim flow; it obtains `cid`/`oid` and optional MQTT credentials. `network prov` remains Wi-Fi provisioning.
+- `node claim` is the UART/local route identity claim flow; it obtains `cid`/`oid` and optional MQTT credentials. `network prov` remains Wi-Fi provisioning.
 - Legacy discovery roots were removed from public help/discovery; the command reference below reflects the current public surface.
 - `scene` is hub-only. On bridge, direct `scene` calls return unknown tool.
 
@@ -115,13 +115,13 @@ Factory or empty-key devices remain open for bring-up. After you set a key, prot
 
 ## Device Claim
 
-`node claim` obtains the device identity (`cid` and `oid`) and optional MQTT credentials from a claim provider. It is local only and must use UART; MQTT transport is rejected.
+`node claim` obtains the route identity (`cid` and `oid`) and optional MQTT credentials from a claim provider. It is local only and must use UART; MQTT transport is rejected.
 
 ```bash
 ./run.sh node claim --endpoint https://claim.example.com/device --token ONE_TIME_TOKEN -p /dev/cu.usbserial-0001
 ```
 
-`--endpoint` overrides the firmware default for that attempt. `--token` is one-time input only: it is not persisted and is never returned. A successful claim persists `dev.cid` and `dev.oid`; later `node info` shows `cid` and `oid`. If the device is still in factory state, `node info` also shows `factory: INIT`; after claim or user reset this field is omitted. `network prov` is still only Wi-Fi provisioning and does not claim device identity.
+`--endpoint` overrides the firmware default for that attempt. `--token` is one-time input only: it is not persisted and is never returned. A successful claim persists `dev.cid` and `dev.oid`; later `node info` shows `cid` and `oid`. If the device is still in factory state, `node info` also shows `factory: INIT`; after claim or user reset this field is omitted. `network prov` is still only Wi-Fi provisioning and does not claim route identity.
 
 ---
 
@@ -134,13 +134,13 @@ Use this path when you receive a new device and want the shortest end-to-end flo
 4. collect startup-trimmed command-port text plus data-port raw bytes.
 
 ### 1. Verify UART Control Path
-Check the shell wrapper and discover device identity:
+Check the shell wrapper and discover route identity:
 ```bash
 ./run.sh --help
 ./run.sh node info -p /dev/cu.usbserial-0001
 ```
 
-Expected `node info` fields include `name`, `board`, `version`, `id`, plus, when MQTT is configured, `uri`, `client_id`, `raw_data_topic`, and `raw_resp_topic`. It also includes `factory_reset_pending` to expose the short reset transition state. In factory state it includes `factory: INIT`; after `node claim`, it includes claimed device identity fields `cid` and `oid`. Here `name` / `version` are the canonical ESP firmware identity fields.
+Expected `node info` fields include `name`, `board`, `version`, `did`, `prod`, `oid`, `cid`, `cmd`, `resp`, `raw_data`, and `raw_resp`. Host-mode raw command ingress also reports `raw_cmd`. It also includes `factory_reset_pending` to expose the short reset transition state. In factory state it includes `factory: INIT`. Here `name` / `version` are the canonical ESP firmware identity fields.
 Startup ownership is now exposed on radar-facing surfaces instead: `radar status` returns `mode` and `modes`, while `fw.boot_mode` inside the `fw` object reports the runtime radar boot path. BRIDGE reports `["auto", "host"]`; HUB reports `["auto"]`.
 
 ### 2. Flash Your Radar Firmware + Config (UART, simplest)
@@ -170,12 +170,15 @@ Use the results as follows:
 - Use `radar fw version` + `radar status` to verify the live radar image after flash.
 
 ### 4. Configure Wi-Fi + MQTT for Data Collection
-`collect` captures data from MQTT topics. On a fresh device, configure Wi-Fi and MQTT first. Here, `network mqtt` stores the broker/auth settings while the device's MQTT identity and CLI JSON/raw topics are derived from the Wi-Fi STA MAC:
+`collect` captures data from MQTT topics. On a fresh device, configure Wi-Fi, optionally claim the device route identity, and then configure MQTT. `node claim` is the step that assigns tenant/product routing metadata. It stores `prod`, `oid`, and `cid`; `cid` becomes the third topic segment, while an unclaimed device falls back to `did`:
 ```bash
 ./run.sh network wifi --ssid YOUR_SSID --pass YOUR_PASSWORD -p /dev/cu.usbserial-0001
+./run.sh node claim --prod acme --oid tenant-a --cid kitchen-01 -p /dev/cu.usbserial-0001
 ./run.sh network mqtt --uri mqtt://192.168.1.100:1883 -p /dev/cu.usbserial-0001
 ./run.sh node reboot -p /dev/cu.usbserial-0001
 ```
+
+If you do not need multi-tenant routing yet, skip `node claim`; the defaults are `prod=mmwk`, `oid=mmwk`, and topics use the lowercase compact Wi-Fi STA MAC as `did`.
 
 For PRO devices and 4G-equipped WDR devices, store the mobile profile and then choose the preferred network:
 ```bash
@@ -187,7 +190,7 @@ For PRO devices and 4G-equipped WDR devices, store the mobile profile and then c
 
 For SDK hardware acceptance runs, 4G is also explicit: pass the runner's `--4g` for PRO devices or 4G-equipped WDR devices; omit it to keep Wi-Fi as the test default.
 
-Provisioning AP SSID follows `MMWK-[board][app]-[MAC suffix]`. Factory default Wi-Fi is `MMWK / mmwk123456`. Automated portal provisioning may temporarily connect the test host to the device AP and then restore the previous Wi-Fi network. On WSL, automated portal provisioning controls Windows Wi-Fi through PowerShell/netsh and submits the portal request from Windows. Set `TEST_PROVISIONING_AP_SSID` when multiple `MMWK-*` APs are visible, or set `TEST_PORTAL_PROVISION_AUTO=false` to use the old manual checkpoint.
+Provisioning AP display follows `PRODUCT-LAST6`, uppercase for readability, and does not include `oid`. `LAST6` uses `cid` when set, otherwise `did`; topic casing still preserves the configured values. Factory default Wi-Fi is `MMWK / mmwk123456`. Automated portal provisioning may temporarily connect the test host to the device AP and then restore the previous Wi-Fi network. On WSL, automated portal provisioning controls Windows Wi-Fi through PowerShell/netsh and submits the portal request from Windows. Set `TEST_PROVISIONING_AP_SSID` when multiple provisioning APs are visible, or set `TEST_PORTAL_PROVISION_AUTO=false` to use the old manual checkpoint.
 
 The recovery portal is a self-help portal for MQTT broker configuration and diagnostics; it is not Wi-Fi provisioning. The portal remains visible after factory onboarding, but firmware policy controls whether MQTT fields are editable. CLI bridge firmware may expose editable MQTT recovery fields; HUB care/rmaker sidecars expose status only. Status-only portal pages expose MQTT state, last phase/code, remaining window seconds, and 4G diagnostics when preferred 4G is offline; they do not expose MQTT URI, user, or password.
 
@@ -227,27 +230,36 @@ If `Resp topic frames > 0` but `Data topic frames == 0`, the control path is ali
 
 ## Core Concepts
 
-### Device Identification
+### Route Identity
 
-#### 1. Device ID (Hardware UUID)
-The **Device ID** is a unique, fixed identifier derived from the hardware MAC address (e.g., `240AC4123456`).
-- **Discovery**: Use the `node info` command.
-- **Usage**: Stable hardware identity for the board itself.
+#### 1. DID (Hardware Route Fallback)
+`did` is the lowercase compact Wi-Fi STA MAC address, for example `dc5475c879c0`.
+- **Discovery**: Use `node info` or `config.sh search`.
+- **Usage**: Stable route fallback for unclaimed devices.
 
-#### 2. Claimed ID / MQTT Client ID / Topic ID
-After `node claim`, the canonical device identity is `cid` / `oid`, and MQTT uses `mqtt.cid` when supplied by the claim provider. If `mqtt.cid` is absent, MQTT falls back to `dev.cid`; before claim, it falls back to the Wi-Fi STA MAC rendered as uppercase hex with the firmware-configured prefix.
-- **Default device command topics**: `mmwk/{client_id}/device/cmd` and `mmwk/{client_id}/device/resp`
-- **Default raw data topics**: `mmwk/{client_id}/raw/data` and `mmwk/{client_id}/raw/resp` in every mode; host mode additionally exposes `mmwk/{client_id}/raw/cmd`
-- **CLI note**: when using `--transport mqtt`, pass the current `client_id` from `node info` or `network mqtt` as `--device-id`.
+#### 2. Product / Organization / Claimed ID
+`node claim` stores the MQTT route identity. `prod` is the product/root topic segment, `oid` is the tenant/organization segment, and `cid` is the claimed device route segment. Topic values preserve the configured casing; examples use lowercase.
+
+```bash
+./run.sh node claim --prod acme --oid tenant-a --cid kitchen-01 -p /dev/cu.usbserial-0001
+```
+
+Canonical topics are:
+- `mmwk/mmwk/dc5475c879c0/device/cmd` and `mmwk/mmwk/dc5475c879c0/device/resp` before claim
+- `acme/tenant-a/kitchen-01/device/cmd` and `acme/tenant-a/kitchen-01/device/resp` after the example claim
+- `acme/tenant-a/kitchen-01/raw/data` and `acme/tenant-a/kitchen-01/raw/resp` in every mode; host mode additionally exposes `acme/tenant-a/kitchen-01/raw/cmd`
+
+When using `--transport mqtt`, pass the same route fields with `--did`, `--prod`, `--oid`, and `--cid`.
 
 #### 3. MQTT Channels and Responsibilities
-- `network mqtt` configures the broker connection plus the CLI JSON interaction topics used by the built-in control plane: `mmwk/{client_id}/device/cmd` and `mmwk/{client_id}/device/resp`.
-- The MQTT raw passthrough plane publishes to the fixed topics `mmwk/{client_id}/raw/data` and `mmwk/{client_id}/raw/resp`. In host mode it also derives the optional `mmwk/{client_id}/raw/cmd`.
+- `network mqtt` configures the broker connection and auth. Route identity is configured separately by `node claim`.
+- The built-in control plane subscribes to `{prod}/{oid}/{cid-or-did}/device/cmd` and publishes to `{prod}/{oid}/{cid-or-did}/device/resp`.
+- The MQTT raw passthrough plane publishes to `{prod}/{oid}/{cid-or-did}/raw/data` and `{prod}/{oid}/{cid-or-did}/raw/resp`. In host mode it also derives the optional `{prod}/{oid}/{cid-or-did}/raw/cmd`.
 - Public `radar raw` commands manage recorder/config surfaces, while host-side `collect` and `collect.sh --trigger` subscribe to the MQTT raw passthrough topics.
 - `raw_data` corresponds to raw data-port bytes from `on_radar_data` and is typically collected as `data_resp.sraw`.
 - `raw_resp` corresponds to startup-trimmed command-port output from `on_cmd_data` and is typically collected as `cmd_resp.log`.
 - `on_cmd_resp` and `on_radar_frame` are application-layer callbacks and are different from raw capture outputs.
-- `raw_cmd` is an optional host-mode MQTT ingress for radar CMD UART passthrough and is distinct from the CLI JSON command topic `mmwk/{client_id}/device/cmd`.
+- `raw_cmd` is an optional host-mode MQTT ingress for radar CMD UART passthrough and is distinct from the CLI JSON command topic `{prod}/{oid}/{cid-or-did}/device/cmd`.
 - Recommended practice: real applications, services, dashboards, and agents should integrate through MQTT. UART is mainly for factory setup, initial flashing, bring-up, bench debugging, and emergency fallback.
 
 #### 4. Startup Ownership Contract
@@ -267,7 +279,7 @@ After `node claim`, the canonical device identity is `cid` / `oid`, and MQTT use
 ### Network & Provisioning
 
 If the device has no saved Wi-Fi credentials, it enters **Provisioning Mode** automatically:
-1. **Connect**: Join the Wi-Fi AP `MMWK_XXXX` (XXXX = last 4 MAC digits).
+1. **Connect**: Join the Wi-Fi AP `MMWK-XXXXXX` (`PRODUCT-LAST6`, uppercase; default product is `MMWK`).
 2. **Portal**: Browse to `http://192.168.4.1` (usually opens automatically).
 3. **Configure**: Enter your Wi-Fi credentials and save.
 
@@ -301,8 +313,8 @@ flowchart LR
     U["UART Host\nfactory / debug / recovery"] <-->|"UART CLI JSON\nbuiltin control"| D["MMWK Device (ESP)\nCLIv1 builtin control + radar bridge"]
     D -->|"CMD UART"| RC["Radar CMD UART"]
     RD["Radar DATA UART"] --> D
-    D <-->|"MQTT CLI JSON\nnetwork mqtt\n mmwk/{client_id}/device/cmd + resp"| B["MQTT Broker"]
-    D <-->|"MQTT RAW\nradar raw\n mmwk/{client_id}/raw/data + resp\n(+ cmd in host)"| B
+    D <-->|"MQTT CLI JSON\nnetwork mqtt\n {prod}/{oid}/{cid-or-did}/device/cmd + resp"| B["MQTT Broker"]
+    D <-->|"MQTT RAW\nradar raw\n {prod}/{oid}/{cid-or-did}/raw/data + resp\n(+ cmd in host)"| B
     A["Application / Cloud / AI Agent"] <-->|"Primary integration path"| B
 ```
 
@@ -324,12 +336,12 @@ Primary transport for factory setup, local debugging, and recovery. Ordinary UAR
 ### MQTT (Remote)
 Recommended transport for real applications, dashboards, automation, and fleet/device management over the network.
 ```bash
-./run.sh radar status --transport mqtt --broker 192.168.1.5 --device-id DC5475C879C0
+./run.sh radar status --transport mqtt --broker 192.168.1.5 --did dc5475c879c0
 ```
-- **Topics**: `mmwk/{client_id}/device/cmd` (input) and `mmwk/{client_id}/device/resp` (output).
+- **Topics**: `{prod}/{oid}/{cid-or-did}/device/cmd` (input) and `{prod}/{oid}/{cid-or-did}/device/resp` (output).
 - **Configured by**: `network mqtt`
-- **`--device-id` meaning**: pass the current `client_id` used in `mmwk/{client_id}/...`; before claim, the MAC-form fallback is uppercase hex.
-- **Raw passthrough relation**: the device publishes MQTT raw passthrough traffic to `mmwk/{client_id}/raw/data` and `mmwk/{client_id}/raw/resp`. Host mode can additionally derive `mmwk/{client_id}/raw/cmd`.
+- **Route arguments**: pass `--did` for unclaimed devices, or `--prod --oid --cid` for claimed routes.
+- **Raw passthrough relation**: the device publishes MQTT raw passthrough traffic to `{prod}/{oid}/{cid-or-did}/raw/data` and `{prod}/{oid}/{cid-or-did}/raw/resp`. Host mode can additionally derive `{prod}/{oid}/{cid-or-did}/raw/cmd`.
 - **Default QoS**: 1 (At least once delivery).
 
 ---
@@ -349,7 +361,7 @@ Recommended transport for real applications, dashboards, automation, and fleet/d
 | Command | Action Description |
 |---------|---------------------|
 | `node info` | Handshake: identify model, version, and published metadata |
-| `node claim` | Claim device identity and credentials over UART/local transport |
+| `node claim` | Claim route identity and credentials over UART/local transport |
 | `node factory-reset` | Trigger factory reset (clear NVS + runtime assets, reboot after 1s) |
 | `node reboot` | Reboot the device |
 | `node ota` | Update the ESP firmware via HTTP OTA |
@@ -636,7 +648,7 @@ Runtime reconf behavior:
 Related startup-mode behavior:
 - BRIDGE reports `modes: ["auto", "host"]` on radar-facing status surfaces, while device-facing surfaces no longer expose startup policy.
 - BRIDGE supports `["auto", "host"]`; HUB supports `["auto"]`.
-- In bridge `host`, `raw_auto=1` auto-starts `mmwk/{client_id}/raw/data`, `mmwk/{client_id}/raw/resp`, and `mmwk/{client_id}/raw/cmd`.
+- In bridge `host`, `raw_auto=1` auto-starts `{prod}/{oid}/{cid-or-did}/raw/data`, `{prod}/{oid}/{cid-or-did}/raw/resp`, and `{prod}/{oid}/{cid-or-did}/raw/cmd`.
 
 ### Method D: Read Back the Current Radar CFG
 
@@ -662,7 +674,7 @@ Both methods also work over MQTT instead of UART. Add `--transport mqtt` and pro
 ```bash
 ./run.sh radar fw flash \
   --fw fw.bin --cfg config.cfg \
-  --transport mqtt --broker 192.168.1.100 --device-id DC5475C879C0 \
+  --transport mqtt --broker 192.168.1.100 --did dc5475c879c0 \
   --mqtt-delay 0.05
 ```
 
@@ -688,11 +700,11 @@ After `radar fw flash`, `radar fw ota`, `radar config apply`, or the first boot 
 ```
 
 What happens under the hood:
-1. Sends `node info` over UART to discover MQTT broker, client ID, and topic configuration
+1. Sends `node info` over UART to discover MQTT broker, route identity, and topic configuration
 2. Waits for the device to regain a usable runtime IP when Wi-Fi/MQTT is still recovering
 3. Queries `node agent` and `radar fw list` to backfill any missing fields
 4. Uses the bridge raw bootstrap path to make sure MQTT raw passthrough is active on the device
-5. Connects to the MQTT broker and subscribes to `mmwk/{client_id}/raw/data` and `mmwk/{client_id}/raw/resp`
+5. Connects to the MQTT broker and subscribes to the reported `raw_data` and `raw_resp` topics
 6. Writes received payloads to the output files for the specified duration, keeping `cmd_resp.log` as startup-trimmed command-port text
 
 Recommended smoke-test criteria after the run:
@@ -717,9 +729,9 @@ You can also provide explicit MQTT parameters to skip auto-discovery:
 ```bash
 ./run.sh collect --duration 30 \
   --broker mqtt://192.168.1.100:1883 \
-  --device-id DC5475C879C0 \
-  --data-topic mmwk/DC5475C879C0/raw/data \
-  --resp-topic mmwk/DC5475C879C0/raw/resp \
+  --did dc5475c879c0 \
+  --data-topic mmwk/mmwk/dc5475c879c0/raw/data \
+  --resp-topic mmwk/mmwk/dc5475c879c0/raw/resp \
   --data-output ./data_resp.sraw --resp-output ./cmd_resp.log
 ```
 
@@ -731,7 +743,7 @@ If the radar has already been running for a while and you are only attaching lat
 
 - [Radar Task Tools](radar-task-tools.md): use `./config.sh init|update|list` plus `./collect.sh` when you want registry-backed UART setup, network update, and MQTT raw collection.
 - [Develop Radar With Bridge](bridge-ti-radar-debug.md): end-to-end bridge-development guide for choosing the right board and running `config.sh init|update|list` plus `collect.sh` on 6843- and 6432-series radar.
-- [Config Helper](config.md): use `./config.sh set` when you need to push Wi-Fi/MQTT settings over UART or an existing MQTT control path, and `./config.sh search` when you need to find device ids over mDNS.
+- [Config Helper](config.md): use `./config.sh set` when you need to push Wi-Fi/MQTT settings over UART or an existing MQTT control path, and `./config.sh search` when you need to find device `did` values over mDNS.
 - [Collect Trigger Helper](collect-trigger.md): use `./collect.sh --trigger ...` when you intentionally need pure MQTT for both control and raw capture.
 
 Do not treat these helpers as a replacement for the strict startup-aware `collect -p` flow.
@@ -761,8 +773,8 @@ On fresh bridge devices this is enough to bring up MQTT control. Use `node agent
 mosquitto_sub -h 192.168.1.100 -t 'mmwk/#' -v
 
 # Or subscribe to specific topics
-mosquitto_sub -h 192.168.1.100 -t 'mmwk/DC5475C879C0/raw/data'
-mosquitto_sub -h 192.168.1.100 -t 'mmwk/DC5475C879C0/raw/resp'
+mosquitto_sub -h 192.168.1.100 -t 'mmwk/mmwk/dc5475c879c0/raw/data'
+mosquitto_sub -h 192.168.1.100 -t 'mmwk/mmwk/dc5475c879c0/raw/resp'
 ```
 
 ### Method C: Device-Side Recording

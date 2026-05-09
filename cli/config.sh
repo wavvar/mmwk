@@ -35,7 +35,7 @@ EXAMPLES:
   ./config.sh init --port /dev/ttyUSB1
   ./config.sh set --server-local --ssid YOUR_WIFI --password YOUR_PASSWORD --port /dev/ttyUSB1 --reboot
   ./config.sh search
-  ./config.sh update --device-id 0123456789ab --fw ./firmware.bin
+  ./config.sh update --did 0123456789ab --fw ./firmware.bin
   ./config.sh list
 EOF_USAGE
 }
@@ -79,10 +79,10 @@ usage_update() {
 config.sh update -- Update radar firmware or runtime cfg using device.yml
 
 USAGE:
-  ./config.sh update --device-id ID [options]
+  ./config.sh update --did DID [options]
 
 REQUIRED:
-  --device-id ID        Device id stored in `<working>/device.yml`
+  --did DID             DID stored in `<working>/device.yml`
 
 OPTIONAL:
   --fw FILE             Radar firmware file path for OTA
@@ -112,9 +112,10 @@ TRANSPORT OPTIONS:
   --reset                Reset device before connecting on UART
   --broker HOST          Current MQTT broker used for MQTT transport
   --mqtt-port PORT       Current MQTT broker port for MQTT transport (default: 1883)
-  --device-id ID         Current MQTT device id for MQTT transport
-  --cmd-topic TOPIC      Current MQTT command topic override
-  --resp-topic TOPIC     Current MQTT response topic override
+  --did DID              Current MQTT did for MQTT transport
+  --prod PROD            Current MQTT product route segment (default: mmwk)
+  --oid OID              Current MQTT organization route segment (default: mmwk)
+  --cid CID              Current MQTT claimed route id; takes precedence over --did
   --timeout SEC          Response timeout in seconds (default: 10)
   -v, --verbose          Enable verbose run.sh logging
 
@@ -163,9 +164,12 @@ USAGE:
 OPTIONAL:
   --timeout SEC        mDNS browse duration (default: 3)
   --json               Print machine-readable JSON
-  --device-id ID       Filter by discovered id or client_id
+  --did DID            Filter by discovered did
+  --prod PROD          Filter by discovered product route segment
+  --oid OID            Filter by discovered organization route segment
+  --cid CID            Filter by discovered claimed route id
   --expect-one         Fail unless exactly one matching device is discovered
-  --print-device-id    With --expect-one, print only the selected client_id/id
+  --print-did          With --expect-one, print only the selected did
   --ap-iface IFACE     Temporarily add --ap-cidr to this host interface
   --ap-cidr CIDR       Host address for device AP discovery (default: 192.168.4.2/24)
   --keep-ap-alias      Leave the temporary AP address configured after search
@@ -174,8 +178,8 @@ OPTIONAL:
 EXAMPLES:
   ./config.sh search
   ./config.sh search --json
-  ./config.sh search --expect-one --print-device-id
-  ./config.sh search --device-id dc5475c8784c --expect-one --json
+  ./config.sh search --expect-one --print-did
+  ./config.sh search --did dc5475c8784c --expect-one --json
   ./config.sh search --ap-iface wlan0 --ap-cidr 192.168.4.2/24
 EOF_USAGE
 }
@@ -185,7 +189,7 @@ wait_for_radar_running() {
     local verify_poll_sec="${2:-2}"
     local mqtt_server="$3"
     local mqtt_port="$4"
-    local device_id="$5"
+    local did="$5"
     local deadline=""
     local status_output=""
     local radar_state=""
@@ -195,7 +199,7 @@ wait_for_radar_running() {
         status_output=""
         radar_state=""
 
-        if status_output="$(run_mmwk_cli radar status --transport mqtt --device-id "$device_id" --broker "$mqtt_server" --mqtt-port "$mqtt_port" 2>/dev/null)"
+        if status_output="$(run_mmwk_cli radar status --transport mqtt --did "$did" --broker "$mqtt_server" --mqtt-port "$mqtt_port" 2>/dev/null)"
         then
             radar_state="$(json_value_from_text "$status_output" "state" "data.state")"
             if [ "$radar_state" = "running" ]; then
@@ -233,7 +237,7 @@ cmd_init() {
     local mqtt_uri=""
     local http_base_url=""
     local node_info_text=""
-    local device_id=""
+    local did=""
     local network_status_text=""
     local mqtt_state=""
 
@@ -355,10 +359,10 @@ cmd_init() {
         uart_args+=(--reset)
     fi
 
-    log_info "Reading device identity over UART"
+    log_info "Reading DID over UART"
     node_info_text="$(run_mmwk_cli node info "${uart_args[@]}")"
-    device_id="$(json_value_from_text "$node_info_text" "id" "client_id")"
-    [ -n "$device_id" ] || die "Failed to detect device id from node info"
+    did="$(json_value_from_text "$node_info_text" "did")"
+    [ -n "$did" ] || die "Failed to detect did from node info"
 
     if [ -n "$ssid" ]; then
         log_info "Applying Wi-Fi settings"
@@ -384,19 +388,19 @@ cmd_init() {
     [ "$mqtt_state" = "connected" ] || die "Expected network status mqtt_state=connected, got '${mqtt_state:-missing}'"
 
     log_info "Verifying MQTT control path"
-    run_mmwk_cli node info --transport mqtt --device-id "$device_id" --broker "$mqtt_server" --mqtt-port "$mqtt_port" >/dev/null
+    run_mmwk_cli node info --transport mqtt --did "$did" --broker "$mqtt_server" --mqtt-port "$mqtt_port" >/dev/null
 
-    write_device_record "$working_dir" "$device_id" "$mqtt_server" "$mqtt_port" "$http_server" "$http_port" "$ssid"
+    write_device_record "$working_dir" "$did" "$mqtt_server" "$mqtt_port" "$http_server" "$http_port" "$ssid"
 
-    printf 'device-id: %s\n' "$device_id"
+    printf 'did: %s\n' "$did"
     printf 'working-dir: %s\n' "$working_dir"
     printf 'device-file: %s\n' "$(device_registry_path "$working_dir")"
     printf 'mqtt-uri: %s\n' "$mqtt_uri"
     printf 'http-base-url: %s\n' "$http_base_url"
-    printf './config.sh update --device-id %s --working %s --fw ./firmware.bin\n' \
-        "$device_id" "$working_dir"
-    printf './collect.sh --device-id %s --working %s --duration 10\n' \
-        "$device_id" "$working_dir"
+    printf './config.sh update --did %s --working %s --fw ./firmware.bin\n' \
+        "$did" "$working_dir"
+    printf './collect.sh --did %s --working %s --duration 10\n' \
+        "$did" "$working_dir"
 }
 
 cmd_set() {
@@ -406,9 +410,10 @@ cmd_set() {
     local reset=false
     local broker=""
     local mqtt_port="1883"
-    local device_id=""
-    local cmd_topic=""
-    local resp_topic=""
+    local did=""
+    local prod="mmwk"
+    local oid="mmwk"
+    local cid=""
     local timeout="10"
     local verbose=false
     local ssid=""
@@ -459,16 +464,20 @@ cmd_set() {
                 mqtt_port="${2:?missing value for --mqtt-port}"
                 shift 2
                 ;;
-            --device-id)
-                device_id="${2:?missing value for --device-id}"
+            --did)
+                did="${2:?missing value for --did}"
                 shift 2
                 ;;
-            --cmd-topic)
-                cmd_topic="${2:?missing value for --cmd-topic}"
+            --prod)
+                prod="${2:?missing value for --prod}"
                 shift 2
                 ;;
-            --resp-topic)
-                resp_topic="${2:?missing value for --resp-topic}"
+            --oid)
+                oid="${2:?missing value for --oid}"
+                shift 2
+                ;;
+            --cid)
+                cid="${2:?missing value for --cid}"
                 shift 2
                 ;;
             --timeout)
@@ -589,9 +598,10 @@ cmd_set() {
     else
         [ -z "$broker" ] || transport_args+=(--broker "$broker")
         [ -z "$mqtt_port" ] || transport_args+=(--mqtt-port "$mqtt_port")
-        [ -z "$device_id" ] || transport_args+=(--device-id "$device_id")
-        [ -z "$cmd_topic" ] || transport_args+=(--cmd-topic "$cmd_topic")
-        [ -z "$resp_topic" ] || transport_args+=(--resp-topic "$resp_topic")
+        [ -z "$did" ] || transport_args+=(--did "$did")
+        [ -z "$prod" ] || transport_args+=(--prod "$prod")
+        [ -z "$oid" ] || transport_args+=(--oid "$oid")
+        [ -z "$cid" ] || transport_args+=(--cid "$cid")
     fi
     [ "$verbose" = false ] || transport_args+=(--verbose)
 
@@ -625,7 +635,7 @@ cmd_set() {
 }
 
 cmd_update() {
-    local device_id=""
+    local did=""
     local fw_path=""
     local cfg_path=""
     local force=false
@@ -639,8 +649,8 @@ cmd_update() {
 
     while [ $# -gt 0 ]; do
         case "$1" in
-            --device-id)
-                device_id="${2:?missing value for --device-id}"
+            --did)
+                did="${2:?missing value for --did}"
                 shift 2
                 ;;
             --fw)
@@ -669,22 +679,22 @@ cmd_update() {
         esac
     done
 
-    [ -n "$device_id" ] || die "--device-id is required"
+    [ -n "$did" ] || die "--did is required"
     if [ -z "$fw_path" ] && [ -z "$cfg_path" ]; then
         die "At least one of --fw or --cfg is required"
     fi
 
     setup_project_env
     working_dir="$(resolve_default_working_dir "$working_dir")"
-    if ! record_json="$(read_device_record_json "$working_dir" "$device_id" 2>&1)"; then
+    if ! record_json="$(read_device_record_json "$working_dir" "$did" 2>&1)"; then
         die "$record_json"
     fi
     mqtt_server="$(json_value_from_text "$record_json" "mqtt_server")"
     mqtt_port="$(json_value_from_text "$record_json" "mqtt_port")"
     http_server="$(json_value_from_text "$record_json" "http_server")"
     http_port="$(json_value_from_text "$record_json" "http_port")"
-    [ -n "$mqtt_server" ] || die "Device record missing mqtt_server: $device_id"
-    [ -n "$mqtt_port" ] || die "Device record missing mqtt_port: $device_id"
+    [ -n "$mqtt_server" ] || die "Device record missing mqtt_server: $did"
+    [ -n "$mqtt_port" ] || die "Device record missing mqtt_port: $did"
 
     if [ -n "$fw_path" ]; then
         fw_path="$(abspath_path "$fw_path" "$INVOKE_PWD")"
@@ -695,11 +705,11 @@ cmd_update() {
         [ -f "$cfg_path" ] || die "Config file not found: $cfg_path"
     fi
 
-    mqtt_args=(--transport mqtt --device-id "$device_id" --broker "$mqtt_server" --mqtt-port "$mqtt_port")
+    mqtt_args=(--transport mqtt --did "$did" --broker "$mqtt_server" --mqtt-port "$mqtt_port")
 
     if [ -n "$fw_path" ]; then
-        [ -n "$http_server" ] || die "Device record missing http_server: $device_id"
-        [ -n "$http_port" ] || die "Device record missing http_port: $device_id"
+        [ -n "$http_server" ] || die "Device record missing http_server: $did"
+        [ -n "$http_port" ] || die "Device record missing http_port: $did"
         http_base_url="$(http_base_url_from_host_port "$http_server" "$http_port")"
 
         ota_cmd=(radar fw ota --fw "$fw_path" --base-url "$http_base_url")
@@ -710,22 +720,22 @@ cmd_update() {
             ota_cmd+=(--force)
         fi
 
-        log_info "Starting radar OTA for $device_id"
+        log_info "Starting radar OTA for $did"
         run_mmwk_cli "${ota_cmd[@]}" "${mqtt_args[@]}" >/dev/null
 
         log_info "Waiting for radar runtime to recover"
-        if ! wait_for_radar_running 60 2 "$mqtt_server" "$mqtt_port" "$device_id"; then
+        if ! wait_for_radar_running 60 2 "$mqtt_server" "$mqtt_port" "$did"; then
             die "Radar OTA completed but runtime verification did not recover within 60s"
         fi
 
         log_info "Verifying radar firmware version"
         run_mmwk_cli radar fw version "${mqtt_args[@]}" >/dev/null
     else
-        log_info "Applying runtime radar cfg for $device_id"
+        log_info "Applying runtime radar cfg for $did"
         run_mmwk_cli radar config apply --welcome --no-verify --cfg "$cfg_path" "${mqtt_args[@]}" >/dev/null
 
         log_info "Waiting for radar runtime to recover"
-        if ! wait_for_radar_running 60 2 "$mqtt_server" "$mqtt_port" "$device_id"; then
+        if ! wait_for_radar_running 60 2 "$mqtt_server" "$mqtt_port" "$did"; then
             die "Radar cfg apply completed but runtime verification did not recover within 60s"
         fi
     fi
@@ -733,7 +743,7 @@ cmd_update() {
     log_info "Verifying radar runtime status"
     run_mmwk_cli radar status "${mqtt_args[@]}" >/dev/null
 
-    printf 'device-id: %s\n' "$device_id"
+    printf 'did: %s\n' "$did"
     printf 'working-dir: %s\n' "$working_dir"
     printf 'device-file: %s\n' "$(device_registry_path "$working_dir")"
     printf 'mqtt-uri: %s\n' "$(mqtt_uri_from_host_port "$mqtt_server" "$mqtt_port")"
@@ -779,7 +789,7 @@ cmd_list() {
         return 0
     fi
 
-    printf 'device-id\tmqtt\thttp\n'
+    printf 'did\tmqtt\thttp\n'
     printf '%s\n' "$lines"
 }
 

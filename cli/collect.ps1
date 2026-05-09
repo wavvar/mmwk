@@ -161,25 +161,25 @@ if ($null -ne $bash) {
 if (($Args -contains "-h") -or ($Args -contains "--help")) {
     Write-Host "collect.ps1 -- registry-backed raw collection helper"
     Write-Host "Usage:"
-    Write-Host "  ./collect.ps1 --device-id ID [--duration SEC] [--working DIR] [--reboot]"
+    Write-Host "  ./collect.ps1 --did DID [--duration SEC] [--working DIR] [--reboot]"
     Write-Host "  ./collect.ps1 --trigger none|radar-restart|device-reboot [forward-options]"
     Write-Host "Install Git Bash for full collect.sh compatibility or run with --trigger for pure-MQTT mode."
     exit 0
 }
 
 # Minimal Windows fallback for non-trigger mode when bash is unavailable.
-$deviceId = ""
+$did = ""
 $duration = ""
 $working = ""
 $reboot = $false
 for ($i = 0; $i -lt $Args.Length; $i++) {
     switch ($Args[$i]) {
-        "--device-id" {
+        "--did" {
             if ($i + 1 -ge $Args.Length) {
-                Write-Error "Missing value for --device-id"
+                Write-Error "Missing value for --did"
                 exit 1
             }
-            $deviceId = $Args[$i + 1]
+            $did = $Args[$i + 1]
             $i++
         }
         "--duration" {
@@ -208,8 +208,8 @@ for ($i = 0; $i -lt $Args.Length; $i++) {
     }
 }
 
-if ([string]::IsNullOrWhiteSpace($deviceId)) {
-    Write-Error "--device-id is required"
+if ([string]::IsNullOrWhiteSpace($did)) {
+    Write-Error "--did is required"
     exit 1
 }
 
@@ -233,16 +233,16 @@ if (-not $recordRoot.PSObject.Properties.Name.Contains("devices")) {
 }
 
 $devices = $recordRoot.devices
-if (-not $devices.PSObject.Properties.Name.Contains($deviceId)) {
-    Write-Error "device id not found in registry: $deviceId"
+if (-not $devices.PSObject.Properties.Name.Contains($did)) {
+    Write-Error "DID not found in registry: $did"
     exit 1
 }
 
-$deviceRecord = $devices.$deviceId
+$deviceRecord = $devices.$did
 $mqttServer = [string]$deviceRecord.mqtt_server
 $mqttPort = [string]$deviceRecord.mqtt_port
 if ([string]::IsNullOrWhiteSpace($mqttServer) -or [string]::IsNullOrWhiteSpace($mqttPort)) {
-    Write-Error "Device record missing mqtt_server or mqtt_port: $deviceId"
+    Write-Error "Device record missing mqtt_server or mqtt_port: $did"
     exit 1
 }
 
@@ -252,7 +252,7 @@ $timestamp = if ([string]::IsNullOrWhiteSpace($env:MMWK_TEST_COLLECT_TIMESTAMP))
     $env:MMWK_TEST_COLLECT_TIMESTAMP
 }
 $outputPrefix = "${timestamp}_"
-$outputDir = Join-Path (Join-Path $workingDir "data") $deviceId
+$outputDir = Join-Path (Join-Path $workingDir "data") $did
 New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
 
 $python = Resolve-Python
@@ -262,7 +262,7 @@ if ($null -eq $python) {
 }
 
 $liveArgs = @(
-    "--device-id", $deviceId,
+    "--did", $did,
     "--mqtt-server", $mqttServer,
     "--mqtt-port", $mqttPort,
     "--output-dir", $outputDir,

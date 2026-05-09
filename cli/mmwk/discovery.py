@@ -21,8 +21,10 @@ DEFAULT_AP_CIDR = "192.168.4.2/24"
 @dataclass(frozen=True)
 class DeviceRecord:
     service_name: str
-    device_id: str
-    client_id: str
+    did: str
+    prod: str
+    oid: str
+    cid: str
     name: str
     board: str
     version: str
@@ -33,8 +35,10 @@ class DeviceRecord:
 
     def to_json(self) -> dict:
         return {
-            "id": self.device_id,
-            "client_id": self.client_id,
+            "did": self.did,
+            "prod": self.prod,
+            "oid": self.oid,
+            "cid": self.cid,
             "name": self.name,
             "board": self.board,
             "version": self.version,
@@ -91,14 +95,18 @@ def normalize_service_info(service_name: str, info: object) -> DeviceRecord:
     hostname = str(getattr(info, "server", "") or "")
     port = int(getattr(info, "port", 0) or 0)
     fallback_id = _id_from_service_name(service_name)
-    device_id = txt.get("id") or txt.get("client_id") or fallback_id
-    client_id = txt.get("client_id") or device_id
-    name = txt.get("name") or hostname.rstrip(".") or device_id
+    prod = txt.get("prod") or "mmwk"
+    oid = txt.get("oid") or "mmwk"
+    did = txt.get("did") or fallback_id
+    cid = txt.get("cid") or ""
+    name = txt.get("name") or hostname.rstrip(".") or cid or did
 
     return DeviceRecord(
         service_name=service_name,
-        device_id=device_id,
-        client_id=client_id,
+        did=did,
+        prod=prod,
+        oid=oid,
+        cid=cid,
         name=name,
         board=txt.get("board", ""),
         version=txt.get("version", ""),
@@ -122,8 +130,10 @@ def _merge_records(first: DeviceRecord, second: DeviceRecord) -> DeviceRecord:
             addresses.append(address)
     return DeviceRecord(
         service_name=first.service_name,
-        device_id=first.device_id or second.device_id,
-        client_id=first.client_id or second.client_id,
+        did=first.did or second.did,
+        prod=first.prod or second.prod,
+        oid=first.oid or second.oid,
+        cid=first.cid or second.cid,
         name=_pick(first.name, second.name),
         board=_pick(first.board, second.board),
         version=_pick(first.version, second.version),
@@ -134,11 +144,15 @@ def _merge_records(first: DeviceRecord, second: DeviceRecord) -> DeviceRecord:
     )
 
 
+def _record_route_key(device: DeviceRecord) -> str:
+    return device.cid or device.did
+
+
 def sort_and_deduplicate(devices: Iterable[DeviceRecord]) -> list[DeviceRecord]:
     merged: dict[str, DeviceRecord] = {}
-    ordered = sorted(devices, key=lambda item: (item.device_id or item.service_name, item.service_name))
+    ordered = sorted(devices, key=lambda item: (_record_route_key(item) or item.service_name, item.service_name))
     for device in ordered:
-        key = device.device_id or device.service_name
+        key = _record_route_key(device) or device.service_name
         if key in merged:
             merged[key] = _merge_records(merged[key], device)
         else:
@@ -164,11 +178,14 @@ def format_devices_table(devices: Iterable[DeviceRecord]) -> str:
     if not records:
         return "no mmwk devices found\n"
 
-    rows = [["device-id", "name", "board", "version", "mode", "addresses", "hostname"]]
+    rows = [["did", "prod", "oid", "cid", "name", "board", "version", "mode", "addresses", "hostname"]]
     for device in records:
         rows.append(
             [
-                device.device_id or "-",
+                device.did or "-",
+                device.prod or "-",
+                device.oid or "-",
+                device.cid or "-",
                 device.name or "-",
                 device.board or "-",
                 device.version or "-",
@@ -185,41 +202,56 @@ def format_devices_json(devices: Iterable[DeviceRecord]) -> str:
     return json.dumps({"devices": [device.to_json() for device in records]}, indent=2, sort_keys=True) + "\n"
 
 
-def device_identity(device: DeviceRecord) -> str:
-    return (device.client_id or device.device_id).strip()
+def route_identity(device: DeviceRecord) -> str:
+    return _record_route_key(device).strip()
 
 
 def device_label(device: DeviceRecord) -> str:
     return (
-        f"{device_identity(device) or '<unknown>'} "
+        f"{route_identity(device) or '<unknown>'} "
         f"name={device.name or '<unnamed>'} "
         f"board={device.board or '<unknown>'} "
         f"addresses={','.join(device.addresses) or '<no-ip>'}"
     )
 
 
-def filter_devices_by_id(devices: Iterable[DeviceRecord], requested_id: str) -> list[DeviceRecord]:
+def filter_devices_by_route(
+    devices: Iterable[DeviceRecord],
+    *,
+    did: str = "",
+    cid: str = "",
+    prod: str = "",
+    oid: str = "",
+) -> list[DeviceRecord]:
     records = sort_and_deduplicate(devices)
-    requested = requested_id.strip()
-    if not requested:
+    requested_did = did.strip()
+    requested_cid = cid.strip()
+    requested_prod = prod.strip()
+    requested_oid = oid.strip()
+    if not any((requested_did, requested_cid, requested_prod, requested_oid)):
         return records
-    return [
-        device
-        for device in records
-        if requested in {device.device_id.strip(), device.client_id.strip()}
-    ]
+    filtered = records
+    if requested_did:
+        filtered = [device for device in filtered if device.did.strip() == requested_did]
+    if requested_cid:
+        filtered = [device for device in filtered if device.cid.strip() == requested_cid]
+    if requested_prod:
+        filtered = [device for device in filtered if device.prod.strip() == requested_prod]
+    if requested_oid:
+        filtered = [device for device in filtered if device.oid.strip() == requested_oid]
+    return filtered
 
 
-def expect_one_device(devices: Sequence[DeviceRecord], requested_id: str = "") -> DeviceRecord:
+def expect_one_device(devices: Sequence[DeviceRecord], requested: str = "") -> DeviceRecord:
     if len(devices) == 1:
         return devices[0]
 
     if not devices:
-        if requested_id:
-            raise RuntimeError(f"no MMWK device matching --device-id {requested_id} discovered over mDNS")
+        if requested:
+            raise RuntimeError(f"no MMWK device matching {requested} discovered over mDNS")
         raise RuntimeError("no MMWK devices discovered over mDNS")
 
-    lines = ["multiple MMWK devices discovered over mDNS; provide --device-id:"]
+    lines = ["multiple MMWK devices discovered over mDNS; provide --did or --cid:"]
     lines.extend(f"  {device_label(device)}" for device in devices)
     raise RuntimeError("\n".join(lines))
 
@@ -378,12 +410,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--timeout", metavar="SEC", type=float, default=DEFAULT_TIMEOUT_SEC, help="mDNS browse duration")
     parser.add_argument("--json", action="store_true", help="print machine-readable JSON")
-    parser.add_argument("--device-id", metavar="ID", default="", help="filter by discovered id or client_id")
+    parser.add_argument("--did", metavar="DID", default="", help="filter by discovered DID")
+    parser.add_argument("--prod", metavar="PROD", default="", help="filter by discovered product route segment")
+    parser.add_argument("--oid", metavar="OID", default="", help="filter by discovered organization route segment")
+    parser.add_argument("--cid", metavar="CID", default="", help="filter by discovered claimed route id")
     parser.add_argument("--expect-one", action="store_true", help="fail unless exactly one matching device is discovered")
     parser.add_argument(
-        "--print-device-id",
+        "--print-did",
         action="store_true",
-        help="with --expect-one, print only the selected client_id/id",
+        help="with --expect-one, print only the selected did",
     )
     parser.add_argument(
         "--ap-iface",
@@ -410,14 +445,30 @@ def run(args: argparse.Namespace) -> int:
         if args.ap_iface:
             alias_plan = apply_ap_alias(args.ap_iface, args.ap_cidr)
         devices = discover_devices(args.timeout)
-        devices = filter_devices_by_id(devices, args.device_id)
-        if args.print_device_id and not args.expect_one:
-            raise ValueError("--print-device-id requires --expect-one")
+        devices = filter_devices_by_route(
+            devices,
+            did=getattr(args, "did", ""),
+            cid=getattr(args, "cid", ""),
+            prod=getattr(args, "prod", ""),
+            oid=getattr(args, "oid", ""),
+        )
+        if args.print_did and not args.expect_one:
+            raise ValueError("--print-did requires --expect-one")
         if args.expect_one:
-            selected = expect_one_device(devices, args.device_id)
+            requested = " ".join(
+                part
+                for part in (
+                    f"--did {args.did}" if getattr(args, "did", "") else "",
+                    f"--cid {args.cid}" if getattr(args, "cid", "") else "",
+                    f"--prod {args.prod}" if getattr(args, "prod", "") else "",
+                    f"--oid {args.oid}" if getattr(args, "oid", "") else "",
+                )
+                if part
+            )
+            selected = expect_one_device(devices, requested)
             devices = [selected]
-            if args.print_device_id:
-                print(device_identity(selected))
+            if args.print_did:
+                print(selected.did)
                 return 0
         output = format_devices_json(devices) if args.json else format_devices_table(devices)
         print(output, end="")

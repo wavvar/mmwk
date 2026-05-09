@@ -26,7 +26,7 @@
 2. `server.sh --serve-dir` 指向你计划 OTA 的那组雷达固件目录。
 3. 用 `config.sh init` 通过 UART 下发 Wi-Fi / MQTT 设置。脚本会自动重启设备、验证 MQTT 可达，并把设备信息写入 `<working>/device.yml`。
 4. 用 `config.sh update` 通过 MQTT 做雷达 OTA 或运行时 cfg 更新。脚本会从 `device.yml` 解析设备传输信息。
-5. 用 `collect.sh` 通过 MQTT 采集 `raw_data` 和 `raw_resp`。脚本会从 `device.yml` 读取设备配置，并把采集产物放到 `<working>/data/<device-id>/`。
+5. 用 `collect.sh` 通过 MQTT 采集 `raw_data` 和 `raw_resp`。脚本会从 `device.yml` 读取 DID 配置，并把采集产物放到 `<working>/data/<did>/`。
 
 推荐先起本地服务：
 
@@ -41,8 +41,8 @@ eval "$(./server.sh env)"
 
 这些 wrapper 还会带来几条稳定约定：
 
-- `config.sh list` 会把 `<working>/device.yml` 里的 `device_id`、MQTT URI 和 HTTP base URL 直接打印出来。
-- `collect.sh` 会把带时间戳前缀的产物写入 `<working>/data/<device-id>/`：`*_raw_data.sraw`、`*_raw_data.log`、`*_summary.json`、`*_state_events.log`。
+- `config.sh list` 会把 `<working>/device.yml` 里的 `did`、MQTT URI 和 HTTP base URL 直接打印出来。
+- `collect.sh` 会把带时间戳前缀的产物写入 `<working>/data/<did>/`：`*_raw_data.sraw`、`*_raw_data.log`、`*_summary.json` 和 `*_state_events.log`。
 - 只有当你明确希望 helper 在订阅 ready 之后主动重启 radar service，并把同一窗口里的 startup `raw_resp` 一起采下来时，才给 `collect.sh` 加 `--reboot`。
 
 ## 6843 系列
@@ -70,26 +70,26 @@ WORKING=./collect-lab
   --password "$PASSWORD" \
   --working "$WORKING"
 
-DEVICE_ID=<由 config.sh 打印出来的 id>
+DID=<由 config.sh 打印出来的 DID>
 
 ./config.sh update \
-  --device-id "$DEVICE_ID" \
+  --did "$DID" \
   --fw "$FW_DIR/out_of_box_6843_aop.bin" \
   --cfg "$FW_DIR/out_of_box_6843_aop.cfg" \
   --working "$WORKING"
 
 ./run.sh radar status \
   --transport mqtt \
-  --device-id "$DEVICE_ID" \
+  --did "$DID" \
   --broker "$MMWK_SERVER_HOST_IP"
 
 ./run.sh radar fw version \
   --transport mqtt \
-  --device-id "$DEVICE_ID" \
+  --did "$DID" \
   --broker "$MMWK_SERVER_HOST_IP"
 
 ./collect.sh \
-  --device-id "$DEVICE_ID" \
+  --did "$DID" \
   --duration 30 \
   --working "$WORKING"
 ```
@@ -98,7 +98,7 @@ DEVICE_ID=<由 config.sh 打印出来的 id>
 
 - `config.sh init` 成功意味着 bridge 已经能访问目标 MQTT server，并且 `device.yml` 已经更新。
 - `config.sh update` 会等到 `radar status` 回到 `running`。
-- `collect.sh` 会把带时间戳前缀的采集文件写入 `<working>/data/<device-id>/`。
+- `collect.sh` 会把带时间戳前缀的采集文件写入 `<working>/data/<did>/`。
 
 ## 6432 系列
 
@@ -125,26 +125,26 @@ WORKING=./collect-lab
   --password "$PASSWORD" \
   --working "$WORKING"
 
-DEVICE_ID=<由 config.sh 打印出来的 id>
+DID=<由 config.sh 打印出来的 DID>
 
 ./config.sh update \
-  --device-id "$DEVICE_ID" \
+  --did "$DID" \
   --fw "$FW_DIR/presence.appimage" \
   --cfg "$FW_DIR/presence.cfg" \
   --working "$WORKING"
 
 ./run.sh radar status \
   --transport mqtt \
-  --device-id "$DEVICE_ID" \
+  --did "$DID" \
   --broker "$MMWK_SERVER_HOST_IP"
 
 ./run.sh radar fw version \
   --transport mqtt \
-  --device-id "$DEVICE_ID" \
+  --did "$DID" \
   --broker "$MMWK_SERVER_HOST_IP"
 
 ./collect.sh \
-  --device-id "$DEVICE_ID" \
+  --did "$DID" \
   --duration 30 \
   --working "$WORKING"
 ```
@@ -159,14 +159,14 @@ DEVICE_ID=<由 config.sh 打印出来的 id>
 
 ## 实际排查时怎么判断
 
-- `config.sh init` 打印出 device id 和后续命令，说明 UART bring-up 已经完成。
+- `config.sh init` 打印出 DID 和后续命令，说明 UART bring-up 已经完成。
 - `config.sh update` 成功退出，说明它已经完成 OTA 或运行时 cfg 更新，并验证了运行态恢复。
 - 如果你要手动复查运行态，先看 `./run.sh radar status`，把 `state=running` 当成硬门槛。
 - 如果设备重启后串口号变化了，先重新识别串口，再重复 UART 命令。
 
 ## 什么时候用 `collect.sh`，什么时候用 `collect -p`
 
-`collect.sh` 是一个任务导向的 MQTT helper，更适合网络已经就绪之后的 late-attach raw 采集窗口。它会从 `device.yml` 读取 MQTT 配置，并把带时间戳前缀的输出写到 `<working>/data/<device-id>/`。
+`collect.sh` 是一个任务导向的 MQTT helper，更适合网络已经就绪之后的 late-attach raw 采集窗口。它会从 `device.yml` 读取 MQTT 配置，并把带时间戳前缀的输出写到 `<working>/data/<did>/`。
 
 如果你要抓同一次 reboot、flash 或 radar restart 窗口里的启动期命令口输出，应改用官方的 UART 辅助采集命令：
 

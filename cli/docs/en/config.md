@@ -2,7 +2,7 @@
 
 `config.sh init` registers a UART-connected device into `device.yml`, `config.sh set` configures device Wi-Fi and MQTT settings without changing the official `run.sh` command surface, and `config.sh search` discovers nearby MMWK devices over mDNS.
 
-Configure device Wi-Fi and MQTT settings over UART or MQTT, or find device ids advertised on the local link.
+Configure device Wi-Fi and MQTT settings over UART or MQTT, or find device `did` values advertised on the local link.
 
 The working directory is the `cli` directory:
 
@@ -17,7 +17,7 @@ Examples below use POSIX shell syntax. On Windows PowerShell, run `.\config.ps1 
 - Push Wi-Fi credentials with `network wifi`
 - Point 4G users to the official `network 4g` and `network priority` commands
 - Push MQTT settings with `network mqtt`
-- Discover MMWK device ids advertised through `_mmwk._tcp.local.`
+- Discover MMWK device `did` values advertised through `_mmwk._tcp.local.`
 - Optionally reboot the device with `node reboot`
 - Optionally start or reuse `server.sh` and feed its local broker URI back into the device
 - Optionally prepare the host Wi-Fi interface for the bridge provisioning AP subnet before `init`
@@ -109,12 +109,12 @@ Use this when the device is already online and you want to re-point it without o
 ./config.sh set --transport mqtt \
   --broker 192.168.1.100 \
   --mqtt-port 1883 \
-  --device-id DC5475C879C0 \
+  --did dc5475c879c0 \
   --mqtt-uri mqtt://192.168.1.200:1883 \
   --reboot
 ```
 
-`--transport mqtt` uses the current control-plane broker and topics only to deliver the configuration commands. The device-side MQTT identity is the current `client_id` from `node info` / `network mqtt`; before claim that fallback is the Wi-Fi STA MAC rendered as uppercase hex. `network mqtt` stores broker/auth settings and exposes the canonical topics as read-only derived values.
+`--transport mqtt` uses the current control-plane broker and route identity only to deliver the configuration commands. The route identity is `prod` / `oid` / `cid` / `did`: `cid` wins when set, otherwise the topic uses `did`. `network mqtt` stores broker/auth settings and exposes the canonical `cmd` / `resp` topics as read-only derived values.
 
 ### 4. 4G and network priority
 
@@ -130,24 +130,24 @@ Saving Wi-Fi credentials does not change a 4G preference. 4G failure does not au
 
 ### 5. Find devices with mDNS
 
-Use `search` when you need the device id before choosing an MQTT topic or updating `device.yml`:
+Use `search` when you need the device `did` before choosing an MQTT route or updating `device.yml`:
 
 ```bash
 ./config.sh search
 ./config.sh search --json
-./config.sh search --expect-one --print-device-id
+./config.sh search --expect-one --print-did
 ```
 
-Default output is a compact table with device id, name, board, version, mode, addresses, and hostname. JSON output returns the same fields under `devices`.
+Default output is a compact table with `did`, `prod`, `oid`, `cid`, name, board, version, mode, addresses, and hostname. JSON output returns the same fields under `devices`.
 
-For scripts, use `--expect-one` when the caller requires an unambiguous device. It returns an error with candidate lines when more than one device is discovered, and it returns an error when none are discovered. `--device-id ID` filters the discovered `id` / `client_id` fields before applying that uniqueness check. `--print-device-id` is intended for shell wrappers and prints only the selected `client_id` / `id`:
+For scripts, use `--expect-one` when the caller requires an unambiguous device. It returns an error with candidate lines when more than one device is discovered, and it returns an error when none are discovered. `--did DID`, `--prod PROD`, `--oid OID`, and `--cid CID` filter discovered route fields before applying that uniqueness check. `--print-did` is intended for shell wrappers and prints only the selected `did`:
 
 ```bash
-DEVICE_ID="$(./config.sh search --expect-one --print-device-id)"
-./config.sh search --device-id "$DEVICE_ID" --expect-one --json
+DID="$(./config.sh search --expect-one --print-did)"
+./config.sh search --did "$DID" --expect-one --json
 ```
 
-mDNS discovery publishes device identity, board, version, mode, hostname, and local-link addresses. It does not publish the MQTT broker URI; pass the broker explicitly or resolve it from `device.yml`, `server.sh`, or your environment.
+mDNS discovery publishes route identity, board, version, mode, hostname, and local-link addresses. It does not publish the MQTT broker URI; pass the broker explicitly or resolve it from `device.yml`, `server.sh`, or your environment.
 
 When the host is connected to a device provisioning AP but the interface does not have an address in the AP subnet, pass the interface explicitly:
 
@@ -174,7 +174,7 @@ When the host is connected to a device provisioning AP but the interface does no
 - `--transport uart|mqtt`: current control path used to push settings
 - `--ssid` / `--password`: Wi-Fi credentials
 - `--mqtt-uri` / `--mqtt-user` / `--mqtt-pass`: stored broker and auth settings
-- `--device-id`, plus optional `--cmd-topic` / `--resp-topic`: tell `config.sh set` how to reach the current MQTT control path
+- `--did`, `--prod`, `--oid`, `--cid`: tell `config.sh set` how to derive the current MQTT control topics
 - `--server-local`: start or reuse `server.sh` and use its resolved broker URI
 - `--server-state-dir`, `--server-serve-dir`, `--server-upload-dir`, `--server-host-ip`, `--server-target-ip`, `--server-mqtt-port`, `--server-http-port`: control how `server.sh` is started or reused
 - `--reboot`: reboot after writing settings
@@ -183,9 +183,12 @@ When the host is connected to a device provisioning AP but the interface does no
 
 - `--timeout SEC`: mDNS browse duration
 - `--json`: print machine-readable JSON
-- `--device-id ID`: filter by discovered `id` or `client_id`
+- `--did DID`: filter by discovered DID
+- `--prod PROD`: filter by discovered product route segment
+- `--oid OID`: filter by discovered organization route segment
+- `--cid CID`: filter by discovered claimed route segment
 - `--expect-one`: fail unless exactly one matching device is discovered
-- `--print-device-id`: with `--expect-one`, print only the selected `client_id` / `id`
+- `--print-did`: with `--expect-one`, print only the selected `did`
 - `--ap-iface IFACE`: host interface to receive the temporary AP-subnet address
 - `--ap-cidr CIDR`: temporary host address for device AP discovery, default `192.168.4.2/24`
 - `--keep-ap-alias`: leave the temporary address configured after search
@@ -193,7 +196,7 @@ When the host is connected to a device provisioning AP but the interface does no
 ## Notes
 
 - If you use `--server-local`, do not also pass `--mqtt-uri`; the tool resolves the broker from `server.sh`.
-- Device-side MQTT identity and canonical topics derive from the current `client_id`. Before claim, that fallback is the Wi-Fi STA MAC rendered as uppercase hex. `--device-id`, `--cmd-topic`, and `--resp-topic` only help `config.sh set` reach the current MQTT control path; they do not rewrite the stored topic identity.
+- Device-side MQTT topics derive from `prod`, `oid`, and `cid` when claimed; without `cid`, they fall back to `did`. `config.sh set --transport mqtt` uses those fields only to reach the current control path; it does not rewrite the stored route identity. Use `node claim --cid ... [--prod ... --oid ...]` over UART/local transport when you need to change the route identity.
 - If you skip `--reboot`, the tool still writes the settings, but the device may not use them until the next reboot.
 - `config.sh search` depends on mDNS multicast, so it discovers devices on the current local link rather than through routed networks.
 - `config.sh search` does not discover MQTT broker endpoints. Discovery callers still need a broker from arguments, env, local server state, or `device.yml`.

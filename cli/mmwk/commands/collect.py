@@ -74,6 +74,57 @@ def _raw_forwarding_is_enabled(payload: dict | list) -> bool:
     return bool(raw.get("enabled", False))
 
 
+def _first_text(*values) -> str:
+    for value in values:
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _topic_value(payload: dict, public_key: str) -> str:
+    return _first_text(payload.get(public_key))
+
+
+def _route_args_from_sources(
+    *,
+    did: str = "",
+    prod: str = "",
+    oid: str = "",
+    cid: str = "",
+    fallback_did: str = "",
+    sources: tuple[dict, ...] = (),
+) -> dict[str, str]:
+    route = {
+        "did": _first_text(did),
+        "prod": _first_text(prod),
+        "oid": _first_text(oid),
+        "cid": _first_text(cid),
+    }
+
+    for source in sources:
+        if not isinstance(source, dict):
+            continue
+        route["prod"] = route["prod"] or _first_text(source.get("prod"))
+        route["oid"] = route["oid"] or _first_text(source.get("oid"))
+        route["did"] = route["did"] or _first_text(source.get("did"))
+        route["cid"] = route["cid"] or _first_text(source.get("cid"))
+
+    route["prod"] = route["prod"] or "mmwk"
+    route["oid"] = route["oid"] or "mmwk"
+    route["did"] = route["did"] or _first_text(fallback_did)
+    return route
+
+
+def _default_topics(route: dict[str, str]) -> dict[str, str]:
+    return build_mqtt_topics(
+        prod=route.get("prod") or "mmwk",
+        oid=route.get("oid") or "mmwk",
+        cid=route.get("cid") or "",
+        did=route.get("did") or "",
+        include_raw_cmd=True,
+    )
+
+
 def _create_mqtt_client(client_id: str) -> mqtt.Client:
     callback_api_version = getattr(mqtt, "CallbackAPIVersion", None)
     if callback_api_version is not None:
@@ -279,16 +330,16 @@ class CollectCommand:
         net = self._tool_json("network", {"action": "mqtt"}, timeout)
         net_data = net.get("data", net) if isinstance(net, dict) else {}
         if isinstance(net_data, dict):
-            cid = net_data.get("cid") or net_data.get("client_id") or data.get("client_id")
-            if cid and not data.get("client_id"):
-                data["client_id"] = cid
+            for key in ("did", "prod", "oid", "cid"):
+                if net_data.get(key) and not data.get(key):
+                    data[key] = net_data.get(key)
             uri = net_data.get("uri") or net_data.get("mqtt_uri")
             if uri and not data.get("uri"):
                 data["uri"] = uri
-            if net_data.get("cmd_topic") and not data.get("cmd_topic"):
-                data["cmd_topic"] = net_data.get("cmd_topic")
-            if net_data.get("resp_topic") and not data.get("resp_topic"):
-                data["resp_topic"] = net_data.get("resp_topic")
+            for public_key in ("cmd", "resp"):
+                value = _topic_value(net_data, public_key)
+                if value and not data.get(public_key):
+                    data[public_key] = value
 
         agent = self._tool_json("node", {"action": "agent"}, timeout)
         agent_data = agent.get("data", agent) if isinstance(agent, dict) else {}
@@ -319,34 +370,47 @@ class CollectCommand:
             if cfg_name and not data.get("radar_cfg"):
                 data["radar_cfg"] = cfg_name
 
-        client_id = data.get("client_id") or data.get("id")
-        if client_id:
-            topics = build_mqtt_topics(client_id, include_raw_cmd=True)
-            data.setdefault("raw_data_topic", topics["raw_data_topic"])
-            data.setdefault("raw_resp_topic", topics["raw_resp_topic"])
+        route = _route_args_from_sources(sources=(data,))
+        if route.get("cid") or route.get("did"):
+            topics = _default_topics(route)
+            data.setdefault("cmd", topics["cmd"])
+            data.setdefault("resp", topics["resp"])
+            data.setdefault("raw_data", topics["raw_data"])
+            data.setdefault("raw_resp", topics["raw_resp"])
+            data.setdefault("raw_cmd", topics["raw_cmd"])
         return data
 
     def _resolve_trigger_none_raw_topics(
         self,
-        device_id: str,
+        did: str,
+        prod: str,
+        oid: str,
+        cid: str,
         data_topic: str,
         resp_topic: str,
         raw_cfg: dict,
         hi: dict,
     ) -> tuple[str, str]:
-        default_id = device_id or hi.get("client_id") or hi.get("id") or "mmwk_collector"
-        default_topics = build_mqtt_topics(default_id, include_raw_cmd=True)
+        route = _route_args_from_sources(
+            did=did,
+            prod=prod,
+            oid=oid,
+            cid=cid,
+            fallback_did="mmwk_collector",
+            sources=(hi,),
+        )
+        default_topics = _default_topics(route)
         resolved_data_topic = (
             data_topic
-            or raw_cfg.get("data_topic")
-            or hi.get("raw_data_topic")
-            or default_topics["raw_data_topic"]
+            or _topic_value(raw_cfg, "raw_data")
+            or _topic_value(hi, "raw_data")
+            or default_topics["raw_data"]
         )
         resolved_resp_topic = (
             resp_topic
-            or raw_cfg.get("resp_topic")
-            or hi.get("raw_resp_topic")
-            or default_topics["raw_resp_topic"]
+            or _topic_value(raw_cfg, "raw_resp")
+            or _topic_value(hi, "raw_resp")
+            or default_topics["raw_resp"]
         )
         return resolved_data_topic, resolved_resp_topic
 
@@ -459,9 +523,12 @@ class CollectCommand:
         resp_output: str,
         broker: str,
         mqtt_port: int,
-        device_id: str,
-        data_topic: str,
-        resp_topic: str,
+        did: str,
+        prod: str = "mmwk",
+        oid: str = "mmwk",
+        cid: str = "",
+        data_topic: str = "",
+        resp_topic: str = "",
         resp_optional: bool = False,
         timeout: float = 10.0,
     ) -> bool:
@@ -479,10 +546,17 @@ class CollectCommand:
 
         resolved_broker = broker or hi.get("uri") or hi.get("mqtt_uri") or "localhost"
         host, port = _parse_broker_endpoint(resolved_broker, mqtt_port)
-        client_id = device_id or hi.get("client_id") or hi.get("id") or "mmwk_collector"
-        default_topics = build_mqtt_topics(client_id, include_raw_cmd=True)
-        resolved_data_topic = data_topic or hi.get("raw_data_topic") or default_topics["raw_data_topic"]
-        resolved_resp_topic = resp_topic or hi.get("raw_resp_topic") or default_topics["raw_resp_topic"]
+        route = _route_args_from_sources(
+            did=did,
+            prod=prod,
+            oid=oid,
+            cid=cid,
+            fallback_did="mmwk_collector",
+            sources=(hi,),
+        )
+        default_topics = _default_topics(route)
+        resolved_data_topic = data_topic or _topic_value(hi, "raw_data") or default_topics["raw_data"]
+        resolved_resp_topic = resp_topic or _topic_value(hi, "raw_resp") or default_topics["raw_resp"]
 
         for out_path in (data_output, resp_output):
             out_dir = os.path.dirname(os.path.abspath(out_path))
@@ -669,9 +743,12 @@ class CollectCommand:
         resp_output: str,
         broker: str,
         mqtt_port: int,
-        device_id: str,
-        data_topic: str,
-        resp_topic: str,
+        did: str,
+        prod: str = "mmwk",
+        oid: str = "mmwk",
+        cid: str = "",
+        data_topic: str = "",
+        resp_topic: str = "",
         resp_optional: bool = False,
         timeout: float = 10.0,
     ) -> bool:
@@ -697,7 +774,10 @@ class CollectCommand:
         restore_raw_args = _build_raw_restore_args_for_trigger_none(raw_state)
         hi = self._hydrate_hi(self._load_hi(timeout=timeout), timeout=timeout)
         resolved_data_topic, resolved_resp_topic = self._resolve_trigger_none_raw_topics(
-            device_id=device_id,
+            did=did,
+            prod=prod,
+            oid=oid,
+            cid=cid,
             data_topic=data_topic,
             resp_topic=resp_topic,
             raw_cfg=raw_state,

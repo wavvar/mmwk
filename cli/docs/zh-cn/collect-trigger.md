@@ -25,7 +25,7 @@ cd ./cli
 
 如果没有显式传 `--broker`，同时 `MMWK_SERVER_MQTT_URI` 也没设置，`collect.sh --trigger` 会自动从 server.sh state 里读取 broker。默认读取 `./build_output/local_server/server.env`，也可以用 `--server-state-dir` 指到别的 state dir。
 
-`collect.sh --trigger` 仍然需要设备 id。请显式传 `--device-id`，或者自己导出 `MMWK_DEVICE_ID`。
+`collect.sh --trigger` 仍然需要 MQTT 路由身份。未 claim 设备传 `--did`；已 claim 路由传 `--prod --oid --cid`。环境变量 fallback 是 `MMWK_DID`、`MMWK_PROD`、`MMWK_OID` 和 `MMWK_CID`。
 
 ## 示例
 
@@ -34,7 +34,7 @@ cd ./cli
 ```bash
 ./collect.sh --trigger none \
   --broker mqtt://192.168.1.100:1883 \
-  --device-id mmwk_demo_01 \
+  --did dc5475c879c0 \
   --data-output ./data_resp.sraw \
   --resp-output ./cmd_resp.log \
   --resp-optional
@@ -51,23 +51,23 @@ cd ./cli
 
 ./collect.sh --server-state-dir ./build_output/local_server \
   --trigger device-reboot \
-  --device-id mmwk_demo_01
+  --did dc5475c879c0
 ```
 
 ### 3. 通过 MQTT 触发一段新的启动窗口
 
 ```bash
 ./collect.sh --trigger device-reboot \
-  --device-id mmwk_demo_01 \
+  --did dc5475c879c0 \
   --resp-output ./cmd_resp.log \
   --data-output ./data_resp.sraw
 ```
 
 ## 关键参数
 
-- `--device-id`：除非你已经导出了 `MMWK_DEVICE_ID`，否则必须显式提供。
-- `--cmd-topic` / `--resp-topic`：当设备没有使用 canonical 默认控制 topic 时，用它们覆盖当前 MQTT 控制面 topic。
-- `--raw-data-topic` / `--raw-resp-topic`：直接覆盖 raw topic。不传时，`collect.sh --trigger` 会先按 `--device-id` 推导；对于 restart/reboot 触发流程，也会优先读取运行时上报的 raw topic。
+- `--did`：DID 路由回退值；除非已经传了 `--cid` 或导出了 `MMWK_CID`，否则必须提供。
+- `--prod` / `--oid` / `--cid`：product、租户和 claimed 路由段；`cid` 优先于 `did`。
+- `--raw-data` / `--raw-resp`：直接覆盖 raw topic。不传时，`collect.sh --trigger` 会按 `prod/oid/cid/did` 推导；对于 restart/reboot 触发流程，也会优先读取运行时上报的 raw topic。
 - `--duration`：采集时长，默认 `10` 秒。
 - `--timeout`：MQTT 订阅和控制面准备超时，默认 `10` 秒。
 - `--resp-optional`：只允许和 `--trigger none` 搭配，用于 late-attach 稳态窗口里“这次不强求 fresh startup `raw_resp`”的场景。
@@ -76,5 +76,5 @@ cd ./cli
 ## Trigger 说明
 
 - `trigger=none`：中途 late-attach 的稳态采集；只有这里允许 `--resp-optional`
-- `trigger=radar-restart`：先订阅，再通过 MQTT 重启雷达。如果设备没有使用 canonical 默认控制 topic，请同时传 `--cmd-topic` / `--resp-topic`
+- `trigger=radar-restart`：先订阅，再通过派生出的 `cmd` / `resp` 控制 topic 重启雷达
 - `trigger=device-reboot`：先订阅，再通过 MQTT 发送 `node reboot`；要求 MQTT 控制链路已经可用，而且 `raw_auto=1`

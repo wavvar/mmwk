@@ -17,7 +17,7 @@
 
 `device.yml` 里的每条设备记录都会保存后续 wrapper 需要复用的传输端点信息：
 
-- `device_id`
+- `did`
 - `mqtt_server` / `mqtt_port` / `mqtt_uri`
 - `http_server` / `http_port` / `http_base_url`
 - 可选的 `ssid`
@@ -58,7 +58,7 @@
 
 成功后脚本会打印：
 
-- 检测到的 device id
+- 检测到的 DID
 - 实际使用的 MQTT URI
 - 实际使用的 HTTP base URL
 - `<working>` 路径
@@ -75,7 +75,7 @@
 
 ```bash
 ./config.sh update \
-  --device-id 0123456789ab \
+  --did 0123456789ab \
   --fw ../firmwares/radar/iwr6843/oob/out_of_box_6843_aop.bin \
   --cfg ../firmwares/radar/iwr6843/oob/out_of_box_6843_aop.cfg \
   --working ./collect-lab
@@ -85,7 +85,7 @@
 
 ```bash
 ./config.sh update \
-  --device-id 0123456789ab \
+  --did 0123456789ab \
   --cfg ./runtime.cfg \
   --working ./collect-lab
 ```
@@ -102,7 +102,7 @@
 
 输出至少包含：
 
-- `device_id`
+- `did`
 - MQTT URI
 - HTTP base URL
 
@@ -114,7 +114,7 @@
 
 ```bash
 ./collect.sh \
-  --device-id 0123456789ab \
+  --did 0123456789ab \
   --duration 10 \
   --working ./collect-lab
 ```
@@ -123,7 +123,7 @@
 
 ```bash
 ./collect.sh \
-  --device-id 0123456789ab \
+  --did 0123456789ab \
   --duration 20 \
   --reboot \
   --working ./collect-lab
@@ -133,11 +133,11 @@
 
 ```bash
 ./collect.sh \
-  --device-id 0123456789ab \
+  --did 0123456789ab \
   --working ./collect-lab
 ```
 
-每次采集都会把产物写入 `<working>/data/<device-id>/`，并带上开始时间戳前缀，例如：
+每次采集都会把产物写入 `<working>/data/<did>/`，并带上开始时间戳前缀，例如：
 
 - `20260424-153000_raw_data.sraw`
 - `20260424-153000_raw_data.log`

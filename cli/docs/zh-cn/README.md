@@ -78,7 +78,7 @@ PowerShell 下参数与 POSIX 示例保持一致，主要差异是 wrapper 名�
 ```powershell
 .\run.ps1 node info -p COM3
 .\server.ps1 run --serve-dir C:\mmwk\artifacts --host-ip 192.168.4.8
-.\collect.ps1 --trigger device-reboot --device-id DC5475C879C0
+.\collect.ps1 --trigger device-reboot --did dc5475c879c0
 ```
 
 ## Surface 更新（2026-04-13）
@@ -139,7 +139,7 @@ PowerShell 下参数与 POSIX 示例保持一致，主要差异是 wrapper 名�
 ./run.sh node info -p /dev/cu.usbserial-0001
 ```
 
-期望 `node info` 返回的字段包括 `name`、`board`、`version`、`id`，以及在 MQTT 已配置时返回的 `uri`、`client_id`、`raw_data_topic`、`raw_resp_topic`。同时会返回 `factory_reset_pending`，用于表示短暂的重置过渡状态。处于工厂状态时会返回 `factory: INIT`；执行 `node claim` 后会返回 claim 得到的设备身份字段 `cid` 和 `oid`。其中 `name` / `version` 是 ESP 固件身份的标准字段。
+期望 `node info` 返回的字段包括 `name`、`board`、`version`、`did`、`prod`、`oid`、`cid`、`cmd`、`resp`、`raw_data`、`raw_resp`。host 模式 raw 命令入口开启时还会返回 `raw_cmd`。同时会返回 `factory_reset_pending`，用于表示短暂的重置过渡状态。处于工厂状态时会返回 `factory: INIT`。其中 `name` / `version` 是 ESP 固件身份的标准字段。
 启动所有权现在改为由雷达面暴露：`radar status` 返回 `mode` 与 `modes`，`fw.boot_mode` 则表示当前运行态的雷达 boot path。BRIDGE 报告 `["auto", "host"]`，HUB 报告 `["auto"]`。
 
 ### 2. 刷写雷达固件与配置
@@ -165,9 +165,12 @@ PowerShell 下参数与 POSIX 示例保持一致，主要差异是 wrapper 名�
 
 ```bash
 ./run.sh network wifi --ssid YOUR_SSID --pass YOUR_PASSWORD -p /dev/cu.usbserial-0001
+./run.sh node claim --prod acme --oid tenant-a --cid kitchen-01 -p /dev/cu.usbserial-0001
 ./run.sh network mqtt --uri mqtt://192.168.1.100:1883 -p /dev/cu.usbserial-0001
 ./run.sh node reboot -p /dev/cu.usbserial-0001
 ```
+
+`node claim` 是给设备写入多租户 MQTT 路由身份的环节。它保存 `prod`、`oid` 和 `cid`；有 `cid` 时 topic 第三段使用 `cid`，没有 claim 时使用 `did`。如果暂时不需要多租户路由，可以跳过 claim；默认就是 `prod=mmwk`、`oid=mmwk`，topic 使用小写紧凑 Wi-Fi STA MAC 作为 `did`。
 
 对于 PRO 设备以及带 4G 的 WDR 设备，可以单独保存 4G 配置，再选择优先网络：
 
@@ -180,7 +183,7 @@ PowerShell 下参数与 POSIX 示例保持一致，主要差异是 wrapper 名�
 
 SDK 硬件验收同样保持显式选择：PRO 设备或带 4G 的 WDR 设备测试时给 runner 传 `--4g`；不传时测试默认仍走 Wi-Fi。
 
-配网 AP 名称遵循 `MMWK-[板][应用]-[MAC后两字节]`。默认 Wi-Fi 为 `MMWK / mmwk123456`。自动 portal 配网可能会临时将测试主机连接到设备 AP，完成后再恢复原 Wi-Fi。在 WSL 下，自动 portal 配网会通过 PowerShell/netsh 控制 Windows Wi-Fi，并从 Windows 侧提交 portal 请求。当环境中同时存在多个 `MMWK-*` AP 时，设置 `TEST_PROVISIONING_AP_SSID`；如需保留旧人工检查点，设置 `TEST_PORTAL_PROVISION_AUTO=false`。
+配网显示遵循 `PRODUCT-LAST6`，为了现场识别统一显示为大写，不包含 `oid`。`LAST6` 优先取 `cid` 后六位，没有 `cid` 时取 `did` 后六位；topic 中仍然保留配置值原本的大小写。默认 Wi-Fi 为 `MMWK / mmwk123456`。自动 portal 配网可能会临时将测试主机连接到设备 AP，完成后再恢复原 Wi-Fi。在 WSL 下，自动 portal 配网会通过 PowerShell/netsh 控制 Windows Wi-Fi，并从 Windows 侧提交 portal 请求。当环境中同时存在多个配网 AP 时，设置 `TEST_PROVISIONING_AP_SSID`；如需保留旧人工检查点，设置 `TEST_PORTAL_PROVISION_AUTO=false`。
 
 自救 portal 用于 MQTT 服务器配置和诊断，不是 Wi-Fi 配网。出厂配置完成后 portal 仍可见，但是否允许修改 MQTT 由固件策略决定。CLI bridge 固件可以开放 MQTT recovery 编辑；HUB care/rmaker sidecar 只显示状态。只读状态页只暴露 MQTT 状态、最近阶段/错误码、剩余窗口秒数，以及首选 4G 离线时的 4G 诊断；不暴露 MQTT URI、用户名或密码。
 
@@ -221,7 +224,7 @@ SDK 硬件验收同样保持显式选择：PRO 设备或带 4G 的 WDR 设备测
 
 - [Radar Task Tools](radar-task-tools.md)：当你想直接走任务级工作流时，使用 `./config.sh init|update|list` 与 `./collect.sh` 完成基于注册表的 UART 配置、网络更新和 MQTT raw 采集。
 - [通过 Bridge 开发雷达](bridge-ti-radar-debug.md)：面向 6843 和 6432 的端到端 bridge 开发说明，包含 `config.sh init|update|list` 与 `collect.sh` 的使用顺序。
-- [配置助手](config.md)：当你需要通过 UART 或现有 MQTT 控制链路下发 Wi-Fi / MQTT 设置时，使用 `./config.sh set`；需要通过 mDNS 查找 device id 时，使用 `./config.sh search`。
+- [配置助手](config.md)：当你需要通过 UART 或现有 MQTT 控制链路下发 Wi-Fi / MQTT 设置时，使用 `./config.sh set`；需要通过 mDNS 查找设备 `did` 时，使用 `./config.sh search`。
 - [采集触发助手](collect-trigger.md)：当你明确需要控制面与 raw 采集都只走 pure MQTT 时，使用 `./collect.sh --trigger ...`。
 
 不要把这些 helper 当成严格启动期 `collect -p` 路径的替代品。
@@ -238,27 +241,34 @@ SDK 硬件验收同样保持显式选择：PRO 设备或带 4G 的 WDR 设备测
 
 ## 核心概念
 
-### Device ID
+### DID
 
-设备的硬件唯一标识，可通过 `node info` 获取。
+`did` 是小写紧凑 Wi-Fi STA MAC，例如 `dc5475c879c0`。它可以通过 `node info` 或 `config.sh search` 获取，是未 claim 设备的稳定 MQTT 路由回退值。
 
-### Claimed ID / MQTT Client ID
+### Product / OID / CID
 
-执行 `node claim` 后，标准设备身份是 `cid` / `oid`。MQTT 优先使用 claim provider 下发的 `mqtt.cid`；如果没有 `mqtt.cid`，则使用 `dev.cid`；没有 claim 身份时，回退到 Wi-Fi STA MAC 的大写十六进制形式，并带上固件配置的前缀。该值用于 MQTT 会话和 canonical topic 推导：
+执行 `node claim` 后，设备会保存 MQTT 路由身份。`prod` 是 product/root topic 段，`oid` 是租户/组织段，`cid` 是 claim 后的设备路由段。topic 中配置什么就使用什么大小写；文档示例统一使用小写：
 
-- `mmwk/{client_id}/device/cmd`
-- `mmwk/{client_id}/device/resp`
-- `mmwk/{client_id}/raw/data`
-- `mmwk/{client_id}/raw/resp`
-- `mmwk/{client_id}/raw/cmd`（仅 host 模式）
+```bash
+./run.sh node claim --prod acme --oid tenant-a --cid kitchen-01 -p /dev/cu.usbserial-0001
+```
+
+canonical topic 示例：
+
+- 未 claim：`mmwk/mmwk/dc5475c879c0/device/cmd` 和 `mmwk/mmwk/dc5475c879c0/device/resp`
+- 上面 claim 之后：`acme/tenant-a/kitchen-01/device/cmd` 和 `acme/tenant-a/kitchen-01/device/resp`
+- raw 平面：`acme/tenant-a/kitchen-01/raw/data`、`acme/tenant-a/kitchen-01/raw/resp`，host 模式额外开放 `acme/tenant-a/kitchen-01/raw/cmd`
+
+使用 `--transport mqtt` 时，用 `--did`、`--prod`、`--oid`、`--cid` 传入同一组路由字段。
 
 ### MQTT 通道职责
 
-- `network mqtt`：配置 broker / 鉴权，设备控制 topic 固定为 `mmwk/{client_id}/device/...`
-- MQTT raw 透传平面固定发布到 `mmwk/{client_id}/raw/...`；host 模式下会额外派生 `raw/cmd`
+- `network mqtt` 只配置 broker / 鉴权；路由身份由 `node claim` 单独配置
+- 内置控制面订阅 `{prod}/{oid}/{cid-or-did}/device/cmd`，并发布到 `{prod}/{oid}/{cid-or-did}/device/resp`
+- MQTT raw 透传平面发布到 `{prod}/{oid}/{cid-or-did}/raw/data` 和 `{prod}/{oid}/{cid-or-did}/raw/resp`；host 模式下会额外派生 `{prod}/{oid}/{cid-or-did}/raw/cmd`
 - 公开的 `radar raw` 命令族只负责录制器状态/配置和录制触发；`collect` / `collect.sh --trigger` 负责订阅 MQTT raw topic
 - `raw_resp` 对应 `on_cmd_data` 的启动 trim 后命令口输出，`raw_data` 对应 `on_radar_data` 的数据口原始字节
-- bridge/auto 模式下 MQTT raw 平面是只出不进的，只对外发布 `mmwk/{client_id}/raw/data` 和 `mmwk/{client_id}/raw/resp`；host 模式下才会额外开放 `mmwk/{client_id}/raw/cmd`
+- bridge/auto 模式下 MQTT raw 平面是只出不进的，只对外发布 `raw_data` 和 `raw_resp`；host 模式下才会额外开放 `raw_cmd`
 - `on_cmd_resp`、`on_radar_frame` 属于应用层回调，与 raw capture 不同
 - 推荐真实应用通过 MQTT 集成，UART 主要用于刷写、bring-up、调试和兜底
 
@@ -280,7 +290,7 @@ SDK 硬件验收同样保持显式选择：PRO 设备或带 4G 的 WDR 设备测
 
 当设备没有保存 WiFi 凭据时，会自动进入配网模式：
 
-1. 连接 `MMWK_XXXX`
+1. 连接 `MMWK-XXXXXX`（`PRODUCT-LAST6`，大写；默认 product 是 `MMWK`）
 2. 打开 `http://192.168.4.1`
 3. 输入 WiFi 信息
 
@@ -307,8 +317,8 @@ flowchart LR
     U["UART Host\nfactory / debug / recovery"] <-->|"UART CLI JSON\n内置控制协议"| D["MMWK Device (ESP)\nCLIv1 内置控制 + 雷达桥接"]
     D -->|"CMD UART"| RC["Radar CMD UART"]
     RD["Radar DATA UART"] --> D
-    D <-->|"MQTT CLI JSON\nnetwork mqtt\n mmwk/{client_id}/device/cmd + resp"| B["MQTT Broker"]
-    D <-->|"MQTT RAW\nradar raw\n mmwk/{client_id}/raw/data + resp\n(+ cmd in host)"| B
+    D <-->|"MQTT CLI JSON\nnetwork mqtt\n {prod}/{oid}/{cid-or-did}/device/cmd + resp"| B["MQTT Broker"]
+    D <-->|"MQTT RAW\nradar raw\n {prod}/{oid}/{cid-or-did}/raw/data + resp\n(+ cmd in host)"| B
     A["Application / Cloud / AI Agent"] <-->|"Primary integration path"| B
 ```
 
@@ -327,7 +337,7 @@ flowchart LR
 ### MQTT（远程）
 
 ```bash
-./run.sh radar status --transport mqtt --broker 192.168.1.5 --device-id DC5475C879C0
+./run.sh radar status --transport mqtt --broker 192.168.1.5 --did dc5475c879c0
 ```
 
 ---
@@ -589,7 +599,7 @@ OTA 后第一次上电时，ESP 侧可能还在等待雷达 app 真正启动完�
 相关启动模式行为：
 - BRIDGE 会在雷达相关状态面暴露 `modes: ["auto", "host"]`，设备面不再暴露启动模式配置。
 - BRIDGE 支持 `["auto", "host"]`；HUB 支持 `["auto"]`。
-- 在 bridge `host` 且 `raw_auto=1` 时，会自动启动 `mmwk/{client_id}/raw/data`、`mmwk/{client_id}/raw/resp` 和 `mmwk/{client_id}/raw/cmd`。
+- 在 bridge `host` 且 `raw_auto=1` 时，会自动启动 `{prod}/{oid}/{cid-or-did}/raw/data`、`{prod}/{oid}/{cid-or-did}/raw/resp` 和 `{prod}/{oid}/{cid-or-did}/raw/cmd`。
 
 ### 方法 D：回读当前雷达 CFG
 
@@ -613,7 +623,7 @@ OTA 后第一次上电时，ESP 侧可能还在等待雷达 app 真正启动完�
 ```bash
 ./run.sh radar fw flash \
   --fw fw.bin --cfg config.cfg \
-  --transport mqtt --broker 192.168.1.100 --device-id DC5475C879C0
+  --transport mqtt --broker 192.168.1.100 --did dc5475c879c0
 ```
 
 ---

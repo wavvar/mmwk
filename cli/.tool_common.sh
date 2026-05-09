@@ -296,17 +296,17 @@ PY
 
 read_device_record_json() {
     local working_dir="$1"
-    local device_id="$2"
+    local did="$2"
     local registry_path=""
 
     registry_path="$(device_registry_path "$working_dir")"
-    "$PYTHON" - "$registry_path" "$device_id" <<'PY'
+    "$PYTHON" - "$registry_path" "$did" <<'PY'
 import json
 import os
 import sys
 
 path = sys.argv[1]
-device_id = sys.argv[2]
+did = sys.argv[2]
 
 if not os.path.exists(path):
     raise SystemExit(f"device registry not found: {path}")
@@ -329,9 +329,9 @@ devices = data.get("devices")
 if not isinstance(devices, dict):
     raise SystemExit("device registry 'devices' must be an object")
 
-record = devices.get(device_id)
+record = devices.get(did)
 if not isinstance(record, dict):
-    raise SystemExit(f"device id not found in registry: {device_id}")
+    raise SystemExit(f"DID not found in registry: {did}")
 
 print(json.dumps(record))
 PY
@@ -339,7 +339,7 @@ PY
 
 write_device_record() {
     local working_dir="$1"
-    local device_id="$2"
+    local did="$2"
     local mqtt_server="$3"
     local mqtt_port="$4"
     local http_server="$5"
@@ -348,14 +348,14 @@ write_device_record() {
     local registry_path=""
 
     registry_path="$(device_registry_path "$working_dir")"
-    "$PYTHON" - "$registry_path" "$device_id" "$mqtt_server" "$mqtt_port" "$http_server" "$http_port" "$ssid" <<'PY'
+    "$PYTHON" - "$registry_path" "$did" "$mqtt_server" "$mqtt_port" "$http_server" "$http_port" "$ssid" <<'PY'
 import json
 import os
 import sys
 import tempfile
 from datetime import datetime, timezone
 
-path, device_id, mqtt_server, mqtt_port, http_server, http_port, ssid = sys.argv[1:8]
+path, did, mqtt_server, mqtt_port, http_server, http_port, ssid = sys.argv[1:8]
 data = {"devices": {}}
 
 if os.path.exists(path):
@@ -377,11 +377,11 @@ if devices is None:
 elif not isinstance(devices, dict):
     raise SystemExit("device registry 'devices' must be an object")
 
-record = devices.get(device_id)
+record = devices.get(did)
 if not isinstance(record, dict):
-    record = {"device_id": device_id}
+    record = {"did": did}
 
-record["device_id"] = device_id
+record["did"] = did
 record["mqtt_server"] = mqtt_server
 record["mqtt_port"] = int(mqtt_port)
 record["mqtt_uri"] = f"mqtt://{mqtt_server}:{int(mqtt_port)}"
@@ -391,7 +391,7 @@ record["http_base_url"] = f"http://{http_server}:{int(http_port)}/"
 if ssid:
     record["ssid"] = ssid
 record["updated_at"] = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
-devices[device_id] = record
+devices[did] = record
 
 parent = os.path.dirname(path)
 if parent:
@@ -439,8 +439,8 @@ devices = data.get("devices", {})
 if not isinstance(devices, dict):
     raise SystemExit("device registry 'devices' must be an object")
 
-for device_id in sorted(devices):
-    record = devices.get(device_id)
+for did in sorted(devices):
+    record = devices.get(did)
     if not isinstance(record, dict):
         continue
     mqtt_server = record.get("mqtt_server", "")
@@ -449,7 +449,7 @@ for device_id in sorted(devices):
     http_port = record.get("http_port", "")
     mqtt_uri = f"mqtt://{mqtt_server}:{mqtt_port}" if mqtt_server and mqtt_port != "" else ""
     http_base_url = f"http://{http_server}:{http_port}/" if http_server and http_port != "" else ""
-    print(f"{device_id}\t{mqtt_uri}\t{http_base_url}")
+    print(f"{did}\t{mqtt_uri}\t{http_base_url}")
 PY
 }
 

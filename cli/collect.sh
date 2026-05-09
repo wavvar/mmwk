@@ -17,11 +17,11 @@ usage() {
 collect.sh -- Collect radar raw data using device.yml
 
 USAGE:
-  ./collect.sh --device-id ID [options]
+  ./collect.sh --did DID [options]
   ./collect.sh --trigger none|radar-restart|device-reboot [direct-options]
 
 REQUIRED:
-  --device-id ID        Device id stored in `<working>/device.yml`
+  --did DID             DID stored in `<working>/device.yml`
 
 OPTIONAL:
   --duration SEC        Capture duration in seconds; omit for Ctrl-C mode
@@ -33,7 +33,7 @@ OPTIONAL:
 
 NOTES:
   - `collect.sh` reads MQTT connection info from `<working>/device.yml`.
-  - Output files are written under `<working>/data/<device-id>/`.
+  - Output files are written under `<working>/data/<did>/`.
   - Data and log outputs now share the same basename: `*_raw_data.sraw` and `*_raw_data.log`.
   - If `--duration` is omitted, press Ctrl-C to stop.
   - `--trigger` enables direct pure-MQTT mode and forwards options to
@@ -107,15 +107,15 @@ if [ "$direct_mode" = true ]; then
     cmd_direct "$@"
 fi
 
-device_id=""
+did=""
 duration=""
 reboot=false
 working_dir=""
 
 while [ $# -gt 0 ]; do
     case "$1" in
-        --device-id)
-            device_id="${2:?missing value for --device-id}"
+        --did)
+            did="${2:?missing value for --did}"
             shift 2
             ;;
         --duration)
@@ -140,27 +140,27 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-[ -n "$device_id" ] || die "--device-id is required"
+[ -n "$did" ] || die "--did is required"
 
 setup_project_env
 working_dir="$(resolve_default_working_dir "$working_dir")"
-if ! record_json="$(read_device_record_json "$working_dir" "$device_id" 2>&1)"; then
+if ! record_json="$(read_device_record_json "$working_dir" "$did" 2>&1)"; then
     die "$record_json"
 fi
 mqtt_server="$(json_value_from_text "$record_json" "mqtt_server")"
 mqtt_port="$(json_value_from_text "$record_json" "mqtt_port")"
-[ -n "$mqtt_server" ] || die "Device record missing mqtt_server: $device_id"
-[ -n "$mqtt_port" ] || die "Device record missing mqtt_port: $device_id"
+[ -n "$mqtt_server" ] || die "Device record missing mqtt_server: $did"
+[ -n "$mqtt_port" ] || die "Device record missing mqtt_port: $did"
 
 timestamp_prefix="$(compact_timestamp_now)_"
-output_dir="$(abspath_path "$working_dir/data/$device_id" "$INVOKE_PWD")"
+output_dir="$(abspath_path "$working_dir/data/$did" "$INVOKE_PWD")"
 mkdir -p "$output_dir"
 
 py_args=(
     -m
     mmwk.tools.collect_live
-    --device-id
-    "$device_id"
+    --did
+    "$did"
     --mqtt-server
     "$mqtt_server"
     --mqtt-port

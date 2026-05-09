@@ -155,7 +155,7 @@ ENVIRONMENT:
 
 COMMANDS:
     node info             Node status handshake
-    node claim            Claim device identity and credentials
+    node claim            Claim route identity and credentials
     node reboot           Reboot the node
     node ota              Update ESP firmware via HTTP OTA
     node agent            Enable/disable built-in agent services
@@ -203,7 +203,10 @@ TRANSPORT OPTIONS:
     -p, --port PORT        Serial port
     -t, --transport TYPE   uart (default) or mqtt
     --broker HOST          MQTT broker address
-    --device-id ID         Device ID for MQTT
+    --did DID              DID for MQTT route fallback
+    --prod PROD            Product route segment (default: mmwk)
+    --oid OID              Organization route segment (default: mmwk)
+    --cid CID              Claimed route id; takes precedence over --did
     --baudrate RATE        Baudrate (default: 115200)
     --reset                DTR/RTS reset before connecting
     --uart-proxy auto|off  Reuse a persistent local UART proxy for short commands

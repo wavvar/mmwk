@@ -186,9 +186,13 @@ def add_transport_args(parser):
                        help="MQTT broker address (default: localhost)")
     group.add_argument("--mqtt-port", type=int, default=1883,
                        help="MQTT broker port (default: 1883)")
-    group.add_argument("--device-id", help="Device ID for MQTT topics")
-    group.add_argument("--cmd-topic", help="Custom MQTT command topic")
-    group.add_argument("--resp-topic", help="Custom MQTT response topic")
+    group.add_argument("--did", help="DID for MQTT route fallback")
+    group.add_argument("--prod", default="mmwk",
+                       help="MQTT product route segment (default: mmwk)")
+    group.add_argument("--oid", default="mmwk",
+                       help="MQTT organization route segment (default: mmwk)")
+    group.add_argument("--cid", default="",
+                       help="MQTT claimed route id; when set it takes precedence over --did")
     group.add_argument("--transport-retries", type=int, default=None,
                        help="Transport connection attempts (default: 3 for MQTT, 1 for UART)")
     group.add_argument("--transport-retry-delay", type=float, default=2.0,
@@ -250,7 +254,7 @@ def cmd_radar_ota(args):
             progress_interval=getattr(args, 'progress_interval', 5),
             raw_resp_output=getattr(args, "raw_resp_output", None),
             raw_broker=getattr(args, "raw_broker", None),
-            raw_resp_topic=getattr(args, "raw_resp_topic", None),
+            raw_resp=getattr(args, "raw_resp", None),
             raw_timeout=getattr(args, "raw_timeout", 10.0),
         )
         sys.exit(0 if ok else 1)
@@ -462,6 +466,12 @@ def cmd_node_claim(args):
         payload["endpoint"] = args.endpoint
     if getattr(args, "token", None):
         payload["token"] = args.token
+    if getattr(args, "prod", None):
+        payload["prod"] = args.prod
+    if getattr(args, "oid", None):
+        payload["oid"] = args.oid
+    if getattr(args, "cid", None):
+        payload["cid"] = args.cid
     _call_tool_and_print_json(args, "node", payload)
 
 
@@ -731,7 +741,10 @@ def cmd_collect(args):
             resp_output=args.resp_output,
             broker=args.broker,
             mqtt_port=args.mqtt_port,
-            device_id=args.device_id,
+            did=args.did,
+            prod=args.prod,
+            oid=args.oid,
+            cid=args.cid,
             data_topic=args.data_topic,
             resp_topic=args.resp_topic,
             resp_optional=getattr(args, "resp_optional", False),
@@ -1063,7 +1076,8 @@ def main():
         help="MQTT broker URI/host override for OTA raw_resp capture (defaults to radar raw/node info)",
     )
     ota_parser.add_argument(
-        "--raw-resp-topic",
+        "--raw-resp",
+        dest="raw_resp",
         help="MQTT raw_resp topic override for OTA capture (defaults to radar raw/node info)",
     )
     ota_parser.add_argument(
@@ -1173,7 +1187,7 @@ def main():
     add_transport_args(node_factory_reset_parser)
     node_factory_reset_parser.set_defaults(func=cmd_node_factory_reset)
 
-    node_claim_parser = node_sub.add_parser("claim", help="Claim device identity and credentials")
+    node_claim_parser = node_sub.add_parser("claim", help="Claim route identity and credentials")
     node_claim_parser.add_argument("--endpoint", help="Claim endpoint override for this attempt")
     node_claim_parser.add_argument("--token", help="One-time claim token for this attempt")
     add_transport_args(node_claim_parser)
@@ -1289,8 +1303,14 @@ def main():
                                 help="MQTT broker URI/host for collection (e.g. mqtt://127.0.0.1:1883)")
     collect_parser.add_argument("--mqtt-port", type=int, default=1883,
                                 help="MQTT broker port (default: 1883)")
-    collect_parser.add_argument("--device-id",
-                                help="Device client id used for topic defaults")
+    collect_parser.add_argument("--did",
+                                help="DID for MQTT route fallback")
+    collect_parser.add_argument("--prod", default="mmwk",
+                                help="MQTT product route segment (default: mmwk)")
+    collect_parser.add_argument("--oid", default="mmwk",
+                                help="MQTT organization route segment (default: mmwk)")
+    collect_parser.add_argument("--cid", default="",
+                                help="MQTT claimed route id; when set it takes precedence over --did")
     collect_parser.add_argument("--data-topic",
                                 help="MQTT raw_data topic to subscribe (DATA UART raw data-port bytes)")
     collect_parser.add_argument("--resp-topic",

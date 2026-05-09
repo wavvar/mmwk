@@ -76,7 +76,10 @@ class CollectStatePrinter:
 
 @dataclass
 class CollectSummary:
-    device_id: str
+    did: str
+    prod: str
+    oid: str
+    cid: str
     broker: str
     mqtt_port: int
     data_topic: str
@@ -94,11 +97,14 @@ class CollectSummary:
 
     def to_dict(self) -> dict:
         return {
-            "device_id": self.device_id,
+            "did": self.did,
+            "prod": self.prod,
+            "oid": self.oid,
+            "cid": self.cid,
             "broker": self.broker,
             "mqtt_port": self.mqtt_port,
-            "data_topic": self.data_topic,
-            "resp_topic": self.resp_topic,
+            "raw_data": self.data_topic,
+            "raw_resp": self.resp_topic,
             "data_output": self.data_output,
             "resp_output": self.resp_output,
             "data_messages": self.data_messages,
@@ -164,7 +170,10 @@ class _LiveCollectController:
     def __init__(
         self,
         *,
-        device_id: str,
+        did: str,
+        prod: str = "mmwk",
+        oid: str = "mmwk",
+        cid: str = "",
         broker: str,
         mqtt_port: int,
         output_dir: str,
@@ -174,7 +183,10 @@ class _LiveCollectController:
         timeout: float = 10.0,
         reboot: bool = False,
     ):
-        self.device_id = device_id
+        self.did = did
+        self.prod = prod or "mmwk"
+        self.oid = oid or "mmwk"
+        self.cid = cid or ""
         self.broker = broker
         self.mqtt_port = int(mqtt_port)
         self.output_dir = os.path.abspath(output_dir)
@@ -212,7 +224,10 @@ class _LiveCollectController:
             transport="mqtt",
             broker=self.broker,
             mqtt_port=self.mqtt_port,
-            device_id=self.device_id,
+            did=self.did,
+            prod=self.prod,
+            oid=self.oid,
+            cid=self.cid,
             cmd_topic=None,
             resp_topic=None,
             mqtt_qos=1,
@@ -228,10 +243,26 @@ class _LiveCollectController:
         raw_state = self.collector._tool_json("radar.raw", {"action": "config_get"}, timeout=self.timeout)
         self.restore_raw_args = _build_raw_restore_args(raw_state)
 
-        default_topics = build_mqtt_topics(self.device_id, include_raw_cmd=True)
+        default_topics = build_mqtt_topics(
+            did=self.did,
+            prod=self.prod,
+            oid=self.oid,
+            cid=self.cid,
+            include_raw_cmd=True,
+        )
         raw_cfg = raw_state.get("config", raw_state) if isinstance(raw_state, dict) else {}
-        self.data_topic = self.data_topic or raw_cfg.get("data_topic") or hi.get("raw_data_topic") or default_topics["raw_data_topic"]
-        self.resp_topic = self.resp_topic or raw_cfg.get("resp_topic") or hi.get("raw_resp_topic") or default_topics["raw_resp_topic"]
+        self.data_topic = (
+            self.data_topic
+            or raw_cfg.get("raw_data")
+            or hi.get("raw_data")
+            or default_topics["raw_data"]
+        )
+        self.resp_topic = (
+            self.resp_topic
+            or raw_cfg.get("raw_resp")
+            or hi.get("raw_resp")
+            or default_topics["raw_resp"]
+        )
 
         host, port = _parse_broker_endpoint(self.broker, self.mqtt_port)
         self.capture_session = _MqttRawCaptureSession(
@@ -345,7 +376,10 @@ class _LiveCollectController:
             "resp_bytes": 0,
         }
         summary = CollectSummary(
-            device_id=self.device_id,
+            did=self.did,
+            prod=self.prod,
+            oid=self.oid,
+            cid=self.cid,
             broker=self.broker,
             mqtt_port=self.mqtt_port,
             data_topic=self.data_topic or "",
@@ -369,7 +403,10 @@ def build_parser() -> argparse.ArgumentParser:
         prog="python -m mmwk.tools.collect_live",
         description="Live MQTT raw collection with high-level state reporting",
     )
-    parser.add_argument("--device-id", required=True, help="Radar device id")
+    parser.add_argument("--did", required=True, help="Radar DID")
+    parser.add_argument("--prod", default="mmwk", help="Product route segment (default: mmwk)")
+    parser.add_argument("--oid", default="mmwk", help="Organization route segment (default: mmwk)")
+    parser.add_argument("--cid", default="", help="Claimed route id; takes precedence over --did")
     parser.add_argument("--mqtt-server", required=True, help="MQTT broker host or URI")
     parser.add_argument("--mqtt-port", type=int, default=1883, help="MQTT broker port (default: 1883)")
     parser.add_argument("--duration", type=float, help="Capture duration in seconds; omit for Ctrl-C mode")
@@ -399,7 +436,10 @@ def main(argv: list[str] | None = None) -> int:
     state_printer.mark("server ready")
 
     controller = _LiveCollectController(
-        device_id=args.device_id,
+        did=args.did,
+        prod=args.prod,
+        oid=args.oid,
+        cid=args.cid,
         broker=args.mqtt_server,
         mqtt_port=args.mqtt_port,
         output_dir=output_dir,

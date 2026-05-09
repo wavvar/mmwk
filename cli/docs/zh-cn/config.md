@@ -15,7 +15,7 @@ cd ./cli
 - 通过 `network wifi` 下发 Wi-Fi 凭据
 - 4G 配置请直接使用官方 `network 4g` 和 `network priority` 命令
 - 通过 `network mqtt` 下发 MQTT 设置
-- 发现通过 `_mmwk._tcp.local.` 广播出来的 MMWK device id
+- 发现通过 `_mmwk._tcp.local.` 广播出来的 MMWK 设备 `did`
 - 按需通过 `node reboot` 重启设备
 - 按需启动或复用 `server.sh`，并把本地 broker URI 反向写回设备
 - 按需在 `init` 前准备主机 Wi-Fi 网口的 bridge AP 网段地址
@@ -107,12 +107,12 @@ sudo ifconfig <wifi-iface> -alias 192.168.4.2
 ./config.sh set --transport mqtt \
   --broker 192.168.1.100 \
   --mqtt-port 1883 \
-  --device-id DC5475C879C0 \
+  --did dc5475c879c0 \
   --mqtt-uri mqtt://192.168.1.200:1883 \
   --reboot
 ```
 
-`--transport mqtt` 只表示“当前这次配置命令”通过现有 MQTT 控制链路送达。设备侧 MQTT 身份是 `node info` / `network mqtt` 当前返回的 `client_id`；未 claim 时回退为 Wi-Fi STA MAC 的大写十六进制形式。`network mqtt` 保存 broker / 鉴权设置，对外返回的 canonical topic 是只读派生值。
+`--transport mqtt` 只表示“当前这次配置命令”通过现有 MQTT broker 和路由身份送达。路由身份由 `prod` / `oid` / `cid` / `did` 组成：设置了 `cid` 时 topic 使用 `cid`，否则使用 `did`。`network mqtt` 保存 broker / 鉴权设置，对外返回的 canonical `cmd` / `resp` topic 是只读派生值。
 
 ### 4. 4G 与网络优先级
 
@@ -128,21 +128,21 @@ sudo ifconfig <wifi-iface> -alias 192.168.4.2
 
 ### 5. 用 mDNS 搜索设备
 
-当你还不知道 device id，但需要选择 MQTT topic 或更新 `device.yml` 时，使用：
+当你还不知道设备 `did`，但需要选择 MQTT 路由或更新 `device.yml` 时，使用：
 
 ```bash
 ./config.sh search
 ./config.sh search --json
-./config.sh search --expect-one --print-device-id
+./config.sh search --expect-one --print-did
 ```
 
-默认输出是紧凑表格，包含 device id、name、board、version、mode、addresses 和 hostname。JSON 输出把同样字段放在 `devices` 里。
+默认输出是紧凑表格，包含 `did`、`prod`、`oid`、`cid`、name、board、version、mode、addresses 和 hostname。JSON 输出把同样字段放在 `devices` 里。
 
-脚本调用时，如果调用方必须拿到唯一设备，使用 `--expect-one`。发现多个设备时它会返回错误并打印候选列表；没有发现设备时也会返回错误。`--device-id ID` 会先按发现到的 `id` / `client_id` 字段过滤，再做唯一性检查。`--print-device-id` 面向 shell wrapper，只打印选中设备的 `client_id` / `id`：
+脚本调用时，如果调用方必须拿到唯一设备，使用 `--expect-one`。发现多个设备时它会返回错误并打印候选列表；没有发现设备时也会返回错误。`--did DID`、`--prod PROD`、`--oid OID`、`--cid CID` 会先按发现到的路由字段过滤，再做唯一性检查。`--print-did` 面向 shell wrapper，只打印选中设备的 `did`：
 
 ```bash
-DEVICE_ID="$(./config.sh search --expect-one --print-device-id)"
-./config.sh search --device-id "$DEVICE_ID" --expect-one --json
+DID="$(./config.sh search --expect-one --print-did)"
+./config.sh search --did "$DID" --expect-one --json
 ```
 
 mDNS 发现只发布设备身份、板型、版本、模式、hostname 和本地链路地址。它不发布 MQTT broker URI；broker 需要通过参数、`device.yml`、`server.sh` 或环境变量解析。
@@ -172,7 +172,7 @@ mDNS 发现只发布设备身份、板型、版本、模式、hostname 和本地
 - `--transport uart|mqtt`：当前用于下发配置的控制链路
 - `--ssid` / `--password`：Wi-Fi 凭据
 - `--mqtt-uri` / `--mqtt-user` / `--mqtt-pass`：保存到设备里的 broker 与鉴权设置
-- `--device-id`，以及可选的 `--cmd-topic` / `--resp-topic`：告诉 `config.sh set` 当前 MQTT 控制链路应该走哪组 topic
+- `--did`、`--prod`、`--oid`、`--cid`：告诉 `config.sh set` 如何派生当前 MQTT 控制 topic
 - `--server-local`：启动或复用 `server.sh`，并使用它解析出的 broker URI
 - `--server-state-dir`、`--server-serve-dir`、`--server-upload-dir`、`--server-host-ip`、`--server-target-ip`、`--server-mqtt-port`、`--server-http-port`：控制 `server.sh` 的启动/复用方式
 - `--reboot`：写完设置后重启设备
@@ -181,9 +181,12 @@ mDNS 发现只发布设备身份、板型、版本、模式、hostname 和本地
 
 - `--timeout SEC`：mDNS 搜索时长
 - `--json`：输出机器可读 JSON
-- `--device-id ID`：按发现到的 `id` 或 `client_id` 过滤
+- `--did DID`：按发现到的 DID 过滤
+- `--prod PROD`：按发现到的 product 路由段过滤
+- `--oid OID`：按发现到的 organization 路由段过滤
+- `--cid CID`：按发现到的 claimed 路由段过滤
 - `--expect-one`：要求只发现一个匹配设备，否则失败
-- `--print-device-id`：配合 `--expect-one`，只打印选中的 `client_id` / `id`
+- `--print-did`：配合 `--expect-one`，只打印选中的 `did`
 - `--ap-iface IFACE`：要临时添加 AP 网段地址的主机接口
 - `--ap-cidr CIDR`：用于设备 AP 搜索的临时主机地址，默认 `192.168.4.2/24`
 - `--keep-ap-alias`：搜索后保留临时地址
@@ -191,7 +194,7 @@ mDNS 发现只发布设备身份、板型、版本、模式、hostname 和本地
 ## 说明
 
 - 使用 `--server-local` 时不要再手动传 `--mqtt-uri`；broker 由 `server.sh` 决定。
-- 设备侧 MQTT 身份和 canonical topics 来自当前 `client_id`。未 claim 时，回退为 Wi-Fi STA MAC 的大写十六进制形式。`--device-id`、`--cmd-topic`、`--resp-topic` 只用于让 `config.sh set` 接入当前 MQTT 控制链路，不会改写设备保存下来的 topic 身份。
+- 设备侧 MQTT topic 由 `prod`、`oid` 和 claim 后的 `cid` 派生；没有 `cid` 时回退到 `did`。`config.sh set --transport mqtt` 只用这些字段接入当前控制链路，不会改写设备保存的路由身份。需要改路由身份时，通过 UART/local transport 执行 `node claim --cid ... [--prod ... --oid ...]`。
 - 如果你不传 `--reboot`，设置仍会写入，但设备可能要到下一次重启后才真正使用它们。
 - `config.sh search` 依赖 mDNS multicast，因此发现的是当前本地链路上的设备，不会跨路由网络搜索。
 - `config.sh search` 不发现 MQTT broker 端点。发现流程的调用方仍需要从参数、环境、本地 server 状态或 `device.yml` 获得 broker。

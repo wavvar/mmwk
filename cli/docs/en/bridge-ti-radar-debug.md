@@ -26,7 +26,7 @@ Both paths use the same wrappers: `config.sh init|update|list` plus `collect.sh`
 2. Point `server.sh --serve-dir` at the radar artifact directory you plan to OTA.
 3. Run `config.sh init` over UART. It stores Wi-Fi and MQTT settings, reboots the device, verifies MQTT reachability, and writes the device entry into `<working>/device.yml`.
 4. Run `config.sh update` over MQTT. It resolves the device transport settings from `device.yml` and performs radar OTA or runtime cfg apply.
-5. Run `collect.sh` over MQTT. It resolves the device entry from `device.yml` and writes capture outputs under `<working>/data/<device-id>/`.
+5. Run `collect.sh` over MQTT. It resolves the DID entry from `device.yml` and writes capture outputs under `<working>/data/<did>/`.
 
 Recommended pattern:
 
@@ -41,8 +41,8 @@ The registry-backed flow keeps using the same server information after `config.s
 
 Useful helper behavior:
 
-- `config.sh list` prints the current `device_id`, MQTT URI, and HTTP base URL from `<working>/device.yml`.
-- `collect.sh` writes timestamp-prefixed artifacts under `<working>/data/<device-id>/`: `*_raw_data.sraw`, `*_raw_data.log`, `*_summary.json`, and `*_state_events.log`.
+- `config.sh list` prints the current `did`, MQTT URI, and HTTP base URL from `<working>/device.yml`.
+- `collect.sh` writes timestamp-prefixed artifacts under `<working>/data/<did>/`: `*_raw_data.sraw`, `*_raw_data.log`, `*_summary.json`, and `*_state_events.log`.
 - Add `collect.sh --reboot` only when you intentionally want the helper to restart the radar service after subscribe-ready bootstrap so startup `raw_resp` from that same window is captured.
 
 ## 6843 Series
@@ -70,26 +70,26 @@ WORKING=./collect-lab
   --password "$PASSWORD" \
   --working "$WORKING"
 
-DEVICE_ID=<printed-by-config.sh>
+DID=<printed-by-config.sh>
 
 ./config.sh update \
-  --device-id "$DEVICE_ID" \
+  --did "$DID" \
   --fw "$FW_DIR/out_of_box_6843_aop.bin" \
   --cfg "$FW_DIR/out_of_box_6843_aop.cfg" \
   --working "$WORKING"
 
 ./run.sh radar status \
   --transport mqtt \
-  --device-id "$DEVICE_ID" \
+  --did "$DID" \
   --broker "$MMWK_SERVER_HOST_IP"
 
 ./run.sh radar fw version \
   --transport mqtt \
-  --device-id "$DEVICE_ID" \
+  --did "$DID" \
   --broker "$MMWK_SERVER_HOST_IP"
 
 ./collect.sh \
-  --device-id "$DEVICE_ID" \
+  --did "$DID" \
   --duration 30 \
   --working "$WORKING"
 ```
@@ -98,7 +98,7 @@ What to expect:
 
 - `config.sh init` succeeds only after the bridge can reach the configured MQTT server, and only then updates `device.yml`.
 - `config.sh update` waits until `radar status` returns `running`.
-- `collect.sh` writes timestamp-prefixed capture files under `<working>/data/<device-id>/`.
+- `collect.sh` writes timestamp-prefixed capture files under `<working>/data/<did>/`.
 
 ## 6432 Series
 
@@ -125,26 +125,26 @@ WORKING=./collect-lab
   --password "$PASSWORD" \
   --working "$WORKING"
 
-DEVICE_ID=<printed-by-config.sh>
+DID=<printed-by-config.sh>
 
 ./config.sh update \
-  --device-id "$DEVICE_ID" \
+  --did "$DID" \
   --fw "$FW_DIR/presence.appimage" \
   --cfg "$FW_DIR/presence.cfg" \
   --working "$WORKING"
 
 ./run.sh radar status \
   --transport mqtt \
-  --device-id "$DEVICE_ID" \
+  --did "$DID" \
   --broker "$MMWK_SERVER_HOST_IP"
 
 ./run.sh radar fw version \
   --transport mqtt \
-  --device-id "$DEVICE_ID" \
+  --did "$DID" \
   --broker "$MMWK_SERVER_HOST_IP"
 
 ./collect.sh \
-  --device-id "$DEVICE_ID" \
+  --did "$DID" \
   --duration 30 \
   --working "$WORKING"
 ```
@@ -159,14 +159,14 @@ Do not judge a 6432 capture only from `*_raw_data.log`. Check both `*_raw_data.s
 
 ## Practical Checks
 
-- If `config.sh init` prints the device id and follow-up commands, the UART bring-up step is complete.
+- If `config.sh init` prints the DID and follow-up commands, the UART bring-up step is complete.
 - If `config.sh update` exits successfully, the radar OTA or runtime cfg path has already been verified through `radar status`, and for OTA also through `radar fw version`.
 - If you need a manual runtime check later, use `./run.sh radar status` first and treat `state=running` as the hard gate.
 - If the USB serial path changes after reboot, rediscover the port before rerunning UART commands.
 
 ## When To Use `collect.sh` vs `collect -p`
 
-`collect.sh` is a task-oriented MQTT helper for late-attach raw collection windows. It reads MQTT settings from `device.yml` and writes timestamp-prefixed outputs under `<working>/data/<device-id>/`.
+`collect.sh` is a task-oriented MQTT helper for late-attach raw collection windows. It reads MQTT settings from `device.yml` and writes timestamp-prefixed outputs under `<working>/data/<did>/`.
 
 If you need startup-time command-port text from the same reboot, flash, or radar restart window, use the official UART-assisted command instead:
 

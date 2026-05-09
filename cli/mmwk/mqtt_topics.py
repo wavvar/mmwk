@@ -15,7 +15,7 @@ def _segment(name: str, value: str | None, *, required: bool = True) -> str:
 
 
 def normalize_topic_id(value: str) -> str:
-    """Validate a legacy topic id import without normalizing its value."""
+    """Validate a topic id import without normalizing its value."""
 
     return _segment("topic_id", value)
 
@@ -34,17 +34,16 @@ def build_mqtt_topics(
     org = _segment("oid", oid)
     claimed_id = _segment("cid", cid, required=False)
     local_id = _segment("did", did, required=False)
-    route_id = claimed_id or local_id
-    if not route_id:
+    topic_id = claimed_id or local_id
+    if not topic_id:
         raise ValueError("cid or did is required")
 
-    prefix = f"{product}/{org}/{route_id}"
+    prefix = f"{product}/{org}/{topic_id}"
     return {
         "prod": product,
         "oid": org,
         "cid": claimed_id,
         "did": local_id,
-        "route_id": route_id,
         "cmd": f"{prefix}/device/cmd",
         "resp": f"{prefix}/device/resp",
         "hub_inquiry": f"{prefix}/hub/inquiry",

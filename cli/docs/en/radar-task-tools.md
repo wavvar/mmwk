@@ -17,7 +17,7 @@ Pass `--working DIR` on either wrapper when you want a different location.
 
 Each device record in `device.yml` stores the resolved transport endpoints that the wrappers need later:
 
-- `device_id`
+- `did`
 - `mqtt_server` / `mqtt_port` / `mqtt_uri`
 - `http_server` / `http_port` / `http_base_url`
 - optional `ssid`
@@ -58,7 +58,7 @@ When the bridge is on its provisioning AP, add `--ap-link` so `init` prepares th
 
 On success the script prints:
 
-- the detected device id
+- the detected DID
 - the resolved MQTT URI
 - the resolved HTTP base URL
 - the `<working>` path
@@ -75,7 +75,7 @@ Firmware OTA:
 
 ```bash
 ./config.sh update \
-  --device-id 0123456789ab \
+  --did 0123456789ab \
   --fw ../firmwares/radar/iwr6843/oob/out_of_box_6843_aop.bin \
   --cfg ../firmwares/radar/iwr6843/oob/out_of_box_6843_aop.cfg \
   --working ./collect-lab
@@ -85,7 +85,7 @@ Runtime cfg only:
 
 ```bash
 ./config.sh update \
-  --device-id 0123456789ab \
+  --did 0123456789ab \
   --cfg ./runtime.cfg \
   --working ./collect-lab
 ```
@@ -102,7 +102,7 @@ Use `config.sh list` to inspect the current registry:
 
 The output includes:
 
-- `device_id`
+- `did`
 - MQTT URI
 - HTTP base URL
 
@@ -114,7 +114,7 @@ Use `collect.sh` for late-attach MQTT collection windows after the device has al
 
 ```bash
 ./collect.sh \
-  --device-id 0123456789ab \
+  --did 0123456789ab \
   --duration 10 \
   --working ./collect-lab
 ```
@@ -123,7 +123,7 @@ If you want the helper to restart the radar service after subscriptions are read
 
 ```bash
 ./collect.sh \
-  --device-id 0123456789ab \
+  --did 0123456789ab \
   --duration 20 \
   --reboot \
   --working ./collect-lab
@@ -133,11 +133,11 @@ If `--duration` is omitted, the helper runs until you press `Ctrl-C`:
 
 ```bash
 ./collect.sh \
-  --device-id 0123456789ab \
+  --did 0123456789ab \
   --working ./collect-lab
 ```
 
-Each run writes its artifacts under `<working>/data/<device-id>/` with a start-time prefix, for example:
+Each run writes its artifacts under `<working>/data/<did>/` with a start-time prefix, for example:
 
 - `20260424-153000_raw_data.sraw`
 - `20260424-153000_raw_data.log`

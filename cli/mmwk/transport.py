@@ -17,7 +17,7 @@ except ImportError:  # pragma: no cover - non-POSIX fallback
     termios = None
 
 from mmwk._logging import logger
-from mmwk.mqtt_topics import build_mqtt_topics, normalize_topic_id
+from mmwk.mqtt_topics import build_mqtt_topics
 
 
 def _control_cli_error_code_to_jsonrpc(code: str) -> int:
@@ -798,18 +798,29 @@ class MqttTransport(RadarTransport):
         default_port = 8883 if use_tls else int(port)
         return host, int(parsed.port or default_port), use_tls
 
-    def __init__(self, broker: str, port: int = 1883, device_id: str = None,
-                 cmd_topic: str = None, resp_topic: str = None,
+    def __init__(self, broker: str, port: int = 1883,
+                 did: str = None, prod: str = "mmwk", oid: str = "mmwk", cid: str = None,
                  username: str = None, password: str = None,
                  qos: int = 1, inter_chunk_delay: float = 0.05):
         super().__init__()
         import paho.mqtt.client as mqtt
 
-        topics = build_mqtt_topics(device_id, include_raw_cmd=True)
+        route_did = str(did or "").strip()
+        route_cid = str(cid or "").strip()
+        topics = build_mqtt_topics(
+            prod=prod or "mmwk",
+            oid=oid or "mmwk",
+            cid=route_cid,
+            did=route_did,
+            include_raw_cmd=True,
+        )
 
-        self.device_id = normalize_topic_id(device_id)
-        self.cmd_topic = cmd_topic or topics["cmd_topic"]
-        self.resp_topic = resp_topic or topics["resp_topic"]
+        self.prod = topics["prod"]
+        self.oid = topics["oid"]
+        self.cid = topics["cid"]
+        self.did = topics["did"]
+        self.cmd_topic = topics["cmd"]
+        self.resp_topic = topics["resp"]
         self.qos = qos
         self.inter_chunk_delay = inter_chunk_delay
         broker_host, broker_port, use_tls = self._resolve_broker_endpoint(broker, port)
@@ -905,15 +916,17 @@ def create_transport(args, retries: int = 1, retry_delay: float = 2.0) -> RadarT
     for attempt in range(retries):
         try:
             if transport_type == "mqtt":
-                device_id = getattr(args, 'device_id', None)
-                if not device_id:
-                    raise ValueError("--device-id required for MQTT transport")
+                did = getattr(args, 'did', None)
+                cid = getattr(args, 'cid', None)
+                if not (did or cid):
+                    raise ValueError("--did or --cid required for MQTT transport")
                 return MqttTransport(
                     broker=getattr(args, 'broker', 'localhost'),
                     port=getattr(args, 'mqtt_port', 1883),
-                    device_id=device_id,
-                    cmd_topic=getattr(args, 'cmd_topic', None),
-                    resp_topic=getattr(args, 'resp_topic', None),
+                    did=did,
+                    prod=getattr(args, 'prod', 'mmwk'),
+                    oid=getattr(args, 'oid', 'mmwk'),
+                    cid=cid,
                     qos=getattr(args, 'mqtt_qos', 1),
                     inter_chunk_delay=getattr(args, 'mqtt_delay', 0.05),
                 )

@@ -65,6 +65,29 @@ def _unwrap_tool_data(payload: dict | list) -> dict:
     return {}
 
 
+def _first_text(*values) -> str:
+    for value in values:
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _topic_value(payload: dict, public_key: str) -> str:
+    return _first_text(payload.get(public_key))
+
+
+def _route_defaults(payload: dict) -> dict[str, str]:
+    did = _first_text(payload.get("did"))
+    cid = _first_text(payload.get("cid"))
+    return build_mqtt_topics(
+        prod=_first_text(payload.get("prod")) or "mmwk",
+        oid=_first_text(payload.get("oid")) or "mmwk",
+        cid=cid,
+        did=did or "mmwk_ota_capture",
+        include_raw_cmd=True,
+    )
+
+
 def _build_raw_restore_args(payload: dict | list) -> dict:
     raw = _unwrap_tool_data(payload)
     restore = {
@@ -356,7 +379,7 @@ class OtaCommand:
                  progress_interval: int = 5,
                  raw_resp_output: str = None,
                  raw_broker: str = None,
-                 raw_resp_topic: str = None,
+                 raw_resp: str = None,
                  raw_timeout: float = 10.0) -> bool:
         """Start HTTP server and tell device to OTA from it."""
 
@@ -431,13 +454,12 @@ class OtaCommand:
                 raw_cfg = _unwrap_tool_data(raw_state)
                 hi_cfg = self._tool_json("node", {"action": "info"}, timeout=min(timeout, 10.0))
                 hi_data = _unwrap_tool_data(hi_cfg)
-                client_id = hi_data.get("client_id") or hi_data.get("id") or "mmwk_ota_capture"
-                default_topics = build_mqtt_topics(client_id, include_raw_cmd=True)
+                default_topics = _route_defaults(hi_data)
                 resolved_resp_topic = (
-                    raw_resp_topic
-                    or raw_cfg.get("resp_topic")
-                    or hi_data.get("raw_resp_topic")
-                    or default_topics["raw_resp_topic"]
+                    raw_resp
+                    or _topic_value(raw_cfg, "raw_resp")
+                    or _topic_value(hi_data, "raw_resp")
+                    or default_topics["raw_resp"]
                 )
                 resolved_broker = (
                     raw_broker

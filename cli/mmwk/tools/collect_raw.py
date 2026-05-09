@@ -31,11 +31,12 @@ DEFAULT_DATA_OUTPUT = "data_resp.sraw"
 DEFAULT_RESP_OUTPUT = "cmd_resp.log"
 
 ENV_BROKER = "MMWK_SERVER_MQTT_URI"
-ENV_DEVICE_ID = "MMWK_DEVICE_ID"
-ENV_CMD_TOPIC = "MMWK_CMD_TOPIC"
-ENV_RESP_TOPIC = "MMWK_RESP_TOPIC"
-ENV_RAW_DATA_TOPIC = "MMWK_RAW_DATA_TOPIC"
-ENV_RAW_RESP_TOPIC = "MMWK_RAW_RESP_TOPIC"
+ENV_DID = "MMWK_DID"
+ENV_PROD = "MMWK_PROD"
+ENV_OID = "MMWK_OID"
+ENV_CID = "MMWK_CID"
+ENV_RAW_DATA = "MMWK_RAW_DATA"
+ENV_RAW_RESP = "MMWK_RAW_RESP"
 
 
 @dataclass(frozen=True)
@@ -44,18 +45,27 @@ class CollectRawConfig:
     duration: int
     timeout: float
     broker: str
-    device_id: str
-    cmd_topic: str
-    resp_topic: str
-    raw_data_topic: str
-    raw_resp_topic: str
+    did: str
+    prod: str
+    oid: str
+    cid: str
+    cmd: str
+    resp: str
+    raw_data: str
+    raw_resp: str
     data_output: str
     resp_output: str
     resp_optional: bool
 
 
-def _topic_defaults(device_id: str) -> dict[str, str]:
-    return build_mqtt_topics(device_id, include_raw_cmd=True)
+def _topic_defaults(*, did: str, prod: str, oid: str, cid: str) -> dict[str, str]:
+    return build_mqtt_topics(
+        did=did,
+        prod=prod or "mmwk",
+        oid=oid or "mmwk",
+        cid=cid or "",
+        include_raw_cmd=True,
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -65,11 +75,12 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=(
             "Environment fallback variables:\n"
             f"  {ENV_BROKER}\n"
-            f"  {ENV_DEVICE_ID}\n"
-            f"  {ENV_CMD_TOPIC}\n"
-            f"  {ENV_RESP_TOPIC}\n"
-            f"  {ENV_RAW_DATA_TOPIC}\n"
-            f"  {ENV_RAW_RESP_TOPIC}\n\n"
+            f"  {ENV_DID}\n"
+            f"  {ENV_PROD}\n"
+            f"  {ENV_OID}\n"
+            f"  {ENV_CID}\n"
+            f"  {ENV_RAW_DATA}\n"
+            f"  {ENV_RAW_RESP}\n\n"
             "The collect.sh direct mode can auto-load MMWK_SERVER_MQTT_URI from server.sh state.\n"
             "This helper itself remains pure MQTT only."
         ),
@@ -95,16 +106,17 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"MQTT setup timeout in seconds (default: {DEFAULT_TIMEOUT})",
     )
     parser.add_argument("--broker", help=f"MQTT broker URI/host (env: {ENV_BROKER})")
-    parser.add_argument("--device-id", help=f"Device id used for default topics (env: {ENV_DEVICE_ID})")
-    parser.add_argument("--cmd-topic", help=f"Command topic override (env: {ENV_CMD_TOPIC})")
-    parser.add_argument("--resp-topic", help=f"Response topic override (env: {ENV_RESP_TOPIC})")
+    parser.add_argument("--did", help=f"DID used for default topics (env: {ENV_DID})")
+    parser.add_argument("--prod", default="", help=f"Product route segment (default/env: mmwk/{ENV_PROD})")
+    parser.add_argument("--oid", default="", help=f"Organization route segment (default/env: mmwk/{ENV_OID})")
+    parser.add_argument("--cid", default="", help=f"Claimed route id; takes precedence over --did (env: {ENV_CID})")
     parser.add_argument(
-        "--raw-data-topic",
-        help=f"Raw data topic override (env: {ENV_RAW_DATA_TOPIC})",
+        "--raw-data",
+        help=f"Raw data topic override (env: {ENV_RAW_DATA})",
     )
     parser.add_argument(
-        "--raw-resp-topic",
-        help=f"Raw response topic override (env: {ENV_RAW_RESP_TOPIC})",
+        "--raw-resp",
+        help=f"Raw response topic override (env: {ENV_RAW_RESP})",
     )
     parser.add_argument(
         "--data-output",
@@ -153,24 +165,27 @@ def resolve_collect_raw_config(
     args = parser.parse_args(list(argv) if argv is not None else None)
 
     broker = _choose(getattr(args, "broker", ""), _env_value(env, ENV_BROKER))
-    device_id = _choose(getattr(args, "device_id", ""), _env_value(env, ENV_DEVICE_ID))
+    did = _choose(getattr(args, "did", ""), _env_value(env, ENV_DID))
+    prod = _choose(getattr(args, "prod", ""), _env_value(env, ENV_PROD), "mmwk")
+    oid = _choose(getattr(args, "oid", ""), _env_value(env, ENV_OID), "mmwk")
+    cid = _choose(getattr(args, "cid", ""), _env_value(env, ENV_CID))
     if not broker:
         raise ValueError(f"Missing MQTT broker; set --broker or {ENV_BROKER}")
-    if not device_id:
-        raise ValueError(f"Missing device id; set --device-id or {ENV_DEVICE_ID}")
+    if not (did or cid):
+        raise ValueError(f"Missing MQTT route id; set --did, --cid, {ENV_DID}, or {ENV_CID}")
 
-    defaults = _topic_defaults(device_id)
-    cmd_topic = _choose(getattr(args, "cmd_topic", ""), _env_value(env, ENV_CMD_TOPIC), defaults["cmd_topic"])
-    resp_topic = _choose(getattr(args, "resp_topic", ""), _env_value(env, ENV_RESP_TOPIC), defaults["resp_topic"])
-    raw_data_topic = _choose(
-        getattr(args, "raw_data_topic", ""),
-        _env_value(env, ENV_RAW_DATA_TOPIC),
-        defaults["raw_data_topic"],
+    defaults = _topic_defaults(did=did, prod=prod, oid=oid, cid=cid)
+    cmd = defaults["cmd"]
+    resp = defaults["resp"]
+    raw_data = _choose(
+        getattr(args, "raw_data", ""),
+        _env_value(env, ENV_RAW_DATA),
+        defaults["raw_data"],
     )
-    raw_resp_topic = _choose(
-        getattr(args, "raw_resp_topic", ""),
-        _env_value(env, ENV_RAW_RESP_TOPIC),
-        defaults["raw_resp_topic"],
+    raw_resp = _choose(
+        getattr(args, "raw_resp", ""),
+        _env_value(env, ENV_RAW_RESP),
+        defaults["raw_resp"],
     )
 
     data_output = str(getattr(args, "data_output", DEFAULT_DATA_OUTPUT)).strip() or DEFAULT_DATA_OUTPUT
@@ -186,11 +201,14 @@ def resolve_collect_raw_config(
         duration=int(args.duration),
         timeout=float(args.timeout),
         broker=broker,
-        device_id=device_id,
-        cmd_topic=cmd_topic,
-        resp_topic=resp_topic,
-        raw_data_topic=raw_data_topic,
-        raw_resp_topic=raw_resp_topic,
+        did=did,
+        prod=prod,
+        oid=oid,
+        cid=cid,
+        cmd=cmd,
+        resp=resp,
+        raw_data=raw_data,
+        raw_resp=raw_resp,
         data_output=data_output,
         resp_output=resp_output,
         resp_optional=bool(getattr(args, "resp_optional", False)),
@@ -206,12 +224,12 @@ def resolve_collect_raw_runtime_topics(
     environ: Mapping[str, str],
     config: CollectRawConfig,
 ) -> tuple[str, str]:
-    raw_data_explicit = _flag_present(argv, "--raw-data-topic") or bool(_env_value(environ, ENV_RAW_DATA_TOPIC))
-    raw_resp_explicit = _flag_present(argv, "--raw-resp-topic") or bool(_env_value(environ, ENV_RAW_RESP_TOPIC))
+    raw_data_explicit = _flag_present(argv, "--raw-data") or bool(_env_value(environ, ENV_RAW_DATA))
+    raw_resp_explicit = _flag_present(argv, "--raw-resp") or bool(_env_value(environ, ENV_RAW_RESP))
 
     return (
-        config.raw_data_topic if raw_data_explicit else "",
-        config.raw_resp_topic if raw_resp_explicit else "",
+        config.raw_data if raw_data_explicit else "",
+        config.raw_resp if raw_resp_explicit else "",
     )
 
 
@@ -221,9 +239,10 @@ def _build_transport_args(config: CollectRawConfig) -> SimpleNamespace:
         transport="mqtt",
         broker=host,
         mqtt_port=port,
-        device_id=config.device_id,
-        cmd_topic=config.cmd_topic,
-        resp_topic=config.resp_topic,
+        did=config.did,
+        prod=config.prod,
+        oid=config.oid,
+        cid=config.cid,
         timeout=config.timeout,
     )
 
@@ -235,30 +254,23 @@ def _resolve_startup_trigger_topics(
     raw_state: Mapping[str, object],
     hi: Mapping[str, object],
 ) -> tuple[str, str]:
-    defaults = _topic_defaults(config.device_id)
-    raw_data_explicit = _flag_present(argv, "--raw-data-topic") or bool(_env_value(environ, ENV_RAW_DATA_TOPIC))
-    raw_resp_explicit = _flag_present(argv, "--raw-resp-topic") or bool(_env_value(environ, ENV_RAW_RESP_TOPIC))
+    defaults = _topic_defaults(did=config.did, prod=config.prod, oid=config.oid, cid=config.cid)
+    raw_data_explicit = _flag_present(argv, "--raw-data") or bool(_env_value(environ, ENV_RAW_DATA))
+    raw_resp_explicit = _flag_present(argv, "--raw-resp") or bool(_env_value(environ, ENV_RAW_RESP))
 
-    raw_data_topic = _choose(
-        config.raw_data_topic if raw_data_explicit else "",
-        raw_state.get("data_topic", ""),
-        _value_from_hi(hi, "raw_data_topic"),
-        defaults["raw_data_topic"],
+    raw_data = _choose(
+        config.raw_data if raw_data_explicit else "",
+        raw_state.get("raw_data", ""),
+        _value_from_hi(hi, "raw_data"),
+        defaults["raw_data"],
     )
-    raw_resp_topic = _choose(
-        config.raw_resp_topic if raw_resp_explicit else "",
-        raw_state.get("resp_topic", ""),
-        _value_from_hi(hi, "raw_resp_topic"),
-        defaults["raw_resp_topic"],
+    raw_resp = _choose(
+        config.raw_resp if raw_resp_explicit else "",
+        raw_state.get("raw_resp", ""),
+        _value_from_hi(hi, "raw_resp"),
+        defaults["raw_resp"],
     )
-    return raw_data_topic, raw_resp_topic
-
-
-def _control_topics_explicit(argv: Sequence[str], environ: Mapping[str, str]) -> tuple[bool, bool]:
-    return (
-        _flag_present(argv, "--cmd-topic") or bool(_env_value(environ, ENV_CMD_TOPIC)),
-        _flag_present(argv, "--resp-topic") or bool(_env_value(environ, ENV_RESP_TOPIC)),
-    )
+    return raw_data, raw_resp
 
 
 def _connect_capture_client(
@@ -481,30 +493,34 @@ def _execute_trigger_device_reboot(
         logger.error("device-reboot requires node info to return an object payload")
         return False
 
-    hi_client_id = _choose(_value_from_hi(hi, "client_id"), _value_from_hi(hi, "id"))
-    if not hi_client_id:
-        logger.error("device-reboot requires node info to confirm client_id")
+    hi_did = _choose(_value_from_hi(hi, "did"))
+    hi_cid = _choose(_value_from_hi(hi, "cid"))
+    if not (hi_did or hi_cid):
+        logger.error("device-reboot requires node info to confirm did or cid")
         return False
-    if hi_client_id != config.device_id:
+    expected_identity = config.cid or config.did
+    observed_identity = hi_cid or hi_did
+    if observed_identity != expected_identity:
         logger.error(
-            "device-reboot node info client_id mismatch: expected %s, got %s",
-            config.device_id,
-            hi_client_id,
+            "device-reboot node info route mismatch: expected %s, got %s",
+            expected_identity,
+            observed_identity,
         )
         return False
 
-    cmd_explicit, resp_explicit = _control_topics_explicit(argv, environ)
-    hi_cmd_topic = _value_from_hi(hi, "cmd_topic")
-    hi_resp_topic = _value_from_hi(hi, "resp_topic")
-    if hi_cmd_topic and hi_cmd_topic != config.cmd_topic and not cmd_explicit:
+    hi_cmd_topic = _choose(_value_from_hi(hi, "cmd"))
+    hi_resp_topic = _choose(_value_from_hi(hi, "resp"))
+    if hi_cmd_topic and hi_cmd_topic != config.cmd:
         logger.error(
-            "device-reboot requires explicit cmd_topic when node info reports non-default control topic %s",
+            "device-reboot node info route mismatch: expected cmd %s, got %s",
+            config.cmd,
             hi_cmd_topic,
         )
         return False
-    if hi_resp_topic and hi_resp_topic != config.resp_topic and not resp_explicit:
+    if hi_resp_topic and hi_resp_topic != config.resp:
         logger.error(
-            "device-reboot requires explicit resp_topic when node info reports non-default control topic %s",
+            "device-reboot node info route mismatch: expected resp %s, got %s",
+            config.resp,
             hi_resp_topic,
         )
         return False
@@ -641,7 +657,10 @@ def execute_collect_raw(
                 resp_output=config.resp_output,
                 broker=config.broker,
                 mqtt_port=transport_args.mqtt_port,
-                device_id=config.device_id,
+                did=config.did,
+                prod=config.prod,
+                oid=config.oid,
+                cid=config.cid,
                 data_topic=data_topic,
                 resp_topic=resp_topic,
                 resp_optional=config.resp_optional,
