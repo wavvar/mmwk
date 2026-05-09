@@ -189,6 +189,8 @@ def _build_stream_tool() -> dict:
             },
             "size": {"type": "number", "description": "Total stream size in bytes for action=open"},
             "sha256": {"type": "string", "description": "SHA-256 hex digest for action=open"},
+            "content_type": {"type": "string", "description": "Content type for action=open"},
+            "metadata": {"type": "object", "description": "Optional metadata for action=open"},
             "chunk_size": {"type": "number", "description": "Requested frame payload size"},
             "window": {"type": "number", "description": "Requested ACK window"},
             "expires_ms": {"type": "number", "description": "Requested stream lease duration"},
