@@ -161,6 +161,43 @@ def _build_radar_diag_tool() -> dict:
     )
 
 
+def _build_stream_tool() -> dict:
+    return _tool(
+        "stream",
+        "Host-to-device binary stream control for MQTT data-plane transfers.",
+        {
+            "action": _action_property(["open", "status", "abort", "close"], "Stream operation"),
+            "direction": {
+                "type": "string",
+                "enum": ["host_to_device"],
+                "description": "Stream direction for action=open",
+            },
+            "purpose": {
+                "type": "string",
+                "enum": ["ota"],
+                "description": "Stream purpose for action=open",
+            },
+            "target": {
+                "type": "string",
+                "enum": ["esp", "radar"],
+                "description": "OTA target for action=open",
+            },
+            "object": {
+                "type": "string",
+                "enum": ["firmware", "config", "bundle"],
+                "description": "Transferred object for action=open",
+            },
+            "size": {"type": "number", "description": "Total stream size in bytes for action=open"},
+            "sha256": {"type": "string", "description": "SHA-256 hex digest for action=open"},
+            "chunk_size": {"type": "number", "description": "Requested frame payload size"},
+            "window": {"type": "number", "description": "Requested ACK window"},
+            "expires_ms": {"type": "number", "description": "Requested stream lease duration"},
+            "reason": {"type": "string", "description": "Abort reason"},
+        },
+        ["action"],
+    )
+
+
 def _canonical_tools(profile: str) -> list[dict]:
     tools = [
         _build_radar_tool(),
@@ -169,6 +206,9 @@ def _canonical_tools(profile: str) -> list[dict]:
         _build_radar_raw_tool(),
         _build_radar_diag_tool(),
     ]
+
+    if profile == "bridge":
+        tools.append(_build_stream_tool())
 
     if profile == "hub":
         tools.extend(
