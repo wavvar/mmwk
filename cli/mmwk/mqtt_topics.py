@@ -1,44 +1,55 @@
-"""Canonical MMWK MQTT topic derivation."""
+"""Canonical MMWK MQTT topic route derivation."""
 
 from __future__ import annotations
 
-import re
 
-
-_HEX_MAC_RE = re.compile(r"^[0-9a-fA-F]{12}$")
+def _segment(name: str, value: str | None, *, required: bool = True) -> str:
+    segment = str(value or "").strip()
+    if not segment:
+        if required:
+            raise ValueError(f"{name} is required")
+        return ""
+    if "/" in segment or "\x00" in segment:
+        raise ValueError(f"{name} must be a single MQTT topic segment")
+    return segment
 
 
 def normalize_topic_id(value: str) -> str:
-    """Normalize MAC-like topic ids while preserving configured CID casing."""
+    """Validate a legacy topic id import without normalizing its value."""
 
-    topic_id = str(value or "").strip()
-    if not topic_id:
-        raise ValueError("MQTT topic id is required")
-
-    if topic_id.lower().startswith("mmwk_"):
-        suffix = topic_id[5:]
-        if _HEX_MAC_RE.fullmatch(suffix):
-            return suffix.upper()
-
-    compact = topic_id.replace(":", "").replace("-", "")
-    if _HEX_MAC_RE.fullmatch(compact):
-        return compact.upper()
-
-    return topic_id
+    return _segment("topic_id", value)
 
 
-def build_mqtt_topics(topic_id: str, include_raw_cmd: bool = True) -> dict[str, str]:
-    """Build the canonical mmwk/{id}/{domain}/{action} topic map."""
+def build_mqtt_topics(
+    *,
+    prod: str = "mmwk",
+    oid: str = "mmwk",
+    cid: str = "",
+    did: str = "",
+    include_raw_cmd: bool = True,
+) -> dict[str, str]:
+    """Build {prod}/{oid}/{cid_or_did}/{plane}/{action} topic map."""
 
-    client_id = normalize_topic_id(topic_id)
-    topics = {
-        "client_id": client_id,
-        "cmd_topic": f"mmwk/{client_id}/device/cmd",
-        "resp_topic": f"mmwk/{client_id}/device/resp",
-        "hub_inquiry_topic": f"mmwk/{client_id}/hub/inquiry",
-        "hub_config_topic": f"mmwk/{client_id}/hub/config",
-        "raw_data_topic": f"mmwk/{client_id}/raw/data",
-        "raw_resp_topic": f"mmwk/{client_id}/raw/resp",
-        "raw_cmd_topic": f"mmwk/{client_id}/raw/cmd" if include_raw_cmd else "",
+    product = _segment("prod", prod)
+    org = _segment("oid", oid)
+    claimed_id = _segment("cid", cid, required=False)
+    local_id = _segment("did", did, required=False)
+    route_id = claimed_id or local_id
+    if not route_id:
+        raise ValueError("cid or did is required")
+
+    prefix = f"{product}/{org}/{route_id}"
+    return {
+        "prod": product,
+        "oid": org,
+        "cid": claimed_id,
+        "did": local_id,
+        "route_id": route_id,
+        "cmd": f"{prefix}/device/cmd",
+        "resp": f"{prefix}/device/resp",
+        "hub_inquiry": f"{prefix}/hub/inquiry",
+        "hub_config": f"{prefix}/hub/config",
+        "raw_data": f"{prefix}/raw/data",
+        "raw_resp": f"{prefix}/raw/resp",
+        "raw_cmd": f"{prefix}/raw/cmd" if include_raw_cmd else "",
     }
-    return topics
