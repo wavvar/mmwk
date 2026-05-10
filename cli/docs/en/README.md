@@ -186,9 +186,10 @@ For PRO devices and 4G-equipped WDR devices, store the mobile profile and then c
 ./run.sh network priority --pref 4g -p /dev/cu.usbserial-0001
 ```
 
-`network priority --pref wifi|4g` controls the preferred network. Saving Wi-Fi credentials does not automatically change a 4G preference. If `pref=4g` cannot connect, the device may use Wi-Fi as the current temporary bearer. The saved preference remains `4g`; `network status` reports this as `pref=4g,curr=wifi`, and `network diag` keeps the 4G failure reason.
+`network priority --pref wifi|4g` controls the preferred network. Saving Wi-Fi credentials does not automatically change a 4G preference. 4G failure does not automatically fall back to Wi-Fi. If `pref=4g` cannot connect, the device may still report Wi-Fi as the current temporary bearer while the saved preference remains `4g`; `network status` reports this as `pref=4g,curr=wifi`, and `network diag` keeps the 4G failure reason. LED status uses one blink = Wi-Fi, two blinks = 4G.
 
 For SDK hardware acceptance runs, 4G is also explicit: pass the runner's `--4g` for PRO devices or 4G-equipped WDR devices; omit it to keep Wi-Fi as the test default.
+For shared lab validation, pass the runner's `--4g` only for SIM-equipped PRO/WDR devices.
 
 Provisioning AP display follows `PRODUCT-LAST6`, uppercase for readability, and does not include `oid`. `LAST6` uses `cid` when set, otherwise `did`; topic casing still preserves the configured values. Factory default Wi-Fi is `MMWK / mmwk123456`. Automated portal provisioning may temporarily connect the test host to the device AP and then restore the previous Wi-Fi network. On WSL, automated portal provisioning controls Windows Wi-Fi through PowerShell/netsh and submits the portal request from Windows. Set `TEST_PROVISIONING_AP_SSID` when multiple provisioning APs are visible, or set `TEST_PORTAL_PROVISION_AUTO=false` to use the old manual checkpoint.
 
@@ -364,13 +365,13 @@ Recommended transport for real applications, dashboards, automation, and fleet/d
 | `node claim` | Claim route identity and credentials over UART/local transport |
 | `node factory-reset` | Trigger factory reset (clear NVS + runtime assets, reboot after 1s) |
 | `node reboot` | Reboot the device |
-| `node ota` | Update the ESP firmware via HTTP OTA |
+| `node ota` | Update the ESP firmware via HTTP or MQTT stream OTA |
 | `node agent` | Enable/disable built-in agent services |
 | `node heartbeat` | Configure system heartbeat packets |
 | `node key status/set/clear` | Inspect, set, update, or clear CLI key protection |
 | `endpoint list` | Show the active Matter-oriented endpoint directory for the current profile / effective sensor set |
 | `proto list/status/manifest` | Inspect node public protocol directory |
-| `radar fw ota` | Update firmware via HTTP download (fastest) |
+| `radar fw ota` | Update firmware via HTTP download or MQTT stream OTA |
 | `radar fw flash` | Update firmware via JSON chunks (reliable) |
 | `radar start` | Persist an optional start mode and start/restart the radar service |
 | `radar stop` | Stop the current radar service without changing persisted start mode |
@@ -615,7 +616,7 @@ Optional arguments:
 - `--version <str>` — Firmware version string
 - `--verify` / `--no-verify` — Enable or skip welcome-text version matching
 - `--welcome` / `--no-welcome` — Declare whether the target firmware emits startup CLI/welcome output
-- `--ota-timeout <sec>` — OTA timeout (default: 120)
+- `--ota-timeout <sec>` — OTA timeout (default: 300)
 
 Version behavior:
 - For `radar fw ota`, explicit `--version`, `--verify`, and `--welcome` values override `meta.json` inference.
@@ -625,6 +626,30 @@ Version behavior:
 - That startup CLI/welcome output is important not only for optional matching, but also as the runtime proof that the radar fw actually booted and as the source of the radar fw's real version text.
 - If `welcome=true` and no startup CLI/welcome output arrives before timeout, treat that as a radar startup failure: the firmware likely did not boot on the radar. In that case `radar status` keeps `state=error` and includes a `details` object explaining the failure.
 - If you need a custom recognizable radar fw version, change the radar firmware's startup CLI output to print the target string.
+
+### MQTT Binary Stream OTA
+
+MQTT binary stream OTA keeps the normal JSON control path on `{prod}/{oid}/{cid-or-did}/device/cmd` and publishes firmware bytes on a separate stream data topic. Use `--transport mqtt --ota-transport mqtt` when the device already has Wi-Fi, MQTT control is connected, and you want OTA traffic to stay on MQTT without sending binary data inside JSON. HTTP OTA remains the default data plane, including when the control transport is MQTT.
+
+ESP firmware:
+
+```bash
+./run.sh node ota --target esp --transport mqtt --ota-transport mqtt \
+  --broker mqtt://192.168.1.100:1883 --did dc5475c879c0 \
+  --fw ./app.bin
+```
+
+For ESP MQTT stream OTA, use an app-only `.bin`; SDK builds stage this as `firmwares/esp/<board>/<firmware>/v<version>/app.bin`. Full MWFB bundles with an assets payload must use HTTP OTA.
+
+Radar firmware plus config:
+
+```bash
+./run.sh radar fw ota --transport mqtt --ota-transport mqtt \
+  --broker mqtt://192.168.1.100:1883 --did dc5475c879c0 \
+  --fw ./radar.bin --cfg ./radar.cfg --force
+```
+
+The same radar path is also available through `node ota --target radar --transport mqtt --ota-transport mqtt --fw ./radar.bin --cfg ./radar.cfg`. Pass `--prod`, `--oid`, and `--cid` when the device was claimed and the MQTT route no longer uses the fallback `did`. If a CLI protection key is configured, include the same key arguments you use for other MQTT control commands.
 
 ### Method C: Runtime Reconfiguration (No Firmware Flash)
 

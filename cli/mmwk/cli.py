@@ -209,6 +209,39 @@ def add_transport_args(parser, include_route_args=True):
                        help="Enable debug logging")
 
 
+def add_ota_transport_arg(parser):
+    parser.add_argument(
+        "--ota-transport",
+        choices=["http", "mqtt"],
+        default="http",
+        help="OTA data plane: http or mqtt binary stream (default: http)",
+    )
+
+
+def require_mqtt_control_for_mqtt_ota(args) -> None:
+    if getattr(args, "ota_transport", "http") == "mqtt" and getattr(args, "transport", "uart") != "mqtt":
+        print("Error: --ota-transport mqtt requires --transport mqtt")
+        sys.exit(1)
+
+
+def reject_radar_only_node_ota_args_for_esp(args) -> None:
+    if getattr(args, "version", None):
+        print("Error: --version is only supported with --target radar")
+        sys.exit(1)
+    if getattr(args, "verify", None) is not None:
+        print("Error: --verify/--no-verify is only supported with --target radar")
+        sys.exit(1)
+    if getattr(args, "welcome", None) is not None:
+        print("Error: --welcome/--no-welcome is only supported with --target radar")
+        sys.exit(1)
+    if getattr(args, "force", False):
+        print("Error: --force is only supported with --target radar")
+        sys.exit(1)
+    if getattr(args, "progress_interval", None) is not None:
+        print("Error: --progress-interval is only supported with --target radar")
+        sys.exit(1)
+
+
 def cmd_radar_flash(args):
     """Handle: mmwk radar flash ..."""
     transport = _cli_create_transport(args)
@@ -236,6 +269,7 @@ def cmd_radar_flash(args):
 
 def cmd_radar_ota(args):
     """Handle: mmwk radar ota ..."""
+    require_mqtt_control_for_mqtt_ota(args)
     transport = _cli_create_transport(args)
     try:
         mcp = McpClient(transport)
@@ -257,6 +291,8 @@ def cmd_radar_ota(args):
             raw_broker=getattr(args, "raw_broker", None),
             raw_resp=getattr(args, "raw_resp", None),
             raw_timeout=getattr(args, "raw_timeout", 10.0),
+            transport=getattr(args, "transport", "uart"),
+            ota_transport=getattr(args, "ota_transport", "http"),
         )
         sys.exit(0 if ok else 1)
     finally:
@@ -478,6 +514,25 @@ def cmd_node_claim(args):
 
 def cmd_device_ota(args):
     """Handle: mmwk device ota ..."""
+    target = getattr(args, "target", "esp") or "esp"
+    if target == "radar" and args.url:
+        print("Error: node ota --target radar requires --fw and does not support --url")
+        sys.exit(1)
+    if target == "esp" and getattr(args, "cfg", None):
+        print("Error: --cfg is only supported with --target radar")
+        sys.exit(1)
+    if target == "esp":
+        reject_radar_only_node_ota_args_for_esp(args)
+    if target == "radar" and args.https:
+        print("Error: --https is only supported with --target esp")
+        sys.exit(1)
+    if getattr(args, "ota_transport", "http") == "mqtt" and args.url:
+        print("Error: --ota-transport mqtt requires local --fw and does not support --url")
+        sys.exit(1)
+    if getattr(args, "ota_transport", "http") == "mqtt" and args.https:
+        print("Error: --https is only supported with --ota-transport http")
+        sys.exit(1)
+    require_mqtt_control_for_mqtt_ota(args)
     if args.https and not args.fw:
         print("Error: --https is only supported with local --fw source")
         sys.exit(1)
@@ -490,16 +545,35 @@ def cmd_device_ota(args):
         mcp = McpClient(transport)
         mcp.initialize(timeout=args.timeout)
 
-        ota = DeviceOtaCommand(mcp)
-        ok = ota.execute(
-            fw_path=args.fw,
-            url=args.url,
-            http_port=args.http_port,
-            use_https=args.https,
-            https_cert=args.https_cert,
-            https_key=args.https_key,
-            timeout=args.ota_timeout,
-        )
+        if target == "radar":
+            ota = OtaCommand(mcp)
+            ok = ota.execute(
+                fw_path=args.fw,
+                cfg_path=args.cfg,
+                http_port=args.http_port,
+                base_url=None,
+                version=args.version,
+                welcome=args.welcome,
+                verify=args.verify,
+                timeout=args.ota_timeout,
+                force=getattr(args, "force", False),
+                progress_interval=args.progress_interval if args.progress_interval is not None else 5,
+                transport=getattr(args, "transport", "uart"),
+                ota_transport=getattr(args, "ota_transport", "http"),
+            )
+        else:
+            ota = DeviceOtaCommand(mcp)
+            ok = ota.execute(
+                fw_path=args.fw,
+                url=args.url,
+                http_port=args.http_port,
+                use_https=args.https,
+                https_cert=args.https_cert,
+                https_key=args.https_key,
+                timeout=args.ota_timeout,
+                transport=getattr(args, "transport", "uart"),
+                ota_transport=getattr(args, "ota_transport", "http"),
+            )
         sys.exit(0 if ok else 1)
     finally:
         transport.close()
@@ -1045,7 +1119,7 @@ def main():
     add_transport_args(flash_parser)
     flash_parser.set_defaults(func=cmd_radar_flash)
 
-    ota_parser = radar_fw_sub.add_parser("ota", help="Flash firmware via HTTP OTA (device downloads)")
+    ota_parser = radar_fw_sub.add_parser("ota", help="Flash firmware via HTTP or MQTT stream OTA")
     ota_parser.add_argument("--fw", required=True, help="Firmware binary file path")
     ota_parser.add_argument("--cfg", help="Config file path (optional)")
     ota_parser.add_argument("--http-port", type=int, default=8380,
@@ -1062,8 +1136,8 @@ def main():
                                    help="Expect this firmware to emit a welcome/startup banner")
     ota_welcome_group.add_argument("--no-welcome", dest="welcome", action="store_false",
                                    help="Declare that this firmware does not emit a welcome/startup banner")
-    ota_parser.add_argument("--ota-timeout", type=float, default=120.0,
-                            help="OTA timeout in seconds (default: 120)")
+    ota_parser.add_argument("--ota-timeout", type=float, default=300.0,
+                            help="OTA timeout in seconds (default: 300)")
     ota_parser.add_argument("--force", action="store_true",
                             help="Force OTA even when the target version already matches")
     ota_parser.add_argument("--progress-interval", type=int, default=5,
@@ -1087,6 +1161,7 @@ def main():
         default=10.0,
         help="MQTT subscribe-ready timeout for OTA raw_resp capture in seconds (default: 10)",
     )
+    add_ota_transport_arg(ota_parser)
     add_transport_args(ota_parser)
     ota_parser.set_defaults(func=cmd_radar_ota)
 
@@ -1221,10 +1296,13 @@ def main():
     add_transport_args(device_reboot_parser)
     device_reboot_parser.set_defaults(func=cmd_node_reboot)
 
-    device_ota_parser = node_sub.add_parser("ota", help="Update ESP firmware via HTTP OTA (.bin only, supports full app+assets bundle)")
+    device_ota_parser = node_sub.add_parser("ota", help="Update ESP or radar firmware")
+    device_ota_parser.add_argument("--target", choices=["esp", "radar"], default="esp",
+                                   help="OTA target (default: esp)")
     device_ota_src = device_ota_parser.add_mutually_exclusive_group(required=True)
-    device_ota_src.add_argument("--fw", help="Local ESP OTA .bin path (plain app image or *_full.bin bundle)")
-    device_ota_src.add_argument("--url", help="Remote ESP OTA .bin URL (plain app image or full bundle)")
+    device_ota_src.add_argument("--fw", help="Local OTA firmware path")
+    device_ota_src.add_argument("--url", help="Remote ESP OTA URL (only with --target esp)")
+    device_ota_parser.add_argument("--cfg", help="Radar config file path when --target radar")
     device_ota_parser.add_argument("--http-port", type=int, default=8380,
                                    help="Local HTTP server port for OTA (default: 8380)")
     device_ota_parser.add_argument("--https", action="store_true",
@@ -1233,8 +1311,24 @@ def main():
                                    help="Path to local HTTPS certificate PEM")
     device_ota_parser.add_argument("--https-key",
                                    help="Path to local HTTPS private key PEM")
+    device_ota_parser.add_argument("--version", help="Radar firmware version string used for optional verification")
+    device_ota_verify_group = device_ota_parser.add_mutually_exclusive_group()
+    device_ota_verify_group.add_argument("--verify", dest="verify", action="store_true", default=None,
+                                         help="Require radar welcome text to contain the expected version")
+    device_ota_verify_group.add_argument("--no-verify", dest="verify", action="store_false",
+                                         help="Skip radar version matching even if metadata provides a version")
+    device_ota_welcome_group = device_ota_parser.add_mutually_exclusive_group()
+    device_ota_welcome_group.add_argument("--welcome", dest="welcome", action="store_true", default=None,
+                                          help="Expect radar welcome/startup output")
+    device_ota_welcome_group.add_argument("--no-welcome", dest="welcome", action="store_false",
+                                          help="Declare that radar firmware does not emit a welcome banner")
+    device_ota_parser.add_argument("--force", action="store_true",
+                                   help="Force radar OTA even when the target version already matches")
+    device_ota_parser.add_argument("--progress-interval", type=int, default=None,
+                                   help="Radar flash progress interval seconds (default: 5, 0=disable)")
     device_ota_parser.add_argument("--ota-timeout", type=float, default=300.0,
                                    help="OTA timeout in seconds (default: 300)")
+    add_ota_transport_arg(device_ota_parser)
     add_transport_args(device_ota_parser)
     device_ota_parser.set_defaults(func=cmd_device_ota)
 

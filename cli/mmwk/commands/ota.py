@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 import paho.mqtt.client as mqtt
 
 from mmwk._logging import logger
+from mmwk.commands.mqtt_stream import MqttStreamPublisher
 from mmwk.http_server import FirmwareHttpServer
 from mmwk.commands._radar_meta import resolve_radar_update_request
 from mmwk.mqtt_topics import build_mqtt_topics
@@ -371,16 +372,169 @@ class OtaCommand:
         )
         return staging.name, staging
 
+    def _wait_for_mqtt_stream_radar_complete(self, timeout: float, progress_interval: int = 5) -> bool:
+        start_time = time.time()
+        deadline = start_time + max(timeout, 1.0)
+        poll_sec = progress_interval if progress_interval > 0 else 3
+        reboot_timeout = 120.0
+        transition_grace_timeout = 30.0
+        last_poll = 0.0
+        transition_seen = False
+        completion_seen = False
+        reboot_window_started = False
+        stalled_state = ""
+        last_progress_pct = None
+
+        def extend_for_reboot(reason: str, *, reanchor: bool = False) -> None:
+            nonlocal deadline, reboot_window_started
+            extended = time.time() + reboot_timeout
+            if not reboot_window_started or (reanchor and extended > deadline):
+                deadline = extended
+                reboot_window_started = True
+                logger.info(
+                    "  [mqtt stream radar ota] observed %s; waiting up to %.0fs for radar reboot",
+                    reason,
+                    reboot_timeout,
+                )
+
+        while time.time() < deadline:
+            for notif in self.mcp.transport.drain_notifications():
+                if not isinstance(notif, dict):
+                    continue
+                params = notif.get("params", {})
+                data = params.get("data", {}) if isinstance(params, dict) else {}
+                if isinstance(data, str):
+                    try:
+                        data = json.loads(data)
+                    except Exception:
+                        data = {}
+                if not isinstance(data, dict):
+                    continue
+
+                status = data.get("status", "")
+                if status in ("flash_progress", "ota_progress", "progress"):
+                    pct = data.get("progress", -1)
+                    if isinstance(pct, (int, float)):
+                        logger.info("  [mqtt stream radar ota] progress=%d%%", int(pct))
+                        if pct != last_progress_pct:
+                            last_progress_pct = pct
+                            transition_seen = True
+                            extend_for_reboot(status, reanchor=True)
+                    continue
+                if status in ("flash_start", "updating"):
+                    transition_seen = True
+                    extend_for_reboot(status)
+                elif status == "flash_success":
+                    transition_seen = True
+                    extend_for_reboot(status)
+                elif status in ("ota_complete", "ota_done", "complete", "done"):
+                    completion_seen = True
+                    transition_seen = True
+                    extend_for_reboot(status)
+                elif status in ("ota_error", "ota_failed", "error", "failed"):
+                    logger.error("Radar MQTT stream OTA failed: %s", data)
+                    return False
+
+            if time.time() - last_poll >= poll_sec:
+                last_poll = time.time()
+                try:
+                    resp = self.mcp.call_tool("radar", {"action": "status"}, timeout=8)
+                    state = _extract_radar_state(self.mcp.extract_text(resp))
+                except Exception:
+                    state = ""
+                if state == "running" and (transition_seen or completion_seen):
+                    elapsed = time.time() - start_time
+                    logger.info("Radar MQTT stream OTA complete in %.1fs", elapsed)
+                    return True
+                if state == "error":
+                    logger.error("Radar MQTT stream OTA failed: radar state='error'")
+                    return False
+                if state in ("updating", "stopped", "starting"):
+                    transition_seen = True
+                    stalled_state = state
+                    if state in ("updating", "starting"):
+                        extend_for_reboot(state)
+
+            time.sleep(1)
+
+        if transition_seen and stalled_state in ("updating", "starting"):
+            logger.warning(
+                "Radar still in %r after MQTT stream OTA wait; extending grace by %.0fs",
+                stalled_state,
+                transition_grace_timeout,
+            )
+            grace_deadline = time.time() + transition_grace_timeout
+            while time.time() < grace_deadline:
+                try:
+                    resp = self.mcp.call_tool("radar", {"action": "status"}, timeout=8)
+                    state = _extract_radar_state(self.mcp.extract_text(resp))
+                except Exception:
+                    state = ""
+                if state == "running":
+                    elapsed = time.time() - start_time
+                    logger.info("Radar MQTT stream OTA complete in %.1fs", elapsed)
+                    return True
+                time.sleep(1)
+        logger.error("Radar MQTT stream OTA timed out after %.0fs", timeout)
+        return False
+
+    def _execute_mqtt_stream(
+        self,
+        fw_path: str,
+        cfg_path: str | None,
+        update_request,
+        timeout: float,
+        force: bool,
+        progress_interval: int,
+    ) -> bool:
+        metadata = {
+            "welcome": bool(update_request.welcome),
+            "verify": bool(update_request.verify),
+            "force": bool(force),
+            "prog_intvl": int(progress_interval),
+        }
+        if update_request.version:
+            metadata["version"] = update_request.version
+        if cfg_path:
+            metadata["has_config"] = True
+            metadata["config_size"] = os.path.getsize(cfg_path)
+
+        try:
+            publisher = MqttStreamPublisher(
+                self.mcp,
+                timeout=timeout,
+                ack_timeout=min(max(10.0, timeout / 10.0), 60.0),
+            )
+            publisher.publish_file(
+                fw_path,
+                target="radar",
+                object_name="firmware",
+                metadata=metadata,
+            )
+            if cfg_path:
+                publisher.publish_file(
+                    cfg_path,
+                    target="radar",
+                    object_name="config",
+                )
+        except Exception as exc:
+            logger.error("Radar MQTT stream OTA transfer failed: %s", exc)
+            return False
+
+        return self._wait_for_mqtt_stream_radar_complete(timeout, progress_interval)
+
     def execute(self, fw_path: str, cfg_path: str = None,
                  http_port: int = 8380, base_url: str = None,
                  version: str = None, welcome: bool = None,
-                 verify: bool = None, timeout: float = 120.0,
+                 verify: bool = None, timeout: float = 300.0,
                  force: bool = False,
                  progress_interval: int = 5,
                  raw_resp_output: str = None,
                  raw_broker: str = None,
                  raw_resp: str = None,
-                 raw_timeout: float = 10.0) -> bool:
+                 raw_timeout: float = 10.0,
+                 transport: str = None,
+                 ota_transport: str = "http") -> bool:
         """Start HTTP server and tell device to OTA from it."""
 
         if not os.path.exists(fw_path):
@@ -427,6 +581,28 @@ class OtaCommand:
                     logger.warning(
                         "Config file not in same directory as firmware; staging both files for local OTA server",
                     )
+
+        if ota_transport == "mqtt":
+            if transport != "mqtt":
+                logger.error("MQTT stream radar OTA requires --transport mqtt")
+                return False
+            if base_url:
+                logger.error("MQTT stream radar OTA does not use --base-url; omit it or use --ota-transport http")
+                return False
+            if raw_resp_output:
+                logger.error("MQTT stream radar OTA does not support --raw-resp-output")
+                return False
+            return self._execute_mqtt_stream(
+                fw_path=fw_path,
+                cfg_path=cfg_path,
+                update_request=update_request,
+                timeout=timeout,
+                force=force,
+                progress_interval=progress_interval,
+            )
+        if ota_transport not in (None, "http"):
+            logger.error("Unsupported radar OTA transport: %s", ota_transport)
+            return False
 
         capture_session = None
         restore_raw_args = None

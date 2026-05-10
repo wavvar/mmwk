@@ -159,6 +159,12 @@ class RadarTransport(abc.ABC):
             self.notifications.clear()
             return items
 
+    def restore_notifications(self, items: list) -> None:
+        if not items:
+            return
+        with self.lock:
+            self.notifications[:0] = list(items)
+
     def clear_pending(self):
         with self.lock:
             self.responses.clear()
@@ -881,6 +887,18 @@ class MqttTransport(RadarTransport):
         payload = msg.payload.decode('utf-8', errors='ignore')
         try:
             data = json.loads(payload)
+            if isinstance(data, dict) and str(data.get("status", "")).startswith("stream_"):
+                self.add_notification(
+                    {
+                        "method": "notifications/event",
+                        "params": {
+                            "service": "stream",
+                            "event": data.get("status"),
+                            "data": data,
+                        },
+                    }
+                )
+                return
             self.ingest_json(data)
         except json.JSONDecodeError:
             logger.debug(f"Non-JSON MQTT: {payload}")
@@ -888,6 +906,12 @@ class MqttTransport(RadarTransport):
     def send_raw(self, data: str):
         info = self.client.publish(self.cmd_topic, data, qos=self.qos)
         if self.qos > 0:
+            info.wait_for_publish(timeout=5)
+
+    def publish_binary(self, topic: str, payload: bytes, qos: int = None):
+        publish_qos = self.qos if qos is None else int(qos)
+        info = self.client.publish(topic, bytes(payload), qos=publish_qos)
+        if publish_qos > 0:
             info.wait_for_publish(timeout=5)
 
     def close(self):

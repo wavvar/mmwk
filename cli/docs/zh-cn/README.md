@@ -179,9 +179,10 @@ PowerShell 下参数与 POSIX 示例保持一致，主要差异是 wrapper 名�
 ./run.sh network priority --pref 4g -p /dev/cu.usbserial-0001
 ```
 
-`network priority --pref wifi|4g` 用于设置 Wi-Fi/4G 优先网络。保存 Wi-Fi 凭据不会自动改掉 4G 优先级。如果 `pref=4g` 无法联网，设备可以临时使用 Wi-Fi 作为当前承载网络。保存的首选项仍保持 `4g`；`network status` 会显示 `pref=4g,curr=wifi`，`network diag` 会保留 4G 失败原因。
+`network priority --pref wifi|4g` 用于设置 Wi-Fi/4G 优先网络。保存 Wi-Fi 凭据不会自动改掉 4G 优先级。4G 失败不会自动回退到 Wi-Fi。如果 `pref=4g` 无法联网，设备仍可能把 Wi-Fi 报告为当前临时承载网络，但保存的首选项仍保持 `4g`；`network status` 会显示 `pref=4g,curr=wifi`，`network diag` 会保留 4G 失败原因。LED 状态约定为闪 1 次 = Wi-Fi，闪 2 次 = 4G。
 
 SDK 硬件验收同样保持显式选择：PRO 设备或带 4G 的 WDR 设备测试时给 runner 传 `--4g`；不传时测试默认仍走 Wi-Fi。
+共享实验台验证时，只有带 SIM 卡的 PRO/WDR 测试才给 runner 传 `--4g`。
 
 配网显示遵循 `PRODUCT-LAST6`，为了现场识别统一显示为大写，不包含 `oid`。`LAST6` 优先取 `cid` 后六位，没有 `cid` 时取 `did` 后六位；topic 中仍然保留配置值原本的大小写。默认 Wi-Fi 为 `MMWK / mmwk123456`。自动 portal 配网可能会临时将测试主机连接到设备 AP，完成后再恢复原 Wi-Fi。在 WSL 下，自动 portal 配网会通过 PowerShell/netsh 控制 Windows Wi-Fi，并从 Windows 侧提交 portal 请求。当环境中同时存在多个配网 AP 时，设置 `TEST_PROVISIONING_AP_SSID`；如需保留旧人工检查点，设置 `TEST_PORTAL_PROVISION_AUTO=false`。
 
@@ -360,13 +361,13 @@ flowchart LR
 | `node claim` | 通过 UART/local claim 设备身份与凭据 |
 | `node factory-reset` | 触发恢复出厂（清 NVS + 运行期资源，1 秒后重启） |
 | `node reboot` | 重启设备 |
-| `node ota` | 升级 ESP 固件 |
+| `node ota` | 通过 HTTP 或 MQTT stream OTA 升级 ESP 固件 |
 | `node agent` | 配置 agent 服务 |
 | `node heartbeat` | 配置心跳 |
 | `node key status/set/clear` | 查看、设置、更新或清除 CLI key 保护 |
 | `endpoint list` | 查看当前 profile / effective sensor set 的面向 Matter 的 endpoint 目录 |
 | `proto list/status/manifest` | 查看节点公开协议目录 |
-| `radar fw ota` | HTTP OTA 升级雷达固件 |
+| `radar fw ota` | 通过 HTTP 下载或 MQTT stream OTA 升级雷达固件 |
 | `radar fw flash` | UART / MQTT 分块升级雷达固件 |
 | `radar start` | 持久化可选启动模式并启动/重启当前雷达服务 |
 | `radar stop` | 停止当前雷达服务，但不改写已保存模式 |
@@ -576,6 +577,30 @@ OTA 后第一次上电时，ESP 侧可能还在等待雷达 app 真正启动完�
 - 这段启动 CLI/welcome 文本不只是给可选的版本匹配用，它本身也是“雷达固件真的启动了”的运行态证明，同时还是雷达固件真实版本文本的来源。
 - 如果 `welcome=true`，但在超时窗口内始终没有任何启动 CLI/welcome 输出，应直接视为雷达启动失败：固件大概率没有在雷达侧成功启动。此时 `radar status` 会保持 `state=error`，并附带 `details` 字段解释失败原因。
 - 如果你需要定制一个可识别的雷达固件版本号，请修改雷达固件启动 CLI 的输出文本，让它打印目标版本字符串。
+
+### MQTT 二进制流 OTA
+
+MQTT 二进制流 OTA 会继续把普通 JSON 控制命令放在 `{prod}/{oid}/{cid-or-did}/device/cmd`，并把 firmware/config 字节发布到独立的 stream 数据 topic。需要显式使用 `--transport mqtt --ota-transport mqtt`，适用于设备已经连上 Wi-Fi、MQTT control 已经 ready，并且希望 OTA 数据全程走 MQTT、但不把二进制塞进 JSON 的场景。HTTP OTA 仍是默认数据通道，即使控制通道使用 MQTT 也是如此。
+
+ESP 固件：
+
+```bash
+./run.sh node ota --target esp --transport mqtt --ota-transport mqtt \
+  --broker mqtt://192.168.1.100:1883 --did dc5475c879c0 \
+  --fw ./app.bin
+```
+
+ESP MQTT stream OTA 请使用 app-only `.bin`；SDK 构建会把它暂存在 `firmwares/esp/<board>/<firmware>/v<version>/app.bin`。带 assets payload 的完整 MWFB bundle 必须使用 HTTP OTA。
+
+雷达 firmware + config：
+
+```bash
+./run.sh radar fw ota --transport mqtt --ota-transport mqtt \
+  --broker mqtt://192.168.1.100:1883 --did dc5475c879c0 \
+  --fw ./radar.bin --cfg ./radar.cfg --force
+```
+
+同一条雷达路径也可以通过 `node ota --target radar --transport mqtt --ota-transport mqtt --fw ./radar.bin --cfg ./radar.cfg` 调用。设备已 claim 且 MQTT route 不再使用 fallback `did` 时，请传入 `--prod`、`--oid` 和 `--cid`。如果设备配置了 CLI protection key，和其他 MQTT 控制命令一样带上对应 key 参数。
 
 ### 方法 C：运行时重配置（不重新刷 firmware）
 

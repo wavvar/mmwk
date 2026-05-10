@@ -2,9 +2,11 @@
 
 import json
 import os
+import struct
 import time
 
 from mmwk._logging import logger
+from mmwk.commands.mqtt_stream import MqttStreamPublisher
 from mmwk.http_server import FirmwareHttpServer
 from mmwk.network_runtime import (
     network_ready,
@@ -118,6 +120,22 @@ class DeviceOtaCommand:
                 return runtime_ip
 
         return ""
+
+    @staticmethod
+    def _mqtt_stream_object_info(fw_path: str) -> tuple[str, int]:
+        try:
+            with open(fw_path, "rb") as fp:
+                header = fp.read(16)
+        except OSError:
+            return "firmware", 0
+
+        if header[:4] != b"MWFB":
+            return "firmware", 0
+        if len(header) < 16:
+            raise ValueError("Invalid MWFB OTA bundle header")
+
+        _magic, _app_size, assets_size, _reserved = struct.unpack("<4sIII", header)
+        return "bundle", int(assets_size)
 
     def _node_info_runtime_ready(self) -> tuple[bool, str]:
         try:
@@ -283,6 +301,78 @@ class DeviceOtaCommand:
         logger.error(f"Device did not return after OTA: {last_error}")
         return False, retriable_http_error
 
+    def _wait_for_mqtt_stream_reboot(self, timeout: float) -> bool:
+        logger.info("Waiting for device to come back after MQTT stream OTA reboot...")
+        recover_after_reboot = getattr(self.mcp.transport, "recover_after_reboot", None)
+        if callable(recover_after_reboot):
+            logger.info("Reopening control transport after MQTT stream OTA reboot settle...")
+            recover_after_reboot(settle_sec=8.0, reconnect_wait_sec=20.0)
+        else:
+            time.sleep(8.0)
+
+        reconnect_deadline = time.time() + max(45.0, timeout / 2)
+        last_error = None
+        while time.time() < reconnect_deadline:
+            try:
+                self.mcp.initialize(timeout=5)
+                network_ready_now, network_detail = self._network_runtime_ready()
+                node_ready_now, node_detail = self._node_info_runtime_ready()
+                if network_ready_now and node_ready_now:
+                    logger.info("Device MQTT stream OTA complete")
+                    return True
+                last_error = f"{network_detail}; {node_detail}"
+            except Exception as exc:
+                last_error = exc
+            time.sleep(2)
+
+        logger.error("Device did not return after MQTT stream OTA: %s", last_error)
+        return False
+
+    def _execute_mqtt_stream(self, fw_path: str, timeout: float) -> bool:
+        if not os.path.exists(fw_path):
+            logger.error(f"Firmware file not found: {fw_path}")
+            return False
+        if not fw_path.lower().endswith(".bin"):
+            logger.error(f"Device OTA only supports .bin artifacts: {fw_path}")
+            return False
+
+        served_name = os.path.basename(fw_path)
+        fw_size = os.path.getsize(fw_path)
+        try:
+            object_name, assets_size = self._mqtt_stream_object_info(fw_path)
+        except ValueError as exc:
+            logger.error("ESP MQTT stream OTA rejected artifact: %s", exc)
+            return False
+        if object_name == "bundle" and assets_size > 0:
+            logger.error(
+                "ESP MQTT stream OTA does not support MWFB bundles with assets; "
+                "use an app-only .bin for MQTT stream OTA or HTTP OTA for full bundles"
+            )
+            return False
+        logger.info(
+            "ESP MQTT stream OTA artifact: %s (%d bytes, object=%s)",
+            served_name,
+            fw_size,
+            object_name,
+        )
+
+        try:
+            publisher = MqttStreamPublisher(
+                self.mcp,
+                timeout=timeout,
+                ack_timeout=min(max(10.0, timeout / 10.0), 60.0),
+            )
+            publisher.publish_file(
+                fw_path,
+                target="esp",
+                object_name=object_name,
+            )
+        except Exception as exc:
+            logger.error("ESP MQTT stream OTA failed: %s", exc)
+            return False
+
+        return self._wait_for_mqtt_stream_reboot(timeout)
+
     def execute(self,
                 fw_path: str = None,
                 url: str = None,
@@ -290,9 +380,23 @@ class DeviceOtaCommand:
                 use_https: bool = False,
                 https_cert: str = None,
                 https_key: str = None,
-                timeout: float = 300.0) -> bool:
+                timeout: float = 300.0,
+                transport: str = None,
+                ota_transport: str = "http") -> bool:
         if not fw_path and not url:
             logger.error("Either fw_path or url is required for device OTA")
+            return False
+
+        if ota_transport == "mqtt":
+            if transport != "mqtt":
+                logger.error("MQTT stream device OTA requires --transport mqtt")
+                return False
+            if url:
+                logger.error("MQTT stream device OTA requires a local --fw artifact, not --url")
+                return False
+            return self._execute_mqtt_stream(fw_path, timeout)
+        if ota_transport not in (None, "http"):
+            logger.error("Unsupported device OTA transport: %s", ota_transport)
             return False
 
         server = None

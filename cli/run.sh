@@ -157,14 +157,14 @@ COMMANDS:
     node info             Node status handshake
     node claim            Claim route identity and credentials
     node reboot           Reboot the node
-    node ota              Update ESP firmware via HTTP OTA
+    node ota              Update ESP firmware via HTTP or MQTT stream OTA
     node agent            Enable/disable built-in agent services
     node heartbeat        Configure system heartbeat
     proto list            List node public protocol directory entries
     proto status          Show public protocol directory status
     proto manifest        Show public protocol manifest
     radar fw flash        Flash firmware via chunk transfer
-    radar fw ota          Flash firmware via HTTP OTA (optional raw_resp capture)
+    radar fw ota          Flash firmware via HTTP or MQTT stream OTA
     radar fw list         List firmware images
     radar fw set          Set default boot firmware partition
     radar fw switch       Switch the running firmware image immediately
@@ -215,8 +215,10 @@ TRANSPORT OPTIONS:
 EXAMPLES:
     ./run.sh node info -p /dev/cu.usbserial-0001
     ./run.sh node ota --fw mmwk_sensor_bridge_full.bin -p /dev/cu.usbserial-0001
+    ./run.sh node ota --target esp --transport mqtt --ota-transport mqtt --fw app.bin --broker mqtt://127.0.0.1:1883 --did DEVICE_ID
     ./run.sh collect --duration 10 --data-output ./data_resp.sraw --resp-output ./cmd_resp.log -p /dev/cu.usbserial-0001
     ./run.sh radar fw ota --fw firmware.bin --raw-resp-output ./ota_cmd_resp.log -p /dev/cu.usbserial-0001
+    ./run.sh radar fw ota --transport mqtt --ota-transport mqtt --fw firmware.bin --cfg radar.cfg --broker mqtt://127.0.0.1:1883 --did DEVICE_ID
     ./run.sh radar fw flash --fw fw.bin --cfg config.cfg -p /dev/cu.usbserial-0001
 HEADER
 
