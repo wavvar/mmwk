@@ -757,32 +757,65 @@ class UartTransport(RadarTransport):
 
     def _process_line(self, line_str: str):
         """Process a single newline-delimited line from UART."""
-        if line_str.startswith('{'):
-            decoder = json.JSONDecoder()
-            offset = 0
-            parsed_count = 0
+        decoder = json.JSONDecoder()
+        cursor = 0
+        parsed_count = 0
+
+        while cursor < len(line_str):
+            first_brace = line_str.find("{", cursor)
+            first_type = line_str.find('"type"', cursor)
+            use_type = False
+
+            if first_type != -1 and first_brace == -1:
+                start = first_type
+                use_type = True
+            elif first_type != -1 and first_brace != -1:
+                if first_type < first_brace:
+                    start = first_type
+                    use_type = True
+                else:
+                    start = first_brace
+            elif first_brace != -1:
+                start = first_brace
+            else:
+                break
+
+            if start < 0:
+                break
+
+            payload = line_str[start:]
+            if use_type:
+                payload = "{" + payload
             try:
-                while offset < len(line_str):
-                    while offset < len(line_str) and line_str[offset].isspace():
-                        offset += 1
-                    if offset >= len(line_str):
-                        break
-
-                    data, offset = decoder.raw_decode(line_str, offset)
-                    if not isinstance(data, dict):
-                        raise json.JSONDecodeError("JSON value is not an object", line_str, offset)
-                    self.ingest_json(data)
-                    parsed_count += 1
-
-                if parsed_count > 0:
-                    return
+                data, consumed = decoder.raw_decode(payload)
             except json.JSONDecodeError as e:
                 if parsed_count > 0:
-                    logger.warning(f"Corrupt JSON tail ({e}), len={len(line_str)}: "
-                                   f"{line_str[:120]}...")
+                    logger.warning(
+                        f"Corrupt JSON tail ({e}), len={len(line_str)}: "
+                        f"{line_str[:120]}..."
+                    )
                     return
-                logger.warning(f"Corrupt JSON ({e}), len={len(line_str)}: "
-                               f"{line_str[:120]}...")
+                if use_type and first_brace == -1:
+                    logger.warning(f"Corrupt JSON ({e}), len={len(line_str)}: {line_str[:120]}...")
+                    return
+                cursor = max(cursor + 1, start + 1)
+                continue
+
+            if not isinstance(data, dict):
+                logger.warning(
+                    "Corrupt JSON (not object), len=%s: %s...",
+                    len(line_str),
+                    line_str[:120]
+                )
+                return
+
+            self.ingest_json(data)
+            parsed_count += 1
+            cursor = start + consumed
+
+        if parsed_count > 0:
+            return
+
         logger.debug(f"LOG: {line_str}")
         with self.lock:
             self.log_history.append(line_str)

@@ -52,4 +52,39 @@ for needle in required_proxy:
         raise SystemExit(f"uart_proxy_server.py missing contract: {needle}")
 PY
 
+"$python_bin" - "$CLI_ROOT" <<PY
+import threading
+import sys
+
+
+sys.path.insert(0, sys.argv[1])
+from mmwk import transport as transport
+
+Transport = transport.UartTransport
+
+events = []
+transport_obj = Transport.__new__(Transport)
+transport_obj.lock = threading.Lock()
+transport_obj.log_history = []
+
+def capture(payload):
+    events.append(payload)
+
+
+transport_obj.ingest_json = capture
+
+transport_obj._process_line('{"type":"res","seq":1,"ok":true}')
+transport_obj._process_line('W (123) sensor: {"type":"res","seq":2,"ok":true}')
+transport_obj._process_line('W (124) "type":"res","seq":3,"ok":true}')
+
+if len(events) != 3:
+    raise SystemExit(f"Transport parser regression failed, parsed={len(events)} entries")
+expected = [1, 2, 3]
+actual = [msg.get("seq") for msg in events]
+if actual != expected:
+    raise SystemExit(f"Transport parser produced unexpected seq order: {actual}")
+
+print("transport parser regression OK")
+PY
+
 echo "uart proxy transport contract OK"
