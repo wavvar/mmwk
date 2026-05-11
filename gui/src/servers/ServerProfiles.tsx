@@ -1,16 +1,23 @@
 import { useEffect, useState } from "react";
-import { listServerProfiles, type ServerProfile } from "../app/backend";
+import {
+  getHttpServerStatus,
+  listServerProfiles,
+  type LocalServerStatus,
+  type ServerProfile
+} from "../app/backend";
 
 export default function ServerProfiles() {
   const [servers, setServers] = useState<ServerProfile[]>([]);
+  const [status, setStatus] = useState<LocalServerStatus>({});
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    listServerProfiles()
-      .then((profiles) => {
+    Promise.all([listServerProfiles(), getHttpServerStatus()])
+      .then(([profiles, serverStatus]) => {
         if (!cancelled) {
           setServers(profiles);
+          setStatus(serverStatus);
         }
       })
       .catch((err: unknown) => {
@@ -27,7 +34,7 @@ export default function ServerProfiles() {
     <section className="workspace-panel" aria-label="Server profiles">
       <div className="panel-heading">
         <h3>Shared Servers</h3>
-        <span>{servers.length} available</span>
+        <span>{status.http?.running ? "HTTP running" : `${servers.length} available`}</span>
       </div>
       {error ? <p className="error-text">{error}</p> : null}
       <div className="table-list" role="list">

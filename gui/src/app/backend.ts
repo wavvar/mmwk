@@ -52,6 +52,24 @@ export type DeviceCommandResult = {
   payload: unknown;
 };
 
+export type HttpServerConfig = {
+  host: string;
+  port: number;
+  serve_dir: string;
+  upload_dir: string;
+};
+
+export type HttpServerStatus = {
+  running: boolean;
+  base_url: string;
+  served_requests: number;
+  uploads_received: number;
+};
+
+export type LocalServerStatus = {
+  http?: HttpServerStatus | null;
+};
+
 async function call<T>(command: string, args?: Record<string, unknown>): Promise<T> {
   const envelope = await invoke<CommandEnvelope<T>>(command, args);
   if (!envelope.ok) {
@@ -89,4 +107,16 @@ export function executeDeviceCommand(
   request: DeviceCommandRequest
 ): Promise<DeviceCommandResult> {
   return call<DeviceCommandResult>("execute_device_command", { request });
+}
+
+export function startHttpServer(config: HttpServerConfig): Promise<HttpServerStatus> {
+  return call<HttpServerStatus>("start_http_server", { config });
+}
+
+export function stopHttpServer(): Promise<void> {
+  return call<void>("stop_http_server");
+}
+
+export function getHttpServerStatus(): Promise<LocalServerStatus> {
+  return call<LocalServerStatus>("get_http_server_status");
 }

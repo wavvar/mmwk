@@ -5,7 +5,9 @@ import App from "./App";
 vi.mock("./app/backend", () => ({
   listDeviceProfiles: vi.fn().mockResolvedValue([]),
   listServerProfiles: vi.fn().mockResolvedValue([]),
-  saveDeviceProfile: vi.fn()
+  saveDeviceProfile: vi.fn(),
+  getHttpServerStatus: vi.fn().mockResolvedValue({ http: null }),
+  executeDeviceCommand: vi.fn().mockResolvedValue({ payload: {} })
 }));
 
 describe("App", () => {

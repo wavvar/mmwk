@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { listServerProfiles } from "./backend";
+import { listServerProfiles, startHttpServer } from "./backend";
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn()
@@ -29,5 +29,34 @@ describe("backend", () => {
 
     await expect(listServerProfiles()).resolves.toHaveLength(1);
     expect(invoke).toHaveBeenCalledWith("list_server_profiles", undefined);
+  });
+
+  it("invokes embedded HTTP server commands", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce({
+      ok: true,
+      data: {
+        running: true,
+        base_url: "http://127.0.0.1:8080",
+        served_requests: 0,
+        uploads_received: 0
+      }
+    });
+
+    await expect(
+      startHttpServer({
+        host: "127.0.0.1",
+        port: 8080,
+        serve_dir: "/tmp/serve",
+        upload_dir: "/tmp/upload"
+      })
+    ).resolves.toMatchObject({ running: true });
+    expect(invoke).toHaveBeenCalledWith("start_http_server", {
+      config: {
+        host: "127.0.0.1",
+        port: 8080,
+        serve_dir: "/tmp/serve",
+        upload_dir: "/tmp/upload"
+      }
+    });
   });
 });

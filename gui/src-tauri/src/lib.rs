@@ -2,13 +2,17 @@ pub mod commands;
 pub mod contracts;
 pub mod error;
 pub mod protocol;
+pub mod services;
 pub mod store;
 pub mod transport;
 
 use std::sync::Mutex;
 
+use commands::local_servers::HttpServerRuntime;
+
 pub struct AppState {
     pub db: Mutex<rusqlite::Connection>,
+    pub http_server: Mutex<HttpServerRuntime>,
 }
 
 impl AppState {
@@ -17,6 +21,7 @@ impl AppState {
         store::schema::init(&conn)?;
         Ok(Self {
             db: Mutex::new(conn),
+            http_server: Mutex::new(HttpServerRuntime::default()),
         })
     }
 }
@@ -41,7 +46,10 @@ pub fn run() {
             commands::profiles::list_server_profiles,
             commands::profiles::save_server_profile,
             commands::profiles::delete_server_profile,
-            commands::device_control::execute_device_command
+            commands::device_control::execute_device_command,
+            commands::local_servers::start_http_server,
+            commands::local_servers::stop_http_server,
+            commands::local_servers::get_http_server_status
         ])
         .run(tauri::generate_context!())
         .expect("failed to run MMWK GUI");
