@@ -1,3 +1,5 @@
+pub mod contracts;
+
 #[cfg(feature = "desktop")]
 #[tauri::command]
 fn app_health() -> &'static str {

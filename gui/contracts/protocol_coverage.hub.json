@@ -1,0 +1,75 @@
+{
+  "version": 1,
+  "entries": [
+    {"profile": "hub", "service": "help", "action": "call", "suite": "hub", "environment": "wifi", "transport": "cli", "destructive": false, "restore": "none"},
+    {"profile": "hub", "service": "proto", "action": "list", "suite": "adv", "environment": "uart", "transport": "uart", "destructive": false, "restore": "none"},
+    {"profile": "hub", "service": "proto", "action": "status", "suite": "adv", "environment": "uart", "transport": "uart", "destructive": false, "restore": "none"},
+    {"profile": "hub", "service": "proto", "action": "manifest", "suite": "adv", "environment": "uart", "transport": "uart", "destructive": false, "restore": "none"},
+
+    {"profile": "hub", "service": "node", "action": "info", "suite": "hub", "environment": "wifi", "transport": "mqtt", "destructive": false, "restore": "none"},
+    {"profile": "hub", "service": "node", "action": "agent", "suite": "adv", "environment": "uart", "transport": "uart", "destructive": false, "restore": "restore agent flags"},
+    {"profile": "hub", "service": "node", "action": "heartbeat", "suite": "adv", "environment": "uart", "transport": "uart", "destructive": false, "restore": "restore heartbeat defaults"},
+    {"profile": "hub", "service": "node", "action": "ota", "suite": "hub", "environment": "wifi", "transport": "http", "destructive": true, "restore": "factory ESP image"},
+    {"profile": "hub", "service": "node", "action": "claim", "suite": "manual", "environment": "uart", "transport": "uart", "destructive": true, "restore": "factory ESP image"},
+    {"profile": "hub", "service": "node", "action": "inquiry", "suite": "adv", "environment": "wifi", "transport": "mqtt", "destructive": false, "restore": "none"},
+    {"profile": "hub", "service": "node", "action": "key", "op": "status", "suite": "adv", "environment": "uart", "transport": "uart", "destructive": false, "restore": "none"},
+    {"profile": "hub", "service": "node", "action": "key", "op": "set", "suite": "adv", "environment": "uart", "transport": "uart", "destructive": true, "restore": "clear key"},
+    {"profile": "hub", "service": "node", "action": "key", "op": "clear", "suite": "adv", "environment": "uart", "transport": "uart", "destructive": true, "restore": "clear key"},
+    {"profile": "hub", "service": "node", "action": "factory_reset", "suite": "adv", "environment": "uart", "transport": "uart", "destructive": true, "restore": "wait for factory-reset reboot"},
+
+    {"profile": "hub", "service": "scene", "action": "read", "suite": "adv", "environment": "uart", "transport": "uart", "destructive": false, "restore": "none"},
+    {"profile": "hub", "service": "scene", "action": "set", "suite": "adv", "environment": "wifi", "transport": "mqtt", "destructive": true, "restore": "restore scene config"},
+    {"profile": "hub", "service": "scene", "action": "apply", "suite": "adv", "environment": "wifi", "transport": "mqtt", "destructive": true, "restore": "restore scene config"},
+    {"profile": "hub", "service": "scene", "action": "wait", "suite": "adv", "environment": "wifi", "transport": "mqtt", "destructive": false, "restore": "none"},
+
+    {"profile": "hub", "service": "network", "action": "wifi", "suite": "adv", "environment": "wifi", "transport": "uart", "destructive": true, "restore": "factory ESP image"},
+    {"profile": "hub", "service": "network", "action": "4g", "suite": "4g", "environment": "4g", "transport": "uart", "destructive": true, "restore": "restore network config"},
+    {"profile": "hub", "service": "network", "action": "priority", "suite": "4g", "environment": "4g", "transport": "mqtt", "destructive": true, "restore": "restore wifi priority"},
+    {"profile": "hub", "service": "network", "action": "prov", "suite": "manual", "environment": "wifi", "transport": "uart", "destructive": true, "restore": "restore valid credentials"},
+    {"profile": "hub", "service": "network", "action": "ntp", "suite": "adv", "environment": "wifi", "transport": "mqtt", "destructive": false, "restore": "restore ntp defaults"},
+    {"profile": "hub", "service": "network", "action": "mqtt", "suite": "hub", "environment": "wifi", "transport": "mqtt", "destructive": true, "restore": "factory ESP image"},
+    {"profile": "hub", "service": "network", "action": "status", "suite": "adv", "environment": "uart", "transport": "uart", "destructive": false, "restore": "none"},
+    {"profile": "hub", "service": "network", "action": "diag", "suite": "adv", "environment": "wifi", "transport": "mqtt", "destructive": false, "restore": "none"},
+
+    {"profile": "hub", "service": "radar", "action": "status", "suite": "adv", "environment": "uart", "transport": "uart", "destructive": false, "restore": "none"},
+    {"profile": "hub", "service": "radar", "action": "start", "suite": "adv", "environment": "uart", "transport": "uart", "destructive": true, "restore": "stop or restart default runtime"},
+    {"profile": "hub", "service": "radar", "action": "stop", "suite": "adv", "environment": "uart", "transport": "uart", "destructive": true, "restore": "start default runtime"},
+    {"profile": "hub", "service": "radar.config", "action": "read", "suite": "adv", "environment": "uart", "transport": "uart", "destructive": false, "restore": "none"},
+    {"profile": "hub", "service": "radar.config", "action": "apply", "suite": "adv", "environment": "uart", "transport": "uart", "destructive": true, "restore": "restore previous config"},
+
+    {"profile": "hub", "service": "radar.fw", "action": "version", "suite": "adv", "environment": "uart", "transport": "uart", "destructive": false, "restore": "none"},
+    {"profile": "hub", "service": "radar.fw", "action": "flash", "suite": "adv", "environment": "uart", "transport": "uart", "destructive": true, "restore": "factory radar firmware"},
+    {"profile": "hub", "service": "radar.fw", "action": "ota", "suite": "adv", "environment": "wifi", "transport": "http", "destructive": true, "restore": "factory radar firmware"},
+    {"profile": "hub", "service": "radar.fw", "action": "list", "suite": "adv", "environment": "uart", "transport": "uart", "destructive": false, "restore": "none"},
+    {"profile": "hub", "service": "radar.fw", "action": "set", "suite": "adv", "environment": "uart", "transport": "uart", "destructive": true, "restore": "factory radar firmware"},
+    {"profile": "hub", "service": "radar.fw", "action": "switch", "suite": "adv", "environment": "uart", "transport": "uart", "destructive": true, "restore": "factory radar firmware"},
+    {"profile": "hub", "service": "radar.fw", "action": "del", "suite": "adv", "environment": "wifi", "transport": "mqtt", "destructive": true, "restore": "factory radar firmware"},
+    {"profile": "hub", "service": "radar.fw", "action": "download", "suite": "adv", "environment": "wifi", "transport": "http", "destructive": true, "restore": "delete downloaded image"},
+
+    {"profile": "hub", "service": "radar.raw", "action": "status", "suite": "adv", "environment": "uart", "transport": "uart", "destructive": false, "restore": "none"},
+    {"profile": "hub", "service": "radar.raw", "action": "config_get", "suite": "adv", "environment": "uart", "transport": "uart", "destructive": false, "restore": "none"},
+    {"profile": "hub", "service": "radar.raw", "action": "config_set", "suite": "adv", "environment": "uart", "transport": "uart", "destructive": true, "restore": "restore previous raw config"},
+    {"profile": "hub", "service": "radar.raw", "action": "start", "suite": "adv", "environment": "uart", "transport": "uart", "destructive": true, "restore": "stop raw recorder"},
+    {"profile": "hub", "service": "radar.raw", "action": "stop", "suite": "adv", "environment": "uart", "transport": "uart", "destructive": true, "restore": "restore previous raw config"},
+    {"profile": "hub", "service": "radar.raw", "action": "trigger", "suite": "adv", "environment": "uart", "transport": "uart", "destructive": true, "restore": "stop raw recorder"},
+
+    {"profile": "hub", "sidecar": "care", "service": "care.rfcare", "action": "rfc_web_realtime_contract", "suite": "host-contract", "environment": "host", "transport": "none", "destructive": false, "restore": "none"},
+    {"profile": "hub", "sidecar": "care", "service": "care.rfcare", "action": "wadar_scene_contract", "suite": "host-contract", "environment": "host", "transport": "none", "destructive": false, "restore": "none"},
+    {"profile": "hub", "sidecar": "care", "service": "care.rfcare", "action": "transfer_0x21_raw_data_rx", "suite": "hub", "environment": "rfcare-mqtt", "transport": "mqtt", "destructive": true, "restore": "disable transfer"},
+    {"profile": "hub", "sidecar": "rmaker", "service": "rmaker", "action": "sidecar_contract", "suite": "host-contract", "environment": "host", "transport": "none", "destructive": false, "restore": "none"},
+
+    {"profile": "hub", "service": "radar.diag", "action": "debug", "op": "set", "suite": "adv", "environment": "uart", "transport": "uart", "destructive": true, "restore": "reset debug flags"},
+    {"profile": "hub", "service": "radar.diag", "action": "debug", "op": "get", "suite": "adv", "environment": "uart", "transport": "uart", "destructive": false, "restore": "none"},
+    {"profile": "hub", "service": "radar.diag", "action": "debug", "op": "snapshot", "suite": "adv", "environment": "uart", "transport": "uart", "destructive": false, "restore": "none"},
+    {"profile": "hub", "service": "radar.diag", "action": "debug", "op": "reset", "suite": "adv", "environment": "uart", "transport": "uart", "destructive": true, "restore": "reset debug flags"},
+    {"profile": "hub", "service": "radar.diag", "action": "calib", "op": "get", "suite": "adv", "environment": "uart", "transport": "uart", "destructive": false, "restore": "none"},
+    {"profile": "hub", "service": "radar.diag", "action": "calib", "op": "set", "suite": "adv", "environment": "uart", "transport": "uart", "destructive": true, "restore": "clear calibration"},
+    {"profile": "hub", "service": "radar.diag", "action": "calib", "op": "clear", "suite": "adv", "environment": "uart", "transport": "uart", "destructive": true, "restore": "clear calibration"},
+
+    {"profile": "hub", "service": "endpoint", "action": "list", "suite": "adv", "environment": "uart", "transport": "uart", "destructive": false, "restore": "none"},
+    {"profile": "hub", "service": "endpoint", "action": "describe", "suite": "adv", "environment": "uart", "transport": "uart", "destructive": false, "restore": "none"},
+    {"profile": "hub", "service": "endpoint", "action": "read", "suite": "adv", "environment": "uart", "transport": "uart", "destructive": false, "restore": "none"},
+    {"profile": "hub", "service": "endpoint", "action": "config_get", "suite": "adv", "environment": "uart", "transport": "uart", "destructive": false, "restore": "none"},
+    {"profile": "hub", "service": "endpoint", "action": "config_set", "suite": "adv", "environment": "uart", "transport": "uart", "destructive": true, "restore": "restore endpoint config"}
+  ]
+}
