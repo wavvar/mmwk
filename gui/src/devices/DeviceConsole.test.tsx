@@ -1,9 +1,15 @@
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import DeviceConsole from "./DeviceConsole";
+import { executeDeviceCommand } from "../app/backend";
+
+vi.mock("../app/backend", () => ({
+  executeDeviceCommand: vi.fn().mockResolvedValue({ payload: {} })
+}));
 
 afterEach(() => {
   cleanup();
+  vi.clearAllMocks();
 });
 
 describe("DeviceConsole", () => {
@@ -38,5 +44,19 @@ describe("DeviceConsole", () => {
 
     expect(screen.getByText("RainMaker")).toBeTruthy();
     expect(screen.queryByText("RFCare")).toBeNull();
+  });
+
+  it("executes a selected device command through the backend", () => {
+    render(<DeviceConsole deviceProfileId="dev-1" profile="bridge" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "info" }));
+
+    expect(executeDeviceCommand).toHaveBeenCalledWith({
+      device_profile_id: "dev-1",
+      command_id: "bridge/node/info",
+      args: {},
+      confirmation: undefined,
+      key: undefined
+    });
   });
 });

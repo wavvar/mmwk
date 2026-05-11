@@ -37,6 +37,21 @@ export type ServerProfile = {
   shared: boolean;
 };
 
+export type DeviceCommandRequest = {
+  device_profile_id: string;
+  command_id: string;
+  args?: Record<string, unknown>;
+  confirmation?: string;
+  key?: string;
+};
+
+export type DeviceCommandResult = {
+  command_id: string;
+  seq: number;
+  raw_response: unknown;
+  payload: unknown;
+};
+
 async function call<T>(command: string, args?: Record<string, unknown>): Promise<T> {
   const envelope = await invoke<CommandEnvelope<T>>(command, args);
   if (!envelope.ok) {
@@ -68,4 +83,10 @@ export function saveServerProfile(profile: ServerProfile): Promise<ServerProfile
 
 export function deleteServerProfile(id: string): Promise<void> {
   return call<void>("delete_server_profile", { id });
+}
+
+export function executeDeviceCommand(
+  request: DeviceCommandRequest
+): Promise<DeviceCommandResult> {
+  return call<DeviceCommandResult>("execute_device_command", { request });
 }

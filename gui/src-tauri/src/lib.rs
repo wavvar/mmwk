@@ -40,7 +40,8 @@ pub fn run() {
             commands::profiles::delete_device_profile,
             commands::profiles::list_server_profiles,
             commands::profiles::save_server_profile,
-            commands::profiles::delete_server_profile
+            commands::profiles::delete_server_profile,
+            commands::device_control::execute_device_command
         ])
         .run(tauri::generate_context!())
         .expect("failed to run MMWK GUI");

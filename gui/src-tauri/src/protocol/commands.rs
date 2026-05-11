@@ -64,6 +64,10 @@ impl CommandRegistry {
         self.descriptors.values()
     }
 
+    pub fn get(&self, id: &str) -> Option<&CommandDescriptor> {
+        self.descriptors.get(id)
+    }
+
     pub fn find(
         &self,
         profile: &str,
