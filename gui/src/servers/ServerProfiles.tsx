@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   getHttpServerStatus,
+  getMqttBrokerStatus,
   listServerProfiles,
   type LocalServerStatus,
   type ServerProfile
@@ -13,11 +14,11 @@ export default function ServerProfiles() {
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([listServerProfiles(), getHttpServerStatus()])
-      .then(([profiles, serverStatus]) => {
+    Promise.all([listServerProfiles(), getHttpServerStatus(), getMqttBrokerStatus()])
+      .then(([profiles, httpStatus, mqttStatus]) => {
         if (!cancelled) {
           setServers(profiles);
-          setStatus(serverStatus);
+          setStatus({ http: httpStatus.http, mqtt: mqttStatus });
         }
       })
       .catch((err: unknown) => {
@@ -34,7 +35,11 @@ export default function ServerProfiles() {
     <section className="workspace-panel" aria-label="Server profiles">
       <div className="panel-heading">
         <h3>Shared Servers</h3>
-        <span>{status.http?.running ? "HTTP running" : `${servers.length} available`}</span>
+        <span>
+          {status.http?.running || status.mqtt?.running
+            ? `${status.http?.running ? "HTTP" : ""}${status.http?.running && status.mqtt?.running ? " + " : ""}${status.mqtt?.running ? "MQTT" : ""} running`
+            : `${servers.length} available`}
+        </span>
       </div>
       {error ? <p className="error-text">{error}</p> : null}
       <div className="table-list" role="list">

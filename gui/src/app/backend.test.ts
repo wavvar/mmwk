@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { listServerProfiles, startHttpServer } from "./backend";
+import { listServerProfiles, startHttpServer, startMqttBroker } from "./backend";
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn()
@@ -57,6 +57,26 @@ describe("backend", () => {
         serve_dir: "/tmp/serve",
         upload_dir: "/tmp/upload"
       }
+    });
+  });
+
+  it("invokes scoped MQTT broker commands", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce({
+      ok: true,
+      data: {
+        running: true,
+        bind: "127.0.0.1:1883",
+        active_clients: 0,
+        accepted_topics: 0,
+        rejected_topics: 0
+      }
+    });
+
+    await expect(startMqttBroker({ host: "127.0.0.1", port: 1883 })).resolves.toMatchObject({
+      running: true
+    });
+    expect(invoke).toHaveBeenCalledWith("start_mqtt_broker", {
+      config: { host: "127.0.0.1", port: 1883 }
     });
   });
 });

@@ -9,10 +9,12 @@ pub mod transport;
 use std::sync::Mutex;
 
 use commands::local_servers::HttpServerRuntime;
+use services::mqtt_broker::MqttBrokerRuntime;
 
 pub struct AppState {
     pub db: Mutex<rusqlite::Connection>,
     pub http_server: Mutex<HttpServerRuntime>,
+    pub mqtt_broker: Mutex<MqttBrokerRuntime>,
 }
 
 impl AppState {
@@ -22,6 +24,7 @@ impl AppState {
         Ok(Self {
             db: Mutex::new(conn),
             http_server: Mutex::new(HttpServerRuntime::default()),
+            mqtt_broker: Mutex::new(MqttBrokerRuntime::default()),
         })
     }
 }
@@ -49,7 +52,10 @@ pub fn run() {
             commands::device_control::execute_device_command,
             commands::local_servers::start_http_server,
             commands::local_servers::stop_http_server,
-            commands::local_servers::get_http_server_status
+            commands::local_servers::get_http_server_status,
+            commands::local_servers::start_mqtt_broker,
+            commands::local_servers::stop_mqtt_broker,
+            commands::local_servers::get_mqtt_broker_status
         ])
         .run(tauri::generate_context!())
         .expect("failed to run MMWK GUI");

@@ -7,6 +7,13 @@ vi.mock("./app/backend", () => ({
   listServerProfiles: vi.fn().mockResolvedValue([]),
   saveDeviceProfile: vi.fn(),
   getHttpServerStatus: vi.fn().mockResolvedValue({ http: null }),
+  getMqttBrokerStatus: vi.fn().mockResolvedValue({
+    running: false,
+    bind: "127.0.0.1:0",
+    active_clients: 0,
+    accepted_topics: 0,
+    rejected_topics: 0
+  }),
   executeDeviceCommand: vi.fn().mockResolvedValue({ payload: {} })
 }));
 

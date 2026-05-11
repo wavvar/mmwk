@@ -66,8 +66,22 @@ export type HttpServerStatus = {
   uploads_received: number;
 };
 
+export type MqttBrokerConfig = {
+  host: string;
+  port: number;
+};
+
+export type MqttBrokerStatus = {
+  running: boolean;
+  bind: string;
+  active_clients: number;
+  accepted_topics: number;
+  rejected_topics: number;
+};
+
 export type LocalServerStatus = {
   http?: HttpServerStatus | null;
+  mqtt?: MqttBrokerStatus | null;
 };
 
 async function call<T>(command: string, args?: Record<string, unknown>): Promise<T> {
@@ -119,4 +133,16 @@ export function stopHttpServer(): Promise<void> {
 
 export function getHttpServerStatus(): Promise<LocalServerStatus> {
   return call<LocalServerStatus>("get_http_server_status");
+}
+
+export function startMqttBroker(config: MqttBrokerConfig): Promise<MqttBrokerStatus> {
+  return call<MqttBrokerStatus>("start_mqtt_broker", { config });
+}
+
+export function stopMqttBroker(): Promise<void> {
+  return call<void>("stop_mqtt_broker");
+}
+
+export function getMqttBrokerStatus(): Promise<MqttBrokerStatus> {
+  return call<MqttBrokerStatus>("get_mqtt_broker_status");
 }
