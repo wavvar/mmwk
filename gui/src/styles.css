@@ -248,6 +248,39 @@ nav {
   padding: 5px 8px;
 }
 
+.collection-toolbar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.metrics-table {
+  display: grid;
+  border: 1px solid #e0e7f0;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.metrics-row {
+  display: grid;
+  grid-template-columns: 1fr 120px 120px 120px;
+  gap: 10px;
+  min-height: 36px;
+  align-items: center;
+  padding: 8px 10px;
+  border-top: 1px solid #e6ebf2;
+}
+
+.metrics-row:first-child {
+  border-top: 0;
+}
+
+.metrics-head {
+  background: #f7fafc;
+  color: #62748a;
+  font-size: 0.9rem;
+}
+
 @media (max-width: 760px) {
   .app-shell {
     grid-template-columns: 1fr;
@@ -260,6 +293,7 @@ nav {
   .workspace-header,
   .workspace-grid,
   .console-grid,
+  .metrics-row,
   .stack-form {
     grid-template-columns: 1fr;
   }

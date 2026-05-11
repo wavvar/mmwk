@@ -1,5 +1,6 @@
 import DeviceList from "./devices/DeviceList";
 import DeviceConsole from "./devices/DeviceConsole";
+import CollectionBench from "./collection/CollectionBench";
 import ServerProfiles from "./servers/ServerProfiles";
 
 const deviceGroups = [
@@ -45,6 +46,7 @@ function App() {
           <DeviceList />
           <ServerProfiles />
           <DeviceConsole profile="bridge" />
+          <CollectionBench />
         </div>
       </section>
     </main>

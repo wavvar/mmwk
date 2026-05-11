@@ -1,4 +1,5 @@
 pub mod commands;
+pub mod collection;
 pub mod contracts;
 pub mod error;
 pub mod protocol;
