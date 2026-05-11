@@ -14,7 +14,7 @@
 
 The approved design is broad. Implement it in executable slices. Do not attempt all device functions in one commit. The first working milestone must launch the app, load coverage contracts, manage local profiles, and expose a mocked device console. Later chunks add native transports, servers, bridge/hub command models, collection, event recording, and video.
 
-Reference spec: `docs/superpowers/specs/2026-05-11-mmwk-desktop-gui-design.md`.
+Reference spec: `gui/docs/superpowers/specs/2026-05-11-mmwk-desktop-gui-design.md`.
 
 ## File Structure
 
