@@ -54,6 +54,23 @@ pub fn get_server_profile(conn: &Connection, id: &str) -> Result<Option<ServerPr
     .optional()
 }
 
+pub fn list_server_profiles(conn: &Connection) -> Result<Vec<ServerProfile>> {
+    let mut stmt = conn.prepare(
+        r#"
+        SELECT id, name, mqtt_host, mqtt_port, http_host, http_port, shared
+        FROM server_profiles
+        ORDER BY name, id
+        "#,
+    )?;
+    let profiles = stmt.query_map([], map_server_profile)?.collect();
+    profiles
+}
+
+pub fn delete_server_profile(conn: &Connection, id: &str) -> Result<()> {
+    conn.execute("DELETE FROM server_profiles WHERE id = ?1", [id])?;
+    Ok(())
+}
+
 fn map_server_profile(row: &rusqlite::Row<'_>) -> Result<ServerProfile> {
     Ok(ServerProfile {
         id: row.get(0)?,

@@ -87,6 +87,11 @@ pub fn list_device_profiles(conn: &Connection) -> Result<Vec<DeviceProfile>> {
     profiles
 }
 
+pub fn delete_device_profile(conn: &Connection, id: &str) -> Result<()> {
+    conn.execute("DELETE FROM device_profiles WHERE id = ?1", [id])?;
+    Ok(())
+}
+
 fn map_device_profile(row: &rusqlite::Row<'_>) -> Result<DeviceProfile> {
     Ok(DeviceProfile {
         id: row.get(0)?,

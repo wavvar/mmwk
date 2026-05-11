@@ -1,3 +1,6 @@
+import DeviceList from "./devices/DeviceList";
+import ServerProfiles from "./servers/ServerProfiles";
+
 const deviceGroups = [
   "Device Profiles",
   "Shared Servers",
@@ -37,19 +40,9 @@ function App() {
             Add Device
           </button>
         </header>
-        <div className="panel-grid">
-          <section className="panel">
-            <h3>Connection Profiles</h3>
-            <p>Manage serial and MQTT profiles for bridge and hub devices.</p>
-          </section>
-          <section className="panel">
-            <h3>Embedded Services</h3>
-            <p>Run local MMWK-scoped MQTT and HTTP services from the desktop app.</p>
-          </section>
-          <section className="panel">
-            <h3>Hub Event Logs</h3>
-            <p>Record, count, filter, and replay events received from hub devices.</p>
-          </section>
+        <div className="workspace-grid">
+          <DeviceList />
+          <ServerProfiles />
         </div>
       </section>
     </main>

@@ -124,18 +124,90 @@ nav {
   white-space: nowrap;
 }
 
-.panel-grid {
+.workspace-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1.3fr) minmax(280px, 0.7fr);
   gap: 14px;
 }
 
-.panel {
-  min-height: 128px;
+.workspace-panel {
   border: 1px solid #d4dce8;
   border-radius: 8px;
   background: #ffffff;
   padding: 16px;
+}
+
+.panel-heading,
+.table-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.panel-heading {
+  margin-bottom: 14px;
+}
+
+.panel-heading h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.panel-heading span,
+.table-row span {
+  color: #62748a;
+  font-size: 0.9rem;
+}
+
+.stack-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.stack-form label {
+  display: grid;
+  gap: 6px;
+  color: #415268;
+  font-size: 0.9rem;
+}
+
+.stack-form input,
+.stack-form select {
+  width: 100%;
+  min-height: 36px;
+  border: 1px solid #cad5e2;
+  border-radius: 6px;
+  padding: 6px 8px;
+  color: #1f2933;
+  background: #ffffff;
+}
+
+.secondary-action {
+  align-self: end;
+  min-height: 36px;
+  border: 1px solid #176b87;
+  border-radius: 6px;
+  color: #176b87;
+  background: #ffffff;
+  padding: 6px 12px;
+}
+
+.table-list {
+  display: grid;
+  gap: 8px;
+}
+
+.table-row {
+  min-height: 38px;
+  border-top: 1px solid #e6ebf2;
+  padding-top: 8px;
+}
+
+.error-text {
+  color: #b42318;
 }
 
 @media (max-width: 760px) {
@@ -148,7 +220,8 @@ nav {
   }
 
   .workspace-header,
-  .panel-grid {
+  .workspace-grid,
+  .stack-form {
     grid-template-columns: 1fr;
   }
 
