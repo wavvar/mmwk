@@ -138,7 +138,8 @@ class SerialProxy:
 
         while self.running:
             try:
-                chunk = self.ser.readline()
+                with self.serial_lock:
+                    chunk = self.ser.read_until(b"\n")
             except Exception as exc:
                 if not self.running:
                     break
@@ -189,7 +190,8 @@ class SerialProxy:
             self.ser.dtr = False
             self.ser.rts = False
             time.sleep(0.1)
-            self.ser.dtr = True
+            # Keep DTR/BOOT idle; asserting it while releasing RTS/EN can strap
+            # ESP32-S3 into DOWNLOAD mode on CP210x auto-reset circuits.
             self.ser.rts = True
             time.sleep(0.1)
             self.ser.rts = False

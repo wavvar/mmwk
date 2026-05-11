@@ -479,15 +479,7 @@ class UartTransport(RadarTransport):
         self._open_serial()
 
         if reset and not self._should_use_uart_proxy():
-            # Reset ESP32 via DTR/RTS
-            self.ser.dtr = False
-            self.ser.rts = False
-            time.sleep(0.1)
-            self.ser.dtr = True
-            self.ser.rts = True
-            time.sleep(0.1)
-            self.ser.rts = False
-            self.ser.dtr = False
+            self._toggle_normal_hard_reset()
             time.sleep(2)  # Wait for boot
 
         self._start_listener()
@@ -604,6 +596,17 @@ class UartTransport(RadarTransport):
         self.ser = ser
         self._serial_backend = "pyserial"
 
+    def _toggle_normal_hard_reset(self):
+        # Keep DTR/BOOT idle; asserting it while releasing RTS/EN can strap
+        # ESP32-S3 into DOWNLOAD mode on CP210x auto-reset circuits.
+        self.ser.dtr = False
+        self.ser.rts = False
+        time.sleep(0.1)
+        self.ser.rts = True
+        time.sleep(0.1)
+        self.ser.rts = False
+        self.ser.dtr = False
+
     @staticmethod
     def _disable_hupcl(ser):
         """Keep Linux from dropping modem control lines on close/open cycles."""
@@ -690,14 +693,7 @@ class UartTransport(RadarTransport):
         else:
             with self._io_lock:
                 self._open_serial()
-                self.ser.dtr = False
-                self.ser.rts = False
-                time.sleep(0.1)
-                self.ser.dtr = True
-                self.ser.rts = True
-                time.sleep(0.1)
-                self.ser.rts = False
-                self.ser.dtr = False
+                self._toggle_normal_hard_reset()
             time.sleep(max(0.0, settle_sec))
 
         self._start_listener()
