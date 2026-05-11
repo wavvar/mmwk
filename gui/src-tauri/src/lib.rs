@@ -3,6 +3,7 @@ pub mod contracts;
 pub mod error;
 pub mod protocol;
 pub mod store;
+pub mod transport;
 
 use std::sync::Mutex;
 
