@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "check:no-python": "node scripts/check-no-python.mjs",
     "test": "vitest run",
     "tauri": "tauri"
   },
