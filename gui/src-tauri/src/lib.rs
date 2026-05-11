@@ -1,5 +1,6 @@
 pub mod contracts;
 pub mod protocol;
+pub mod store;
 
 #[cfg(feature = "desktop")]
 #[tauri::command]
