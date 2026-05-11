@@ -210,6 +210,44 @@ nav {
   color: #b42318;
 }
 
+.console-panel {
+  grid-column: 1 / -1;
+}
+
+.console-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.command-panel {
+  min-width: 0;
+  border: 1px solid #e0e7f0;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.command-panel h4 {
+  margin: 0 0 10px;
+  font-size: 0.95rem;
+  letter-spacing: 0;
+}
+
+.command-button-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.command-button-grid button {
+  min-height: 32px;
+  border: 1px solid #cad5e2;
+  border-radius: 6px;
+  background: #f7fafc;
+  color: #233348;
+  padding: 5px 8px;
+}
+
 @media (max-width: 760px) {
   .app-shell {
     grid-template-columns: 1fr;
@@ -221,6 +259,7 @@ nav {
 
   .workspace-header,
   .workspace-grid,
+  .console-grid,
   .stack-form {
     grid-template-columns: 1fr;
   }

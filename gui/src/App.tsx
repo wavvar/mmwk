@@ -1,4 +1,5 @@
 import DeviceList from "./devices/DeviceList";
+import DeviceConsole from "./devices/DeviceConsole";
 import ServerProfiles from "./servers/ServerProfiles";
 
 const deviceGroups = [
@@ -43,6 +44,7 @@ function App() {
         <div className="workspace-grid">
           <DeviceList />
           <ServerProfiles />
+          <DeviceConsole profile="bridge" />
         </div>
       </section>
     </main>
