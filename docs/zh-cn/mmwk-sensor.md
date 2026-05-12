@@ -9,7 +9,7 @@ MMWK 是面向雷达固件开发、原始数据采集、联网控制和产品化
 如果你属于以下任一情况，请从这里开始：
 
 - 你正在第一次 bring-up 一块 MMWK 板卡
-- 设备已经运行某个 `mmwk_sensor` 固件 profile，并且你想跑通第一次端到端雷达刷写加数据采集
+- 设备已经运行某个 `mmwk_sensor` 固件 profile，并且你想跑通第一次端到端雷达固件刷写加数据采集
 - 你需要快速选择出厂刷机、OTA、采集或参考文档入口
 - 你想区分哪些行为属于共享 sensor 平台，哪些行为属于某个具体固件 profile
 
@@ -17,10 +17,10 @@ MMWK 是面向雷达固件开发、原始数据采集、联网控制和产品化
 
 - 请从 `./cli` 目录执行下面的 shell 示例，这样 `./run.sh` 和 `../firmwares/...` 这些参考路径才能按文档原样生效。
 - 把 `PORT=/dev/cu.usbserial-0001` 替换成你自己机器上的真实 UART 串口。
-- 本文档默认你先执行 `./run.sh device hi -p "$PORT"` 或 `./run.sh node info -p "$PORT"`，并且返回某个 `mmwk_sensor` 固件 profile，例如 `mmwk_sensor_bridge`。
+- 本文档默认你先执行 `./run.sh node info -p "$PORT"`，并且返回某个 `mmwk_sensor` 固件 profile，例如 `mmwk_sensor_bridge`。
 - `run.sh` 默认走标准 CLI JSON。如果旧调用方还依赖 MCP，请显式加上 `--protocol mcp` 作为兼容回退。
 - 本文档不替代 Wi-Fi / MQTT bring-up。执行 `collect` 之前，设备运行时网络应已经可用，例如 `ip` 不应还是 `0.0.0.0`；依赖 MQTT 的流程应看到 `mqtt_state=connected`。
-- 如果你刚执行过 `radar flash`、`radar ota`、`radar reconf`，或者刚走完 factory / baseline 恢复路径后的第一次上电，请先等 `radar status` 返回 `running`，再去使用任何 late-attach 的 `collect` 流程。
+- 如果你刚执行过 `radar fw flash`、`radar fw ota`、`radar config apply`，或者刚走完 factory / baseline 恢复路径后的第一次上电，请先等 `radar status` 返回 `running`，再去使用任何 late-attach 的 `collect` 流程。
 
 下面这组 shell 变量可直接复用到后续命令：
 
@@ -243,8 +243,8 @@ auto 模式下，MQTT raw 平面是只出不进的。
 
 | 参数 | 适用命令 | 含义 |
 | --- | --- | --- |
-| `--fw <file.bin>` | `radar ota`、`radar flash` | 必填，表示写入雷达芯片的固件二进制。 |
-| `--cfg <file.cfg>` | `radar ota`、`radar flash` | 可选，表示与所选固件匹配的雷达配置文本。 |
+| `--fw <file.bin>` | `radar fw ota`、`radar fw flash` | 必填，表示写入雷达芯片的固件二进制。 |
+| `--cfg <file.cfg>` | `radar fw ota`、`radar fw flash` | 可选，表示与所选固件匹配的雷达配置文本。 |
 | `-p <serial_port>` | 参考示例 | 主机侧 UART 串口，CLI 通过它连接到设备控制服务。 |
 
 HTTP OTA 专属参数：
@@ -257,33 +257,33 @@ HTTP OTA 专属参数：
 | `--ota-timeout <sec>` | OTA 下载并应用的最长等待时间。 |
 | `--progress-interval <sec>` | 设备上报刷机进度的时间间隔。 |
 
-分块传输（`radar flash`）专属参数：
+分块传输（`radar fw flash`）专属参数：
 
 | 参数 | 含义 |
 | --- | --- |
 | `--chunk-size <bytes>` | 每个固件分块的大小。 |
-| `--mqtt-delay <sec>` | 当 `radar flash` 走 MQTT 传输时，块与块之间的延时。 |
+| `--mqtt-delay <sec>` | 当 `radar fw flash` 走 MQTT 传输时，块与块之间的延时。 |
 | `--progress-interval <sec>` | 分块刷机过程中设备上报进度的时间间隔。 |
 | `--reboot-delay <sec>` | 刷机成功后 ESP 重启前的附加等待时间。 |
 
 ### 7.2 管理型固件目录
 
-当你要管理 ESP 侧保存的雷达固件目录，而不是当场从主机推一份新的雷达镜像时，请使用 `fw` 相关命令。
+当你要管理 ESP 侧保存的雷达固件目录，而不是当场从主机推一份新的雷达镜像时，请使用 `radar fw` 相关命令。
 
 ```bash
-./run.sh fw list -p "$PORT"
-./run.sh fw set --index 0 -p "$PORT"
+./run.sh radar fw list -p "$PORT"
+./run.sh radar fw set --index 0 -p "$PORT"
 ```
 
 契约：
 
-- `fw list` 是 profile 面向用户的固件目录查看面。每个条目都带有 `default` 和 `running` 标志，用来区分保存的默认固件和当前运行中的目录条目。
+- `radar fw list` 是 profile 面向用户的固件目录查看面。每个条目都带有 `default` 和 `running` 标志，用来区分保存的默认固件和当前运行中的目录条目。
 - bundled 条目属于运行时内置资产，不是主机上传后落到存储区的新对象；请把它们视为随固件携带的只读目录项。
-- `fw set --index <n>` 是持久化的默认固件切换，不是单纯的 metadata 开关。
+- `radar fw set --index <n>` 是持久化的默认固件切换，不是单纯的 metadata 开关。
 
 ### 7.3 运行态固件状态
 
-`device hi` / `node info` 会返回嵌套固件状态：
+`node info` 会返回嵌套固件状态：
 
 - `fw.default`
 - `fw.running`
@@ -296,13 +296,13 @@ HTTP OTA 专属参数：
 
 ### 7.4 运行时重配置
 
-当你只想修改运行时雷达契约，而不想再次刷写 firmware 时，请使用 `radar reconf`。它可以切换 `welcome` / `verify` / `version` 语义，也可以替换或清除运行时 cfg，同时保持当前雷达固件二进制不变。
+当你只想修改运行时雷达契约，而不想再次刷写 firmware 时，请使用 `radar config apply`。它可以切换 `welcome` / `verify` / `version` 语义，也可以替换或清除运行时 cfg，同时保持当前雷达固件二进制不变。
 
 ```bash
-./run.sh radar reconf --welcome --no-verify -p "$PORT"
-./run.sh radar reconf --welcome --verify --version "1.2.3" -p "$PORT"
-./run.sh radar reconf --welcome --no-verify --cfg ./runtime.cfg -p "$PORT"
-./run.sh radar reconf --welcome --no-verify --clear-cfg -p "$PORT"
+./run.sh radar config apply --welcome --no-verify -p "$PORT"
+./run.sh radar config apply --welcome --verify --version "1.2.3" -p "$PORT"
+./run.sh radar config apply --welcome --no-verify --cfg ./runtime.cfg -p "$PORT"
+./run.sh radar config apply --welcome --no-verify --clear-cfg -p "$PORT"
 ```
 
 契约：
@@ -312,29 +312,31 @@ HTTP OTA 专属参数：
 - `--cfg` 对应 `cfg_action=replace`，只上传运行时 cfg，并以 `uart_data action=reconf_done` 收尾。
 - `--clear-cfg` 对应 `cfg_action=clear`，会清除持久化的运行时 cfg override。
 - 不传 `--cfg` 时，对应 `cfg_action=keep`，保留当前运行时 cfg 选择。
-- 与 `radar flash`、`radar ota` 不同，`radar reconf` 不会重新刷写 firmware，也不会替换雷达二进制。
-- 请把 `radar reconf` 当作可选的高级步骤。每次执行完 `radar reconf` 后，都要重新检查 `radar status`，并且等到 `state=running` 以后，再去依赖 `radar version` 或 `collect`。
+- 与 `radar fw flash`、`radar fw ota` 不同，`radar config apply` 不会重新刷写 firmware，也不会替换雷达二进制。
+- 请把 `radar config apply` 当作可选的高级步骤。每次执行完 `radar config apply` 后，都要重新检查 `radar status`，并且等到 `state=running` 以后，再去依赖 `radar fw version` 或 `collect`。
 
 ### 7.5 运行时 CFG 回读
 
-当你只想把当前实际生效的雷达 cfg 文本读出来，而不想改 firmware 或运行时契约状态时，请使用 `radar cfg`。
+当你只想把当前实际生效的雷达 cfg 文本读出来，而不想改 firmware 或运行时契约状态时，请使用 `radar config read`。
 
 ```bash
-./run.sh radar cfg -p "$PORT"
+./run.sh radar config read -p "$PORT"
+./run.sh radar config read --gen -p "$PORT"
 ```
 
 契约：
 
 - 默认读取当前实际生效的 file cfg 文本。
 - 所谓“当前实际生效的 file cfg”，是指当前选中的运行时 override cfg；如果没有 override，则读取 firmware metadata 里的默认 cfg。
-- 对 `radar flash` 明确传入的 firmware/cfg 配对，平台会持久化那对精确的 staging 运行时路径，而不会因为版本号相同就静默改绑到某个 bundled catalog 条目。
+- 对 `radar fw flash` 明确传入的 firmware/cfg 配对，平台会持久化那对精确的 staging 运行时路径，而不会因为版本号相同就静默改绑到某个 bundled catalog 条目。
 - 如果下次启动时无法精确重新打开这对持久化的显式运行时 firmware/cfg 路径，启动会直接失败，而不会静默替换成别的打包资产对。
+- `--gen` 用来请求 hub 运行时生成的 cfg，并且只在 hub runtime 下可用；bridge 会拒绝它，并且不会回退到 file cfg。
 - 如果当前选中的 file cfg 缺失、不可读或为空，请求会直接失败。
 - CLI 只会把 cfg 文本本身输出到 stdout，因此重定向时可以保留原始 cfg 内容。
 
 ### 7.6 Metadata 来源契约
 
-`radar flash` 和 `radar ota` 都会从 `--fw` 二进制旁边的 `meta.json` 推断雷达 metadata：`welcome` 加上可选的 `version`。
+`radar fw flash` 和 `radar fw ota` 都会从 `--fw` 二进制旁边的 `meta.json` 推断雷达 metadata：`welcome` 加上可选的 `version`。
 
 如果同时给了 CLI 参数和 `meta.json`，以显式 CLI 参数为准。如果你换成自定义 demo，请自行补一个匹配的 `meta.json`，或显式传入 `--welcome` / `--version`。
 
@@ -376,11 +378,11 @@ sensor 文档和 CLI 统一采用以下含义：
 
 ### 8.3 版本匹配
 
-- `radar flash` 和 `radar ota` 都支持显式传入 `--version <str>`、`--verify` / `--no-verify`、`--welcome` / `--no-welcome`。
+- `radar fw flash` 和 `radar fw ota` 都支持显式传入 `--version <str>`、`--verify` / `--no-verify`、`--welcome` / `--no-welcome`。
 - `version` 表示启动 CLI/welcome 输出里的目标子串。
 - 当启用版本校验时，MMWK 会在整段启动输出里查找目标子串，不要求固定某一行 welcome 文本。
 - `--verify` 会打开版本匹配，并且要求必须提供版本字符串。
-- 如果 `--verify` 不启用，刷机仍然可能成功，但 `radar version` 可能保持为空，因为没有期望字符串可匹配和保存。
+- 如果 `--verify` 不启用，刷机仍然可能成功，但 `radar fw version` 可能保持为空，因为没有期望字符串可匹配和保存。
 - 如果你需要定制一个可识别的雷达固件版本号，请让雷达固件的启动 CLI 输出打印出那个目标字符串，并确保主机通过 `--version` 或相邻 `meta.json` 提供同一个期望字符串。
 
 ### 8.4 启动失败处理
@@ -468,29 +470,29 @@ ESP 侧 KEY 与 LED 行为默认在所有受支持板型上一致。上电后按
 启动录制（`uri` 必须是可访问的 HTTP URL）：
 
 ```bash
-./cli/run.sh raw record start --uri "http://192.168.1.100:8080/upload" -p /dev/cu.usbserial-0001
+./cli/run.sh radar raw start --uri "http://192.168.1.100:8080/upload" -p /dev/cu.usbserial-0001
 ```
 
 触发一个 30 秒事件片段：
 
 ```bash
-./cli/run.sh raw record trigger --event "factory_test" --duration 30 -p /dev/cu.usbserial-0001
+./cli/run.sh radar raw trigger --event "factory_test" --duration-s 30 -p /dev/cu.usbserial-0001
 ```
 
 停止录制：
 
 ```bash
-./cli/run.sh raw record stop -p /dev/cu.usbserial-0001
+./cli/run.sh radar raw stop -p /dev/cu.usbserial-0001
 ```
 
 ## 10. 运行态确认清单
 
-在雷达刷写、OTA、reconf，或者 factory / baseline 恢复路径后的第一次上电后，建议结合以下命令一起确认：
+在雷达固件刷写、OTA、运行时 config apply，或者 factory / baseline 恢复路径后的第一次上电后，建议结合以下命令一起确认：
 
 ```bash
-./run.sh device hi -p "$PORT" | tee ./sensor_hi.json
+./run.sh node info -p "$PORT" | tee ./sensor_info.json
 ./run.sh radar status -p "$PORT" | tee ./radar_status.json
-./run.sh radar version -p "$PORT" | tee ./radar_version.json
+./run.sh radar fw version -p "$PORT" | tee ./radar_version.json
 ./run.sh collect --duration 12 \
   --data-output ./data_resp.sraw \
   --resp-output ./cmd_resp.log \
@@ -499,13 +501,13 @@ ESP 侧 KEY 与 LED 行为默认在所有受支持板型上一致。上电后按
 
 最低预期证据：
 
-- `device hi` 或 `node info` 能识别某个 `mmwk_sensor` 固件 profile。
+- `node info` 能识别某个 `mmwk_sensor` 固件 profile。
 - MQTT 相关流程开始前，`network status` 报告 `state=connected && ready=true`。
-- 雷达 flash / OTA / reconf 后，`radar status` 返回 `running`。
+- 雷达固件刷写、OTA 或运行时 config apply 后，`radar status` 返回 `running`。
 - `cmd_resp.log` 包含启动 trim 后的命令口文本。
 - 当当前雷达固件/配置组合预期会输出数据时，`data_resp.sraw` 非空。
 
-如果 `device hi` 仍报告 `ip = 0.0.0.0`，请把设备网络视为尚未准备好进行 MQTT raw capture。
+如果 `node info` 仍报告 `ip = 0.0.0.0`，请把设备网络视为尚未准备好进行 MQTT raw capture。
 
 ## 11. 故障排查参考
 

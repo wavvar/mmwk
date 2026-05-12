@@ -9,7 +9,7 @@ The bridge capability described in older documents is a platform capability, not
 Use this guide if one of these is true:
 
 - you are bringing up an MMWK board for the first time
-- the device is already running an `mmwk_sensor` firmware profile and you want the first end-to-end radar flash plus collection flow
+- the device is already running an `mmwk_sensor` firmware profile and you want the first end-to-end radar firmware flash plus collection flow
 - you need the shortest route to the right factory, OTA, collection, or reference document
 - you want to understand which behavior belongs to the shared sensor platform and which behavior belongs to a specific firmware profile
 
@@ -17,10 +17,10 @@ Before running commands:
 
 - Run shell examples from `./cli` so `./run.sh` and the `../firmwares/...` reference paths resolve exactly as written.
 - Replace `PORT=/dev/cu.usbserial-0001` with your real UART port before using command examples.
-- This document assumes `./run.sh device hi -p "$PORT"` or `./run.sh node info -p "$PORT"` already reports an `mmwk_sensor` firmware profile such as `mmwk_sensor_bridge`.
+- This document assumes `./run.sh node info -p "$PORT"` already reports an `mmwk_sensor` firmware profile such as `mmwk_sensor_bridge`.
 - `run.sh` defaults to canonical CLI JSON. If an older caller still depends on MCP, add `--protocol mcp` explicitly as a compatibility fallback.
 - This document does not replace Wi-Fi or MQTT bring-up. Before you run `collect`, the device should already have usable runtime networking such as a non-zero `ip`, and MQTT-dependent flows should show `mqtt_state=connected`.
-- If you just ran `radar flash`, `radar ota`, `radar reconf`, or the first boot after a factory / baseline recovery path, wait for `radar status` to return `running` before relying on any late-attach `collect` flow.
+- If you just ran `radar fw flash`, `radar fw ota`, `radar config apply`, or the first boot after a factory / baseline recovery path, wait for `radar status` to return `running` before relying on any late-attach `collect` flow.
 
 Use these shell variables in the examples below:
 
@@ -69,7 +69,7 @@ Choose this path if the ESP is blank, erased, or otherwise not yet running the c
 
 - Start with [Factory Flash Guide](./flash.md).
 - The current public baseline release is delivered as `factory.zip` plus `ota.zip`; `flash.md` explains how to use `factory.zip` for the first flash.
-- After factory flash succeeds, come back here and continue with Path B for the first radar flash plus collection flow, or Path C if you only need ESP OTA later.
+- After factory flash succeeds, come back here and continue with Path B for the first radar firmware flash plus collection flow, or Path C if you only need ESP OTA later.
 
 ### 3.2 Path B: Sensor Firmware Running -> Radar Flash + Collect
 
@@ -79,7 +79,7 @@ Recommended order:
 
 1. Confirm the device is reachable over UART with `./cli/run.sh node info -p <port>` on POSIX shells, or `.\cli\run.ps1 node info -p COM3` on Windows PowerShell.
 2. If Wi-Fi and MQTT are not configured yet, follow the bring-up sequence in [Local `server.sh` + `run.sh` Wi-Fi Flash and 5-Minute Collection Example](./collect.md).
-3. Use [Local `server.sh` + `run.sh` Wi-Fi Flash and 5-Minute Collection Example](./collect.md) for the validated radar flash plus 5-minute collection walkthrough.
+3. Use [Local `server.sh` + `run.sh` Wi-Fi Flash and 5-Minute Collection Example](./collect.md) for the validated radar firmware flash plus 5-minute collection walkthrough.
 
 `collect.md` owns the full detailed procedure. Those parameter contracts, welcome/version semantics, topic split, raw capture details, and startup-mode boundaries are included later in this document.
 
@@ -256,8 +256,8 @@ Shared parameters:
 
 | Parameter | Applies to | Meaning |
 | --- | --- | --- |
-| `--fw <file.bin>` | `radar ota`, `radar flash` | Required radar firmware binary written to the radar chip. |
-| `--cfg <file.cfg>` | `radar ota`, `radar flash` | Optional radar config text matched to the selected firmware. |
+| `--fw <file.bin>` | `radar fw ota`, `radar fw flash` | Required radar firmware binary written to the radar chip. |
+| `--cfg <file.cfg>` | `radar fw ota`, `radar fw flash` | Optional radar config text matched to the selected firmware. |
 | `-p <serial_port>` | reference examples | UART serial port used by the CLI to reach the device control service. |
 
 HTTP OTA specific parameters:
@@ -270,33 +270,33 @@ HTTP OTA specific parameters:
 | `--ota-timeout <sec>` | Maximum time to wait for OTA download plus apply. |
 | `--progress-interval <sec>` | How often the device emits flash progress updates. |
 
-Chunk-transfer (`radar flash`) specific parameters:
+Chunk-transfer (`radar fw flash`) specific parameters:
 
 | Parameter | Meaning |
 | --- | --- |
 | `--chunk-size <bytes>` | Size of each firmware chunk sent to the device. |
-| `--mqtt-delay <sec>` | Delay between chunks when `radar flash` runs over MQTT transport. |
+| `--mqtt-delay <sec>` | Delay between chunks when `radar fw flash` runs over MQTT transport. |
 | `--progress-interval <sec>` | How often the device reports flash progress during chunk transfer. |
 | `--reboot-delay <sec>` | Delay before the ESP reboots after a successful flash session. |
 
 ### 7.2 Managed Firmware Catalog
 
-Use the `fw` commands when you want to manage the ESP-side radar firmware catalog rather than push a new radar image from the host in that moment.
+Use the `radar fw` commands when you want to manage the ESP-side radar firmware catalog rather than push a new radar image from the host in that moment.
 
 ```bash
-./run.sh fw list -p "$PORT"
-./run.sh fw set --index 0 -p "$PORT"
+./run.sh radar fw list -p "$PORT"
+./run.sh radar fw set --index 0 -p "$PORT"
 ```
 
 Contract:
 
-- `fw list` is the profile-facing catalog surface. Each entry includes `default` and `running` flags so you can tell which firmware is the saved default and which managed catalog entry is running now.
+- `radar fw list` is the profile-facing catalog surface. Each entry includes `default` and `running` flags so you can tell which firmware is the saved default and which managed catalog entry is running now.
 - Bundled rows are runtime assets, not host-uploaded storage objects. Treat them as bundled/read-only catalog rows.
-- `fw set --index <n>` is a persisted default firmware switch, not just a metadata toggle.
+- `radar fw set --index <n>` is a persisted default firmware switch, not just a metadata toggle.
 
 ### 7.3 Runtime Firmware State
 
-`device hi` / `node info` returns nested firmware state:
+`node info` returns nested firmware state:
 
 - `fw.default`
 - `fw.running`
@@ -309,13 +309,13 @@ Legacy fields such as `radar_fw`, `radar_fw_version`, and `radar_cfg` remain ava
 
 ### 7.4 Runtime Reconfiguration
 
-Use `radar reconf` when you want to change the runtime radar contract without flashing firmware again. This can switch `welcome` / `verify` / `version` semantics and optionally replace or clear the runtime cfg while keeping the current radar firmware binary in place.
+Use `radar config apply` when you want to change the runtime radar contract without flashing firmware again. This can switch `welcome` / `verify` / `version` semantics and optionally replace or clear the runtime cfg while keeping the current radar firmware binary in place.
 
 ```bash
-./run.sh radar reconf --welcome --no-verify -p "$PORT"
-./run.sh radar reconf --welcome --verify --version "1.2.3" -p "$PORT"
-./run.sh radar reconf --welcome --no-verify --cfg ./runtime.cfg -p "$PORT"
-./run.sh radar reconf --welcome --no-verify --clear-cfg -p "$PORT"
+./run.sh radar config apply --welcome --no-verify -p "$PORT"
+./run.sh radar config apply --welcome --verify --version "1.2.3" -p "$PORT"
+./run.sh radar config apply --welcome --no-verify --cfg ./runtime.cfg -p "$PORT"
+./run.sh radar config apply --welcome --no-verify --clear-cfg -p "$PORT"
 ```
 
 Contract:
@@ -325,29 +325,31 @@ Contract:
 - `--cfg` maps to `cfg_action=replace`, uploads only a runtime cfg, and finishes with `uart_data action=reconf_done`.
 - `--clear-cfg` maps to `cfg_action=clear` and removes the persisted runtime cfg override.
 - No `--cfg` flag maps to `cfg_action=keep` and preserves the current runtime cfg selection.
-- Unlike `radar flash` or `radar ota`, `radar reconf` does not flash firmware and does not replace the radar binary.
-- Treat `radar reconf` as an optional advanced step. After any `radar reconf`, re-check `radar status` and wait for `state=running` before relying on `radar version` or `collect`.
+- Unlike `radar fw flash` or `radar fw ota`, `radar config apply` does not flash firmware and does not replace the radar binary.
+- Treat `radar config apply` as an optional advanced step. After any `radar config apply`, re-check `radar status` and wait for `state=running` before relying on `radar fw version` or `collect`.
 
 ### 7.5 Runtime CFG Readback
 
-Use `radar cfg` when you need to read back the current effective radar cfg text without changing firmware or runtime contract state.
+Use `radar config read` when you need to read back the current effective radar cfg text without changing firmware or runtime contract state.
 
 ```bash
-./run.sh radar cfg -p "$PORT"
+./run.sh radar config read -p "$PORT"
+./run.sh radar config read --gen -p "$PORT"
 ```
 
 Contract:
 
 - Default behavior reads the current effective file cfg text.
 - The effective file cfg is the selected runtime override cfg when one is present; otherwise it is the default firmware metadata cfg.
-- After `radar flash` with an explicit firmware/config pair, the platform persists the exact staged runtime pair instead of silently rebinding to a bundled catalog entry with the same version.
+- After `radar fw flash` with an explicit firmware/config pair, the platform persists the exact staged runtime pair instead of silently rebinding to a bundled catalog entry with the same version.
 - If a persisted explicit runtime firmware or cfg path cannot be reopened exactly on the next startup, startup fails instead of silently substituting a different bundled asset pair.
+- `--gen` requests the hub-generated cfg and is supported only on hub runtimes; bridge rejects it and does not fall back to the file cfg.
 - If the selected file cfg is missing, unreadable, or empty, the request fails directly.
 - CLI prints only the cfg text to stdout, so redirecting the output preserves the raw cfg content.
 
 ### 7.6 Metadata Source Contract
 
-`radar flash` and `radar ota` both infer radar metadata from a sibling `meta.json` next to the `--fw` binary: `welcome` plus optional `version`.
+`radar fw flash` and `radar fw ota` both infer radar metadata from a sibling `meta.json` next to the `--fw` binary: `welcome` plus optional `version`.
 
 If both CLI flags and `meta.json` are available, explicit CLI values win. If you replace packaged examples with a custom demo, add a matching `meta.json` yourself or pass `--welcome` / `--version` explicitly.
 
@@ -389,11 +391,11 @@ Real applications, services, dashboards, and agents should normally integrate th
 
 ### 8.3 Version Matching
 
-- `radar flash` and `radar ota` both expose `--version <str>`, `--verify` / `--no-verify`, and `--welcome` / `--no-welcome`.
+- `radar fw flash` and `radar fw ota` both expose `--version <str>`, `--verify` / `--no-verify`, and `--welcome` / `--no-welcome`.
 - `version` is the substring matched inside startup CLI/welcome output.
 - When verification is enabled, MMWK searches for the version substring anywhere in the accumulated startup text. It does not require a fixed welcome line.
 - `--verify` enables version matching and requires a version string.
-- If `--verify` is not enabled, flashing still works, but `radar version` may be empty because there is no expected string to match and persist.
+- If `--verify` is not enabled, flashing still works, but `radar fw version` may be empty because there is no expected string to match and persist.
 - If you need to customize the radar firmware version that MMWK recognizes, make the radar firmware's startup CLI output print the desired version string, then ensure the host passes the same expected string via `--version` or adjacent `meta.json`.
 
 ### 8.4 Startup Failure Handling
@@ -481,29 +483,29 @@ Minimum pass criteria:
 Start recording (`uri` must be a reachable HTTP URL):
 
 ```bash
-./cli/run.sh raw record start --uri "http://192.168.1.100:8080/upload" -p /dev/cu.usbserial-0001
+./cli/run.sh radar raw start --uri "http://192.168.1.100:8080/upload" -p /dev/cu.usbserial-0001
 ```
 
 Trigger a 30-second event:
 
 ```bash
-./cli/run.sh raw record trigger --event "factory_test" --duration 30 -p /dev/cu.usbserial-0001
+./cli/run.sh radar raw trigger --event "factory_test" --duration-s 30 -p /dev/cu.usbserial-0001
 ```
 
 Stop recording:
 
 ```bash
-./cli/run.sh raw record stop -p /dev/cu.usbserial-0001
+./cli/run.sh radar raw stop -p /dev/cu.usbserial-0001
 ```
 
 ## 10. Runtime Verification Checklist
 
-Use these commands together after radar flash, OTA, reconf, or the first boot after a factory / baseline recovery path:
+Use these commands together after radar firmware flash, OTA, runtime config apply, or the first boot after a factory / baseline recovery path:
 
 ```bash
-./run.sh device hi -p "$PORT" | tee ./sensor_hi.json
+./run.sh node info -p "$PORT" | tee ./sensor_info.json
 ./run.sh radar status -p "$PORT" | tee ./radar_status.json
-./run.sh radar version -p "$PORT" | tee ./radar_version.json
+./run.sh radar fw version -p "$PORT" | tee ./radar_version.json
 ./run.sh collect --duration 12 \
   --data-output ./data_resp.sraw \
   --resp-output ./cmd_resp.log \
@@ -512,13 +514,13 @@ Use these commands together after radar flash, OTA, reconf, or the first boot af
 
 Minimum expected evidence:
 
-- `device hi` or `node info` identifies an `mmwk_sensor` firmware profile.
+- `node info` identifies an `mmwk_sensor` firmware profile.
 - `network status` reports `state=connected && ready=true` before MQTT-dependent flows.
-- `radar status` returns `running` after radar flash/OTA/reconf.
+- `radar status` returns `running` after radar firmware flash, OTA, or runtime config apply.
 - `cmd_resp.log` contains startup-trimmed command-port text.
 - `data_resp.sraw` is non-empty when the radar firmware/config pair is expected to emit data.
 
-If `device hi` still reports `ip = 0.0.0.0`, treat the device network as not ready for MQTT raw capture yet.
+If `node info` still reports `ip = 0.0.0.0`, treat the device network as not ready for MQTT raw capture yet.
 
 ## 11. Troubleshooting Reference
 

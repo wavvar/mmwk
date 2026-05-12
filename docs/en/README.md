@@ -3,6 +3,7 @@
 Start here for product-level MMWK workflows and protocol references.
 
 - [mmWave Sensor Development Kit](./mmwk-sensor.md): shared sensor platform bring-up path.
+- [Bridge Reference](./bridge-reference.md): bridge-specific runtime contracts and verification checklist.
 - [Local `server.sh` + `run.sh` Wi-Fi Flash and 5-Minute Collection Example](./collect.md): validated sensor collection workflow.
 - [Factory Flash Guide](./flash.md): first ESP flash for blank or erased devices.
 - [Device OTA Guide](./ota.md): ESP OTA update flow.

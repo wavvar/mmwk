@@ -72,10 +72,10 @@ Use this exact extracted file:
 From the `mmwk` project root, verify runtime identity:
 
 ```bash
-./cli/run.sh device hi --reset -p <port>
+./cli/run.sh node info --reset -p <port>
 ```
 
-`device hi` should report the bridge identity. Confirm that `device hi.version` matches the version encoded in the published package path or extracted binary name, for example:
+`node info` should report the bridge identity. Confirm that its `version` field matches the version encoded in the published package path or extracted binary name, for example:
 
 ```text
 ./firmwares/esp/mini/mmwk_sensor_bridge/v1.2.2/factory.zip
