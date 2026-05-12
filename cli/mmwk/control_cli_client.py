@@ -384,7 +384,7 @@ class ControlCliClient:
 
             attempt += 1
             try:
-                result = self.call_tool("node", {"action": "info"}, timeout=min(2.0, remaining))
+                result = self.call_tool("node", {"action": "info"}, timeout=max(0.1, remaining))
                 text = self.extract_text(result)
                 payload = json.loads(text)
                 if not isinstance(payload, dict):
