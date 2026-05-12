@@ -4,18 +4,18 @@ import json
 
 
 class CfgCommand:
-    """Fetch radar cfg text via MCP radar tool."""
+    """Fetch radar cfg text via MCP radar.config tool."""
 
     def __init__(self, mcp_client):
         self._mcp = mcp_client
 
     def execute(self, gen=False, timeout=10.0):
-        payload = {"action": "cfg"}
+        payload = {"action": "read"}
         if gen:
             payload["gen"] = True
 
         try:
-            result = self._mcp.call_tool("radar", payload, timeout=timeout)
+            result = self._mcp.call_tool("radar.config", payload, timeout=timeout)
             text = self._mcp.extract_text(result)
             parsed = json.loads(text)
         except json.JSONDecodeError as exc:
