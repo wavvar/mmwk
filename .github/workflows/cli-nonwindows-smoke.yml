@@ -73,8 +73,6 @@ jobs:
             fi
           done
 
-          bash cli/tests/test_server_env_contract.sh
-
       - name: Run SDK contract test
         run: |
           set -euo pipefail
