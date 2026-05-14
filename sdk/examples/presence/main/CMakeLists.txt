@@ -1,0 +1,11 @@
+idf_component_register(
+    SRCS
+        "main.c"
+        "presence_state.c"
+        "presence_cli.c"
+        "presence_radar_assets.c"
+    REQUIRES
+        mmwk_sdk
+        mmwk_board
+        json
+)

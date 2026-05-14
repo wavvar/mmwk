@@ -1,0 +1,7 @@
+dependencies:
+  espressif/led_indicator: "^1.0.0"
+  espressif/mdns: "^1.8.2"
+  espressif/esp_tinyusb:
+    version: "^2.0.0"
+    rules:
+      - if: "$MMWK_USB_ENABLE_TINYUSB == 1"
