@@ -41,6 +41,37 @@ def is_pid_running(pid_text: str | None) -> bool:
     if pid <= 0:
         return False
 
+    if os.name == "nt":
+        import ctypes
+        from ctypes import wintypes
+
+        process_query_limited_information = 0x1000
+        still_active = 259
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        kernel32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+        kernel32.GetExitCodeProcess.restype = wintypes.BOOL
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel32.CloseHandle.restype = wintypes.BOOL
+
+        handle = kernel32.OpenProcess(
+            process_query_limited_information,
+            False,
+            pid,
+        )
+        if not handle:
+            return False
+
+        try:
+            exit_code = wintypes.DWORD()
+            if not kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+                return False
+            return exit_code.value == still_active
+        finally:
+            kernel32.CloseHandle(handle)
+
     try:
         os.kill(pid, 0)
     except OSError:
@@ -637,18 +668,16 @@ class ServerRuntime:
     def cleanup_server(self) -> None:
         for pid_file in (self.mqtt_pid_file, self.http_pid_file, self.server_pid_file):
             pid = _read_pid_file(pid_file)
-            if is_pid_running(pid):
-                try:
-                    os.kill(int(pid), signal.SIGTERM)
-                except OSError:
-                    pass
+            self.terminate_pid(pid, skip_current=True)
 
-        # Wait briefly, escalate.
+        # Wait briefly for children. When called by the supervisor itself, the
+        # server pid file points at the current process and must not keep cleanup
+        # waiting forever or make the process terminate itself on Windows.
         for _ in range(20):
             pending = [
                 _read_pid_file(self.mqtt_pid_file),
                 _read_pid_file(self.http_pid_file),
-                _read_pid_file(self.server_pid_file),
+                self.other_process_pid(_read_pid_file(self.server_pid_file)),
             ]
             if not any(is_pid_running(p) for p in pending):
                 break
@@ -664,11 +693,7 @@ class ServerRuntime:
     def cleanup_children_only(self) -> None:
         for pid_file in (self.mqtt_pid_file, self.http_pid_file):
             pid = _read_pid_file(pid_file)
-            if is_pid_running(pid):
-                try:
-                    os.kill(int(pid), signal.SIGTERM)
-                except OSError:
-                    pass
+            self.terminate_pid(pid, skip_current=True)
 
         for _ in range(20):
             if (
@@ -693,6 +718,45 @@ class ServerRuntime:
 
     def tcp_connects(self, host: str, port: int) -> bool:
         return self._ping_tcp(host, port, timeout=1.0)
+
+    def pid_is_current_process(self, pid_text: str | None) -> bool:
+        try:
+            return int(str(pid_text or "").strip()) == os.getpid()
+        except ValueError:
+            return False
+
+    def other_process_pid(self, pid_text: str | None) -> str:
+        return "" if self.pid_is_current_process(pid_text) else (pid_text or "")
+
+    def terminate_pid(self, pid_text: str | None, *, skip_current: bool) -> None:
+        if not pid_text:
+            return
+        if skip_current and self.pid_is_current_process(pid_text):
+            return
+        if not is_pid_running(pid_text):
+            return
+        try:
+            os.kill(int(str(pid_text).strip()), signal.SIGTERM)
+        except (OSError, ValueError):
+            pass
+
+    def write_stop_request(self, reason: str) -> None:
+        lines = [
+            "stop",
+            f"reason={reason}",
+            f"pid={os.getpid()}",
+            f"time={timestamp_now()}",
+        ]
+        self.stop_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    def read_stop_request_summary(self) -> str:
+        if not self.stop_file.is_file():
+            return ""
+        try:
+            content = self.stop_file.read_text(encoding="utf-8").strip()
+        except OSError:
+            return ""
+        return content.replace("\r", "").replace("\n", "; ")
 
     def print_server_summary(self, resolved_host_ip: str) -> None:
         device_ota_url = self.device_ota_url_for_host(resolved_host_ip)
@@ -783,7 +847,7 @@ class ServerRuntime:
         self.log_info(f"Env file written: {self.env_file}")
 
         def _on_signal(_signum, _frame):
-            self.stop_file.write_text("stop\n", encoding="utf-8")
+            self.write_stop_request(f"signal:{_signum}")
 
         if hasattr(signal, "SIGINT"):
             signal.signal(signal.SIGINT, _on_signal)
@@ -791,30 +855,39 @@ class ServerRuntime:
             signal.signal(signal.SIGTERM, _on_signal)
 
         if stop_requested:
-            self.stop_file.write_text("stop\n", encoding="utf-8")
+            self.write_stop_request("run_server:stop_requested")
 
+        exit_code = 0
         while True:
             if self.stop_file.is_file():
-                self.log_info("Stop request detected")
+                summary = self.read_stop_request_summary()
+                if summary:
+                    self.log_info(f"Stop request detected ({summary})")
+                else:
+                    self.log_info("Stop request detected")
                 break
 
             if not is_pid_running(_read_pid_file(self.mqtt_pid_file)):
                 self.log_warn("MQTT process exited unexpectedly")
-                return 1
+                exit_code = 1
+                break
             if not is_pid_running(_read_pid_file(self.http_pid_file)):
                 self.log_warn("HTTP process exited unexpectedly")
-                return 1
+                exit_code = 1
+                break
             if not self.tcp_connects("127.0.0.1", self.mqtt_port):
                 self.log_warn(f"MQTT is no longer listening on port {self.mqtt_port}")
-                return 1
+                exit_code = 1
+                break
             if not self.tcp_connects("127.0.0.1", self.http_port):
                 self.log_warn(f"HTTP is no longer listening on port {self.http_port}")
-                return 1
+                exit_code = 1
+                break
 
             time.sleep(1)
 
         self.cleanup_server()
-        return 0
+        return exit_code
 
     def start(self) -> int:
         self.prepare_server()
@@ -877,23 +950,29 @@ class ServerRuntime:
         )
 
     def stop(self) -> int:
-        self.stop_file.write_text("stop\n", encoding="utf-8")
+        self.write_stop_request("command:stop")
+
+        for _ in range(20):
+            server_pid = _read_pid_file(self.server_pid_file)
+            mqtt_pid = _read_pid_file(self.mqtt_pid_file)
+            http_pid = _read_pid_file(self.http_pid_file)
+            if not (
+                is_pid_running(server_pid)
+                or is_pid_running(mqtt_pid)
+                or is_pid_running(http_pid)
+            ):
+                break
+            time.sleep(0.2)
 
         server_pid = _read_pid_file(self.server_pid_file)
-        mqtt_pid = _read_pid_file(self.mqtt_pid_file)
-        http_pid = _read_pid_file(self.http_pid_file)
-
         if is_pid_running(server_pid):
-            try:
-                os.kill(int(server_pid), signal.SIGTERM)
-            except OSError:
-                pass
+            self.terminate_pid(server_pid, skip_current=True)
             for _ in range(20):
-                if is_pid_running(server_pid) or is_pid_running(mqtt_pid) or is_pid_running(http_pid):
-                    time.sleep(0.2)
-                else:
+                if not is_pid_running(_read_pid_file(self.server_pid_file)):
                     break
-        else:
+                time.sleep(0.2)
+
+        if not is_pid_running(_read_pid_file(self.server_pid_file)):
             self.cleanup_children_only()
 
         for p in (self.server_pid_file, self.mqtt_pid_file, self.http_pid_file, self.stop_file):
