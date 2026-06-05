@@ -11,6 +11,7 @@ import argparse
 import os
 import pathlib
 import re
+import shlex
 import signal
 import socket
 import subprocess
@@ -274,6 +275,7 @@ class ServerRuntime:
         self.mosq_conf = pathlib.Path(self.state_dir) / "mosquitto.conf"
 
         self.prepared_host_ip: str = ""
+        self.mosquitto_command: str = ""
 
     def _abspath(self, value: str) -> str:
         path = pathlib.Path(value)
@@ -374,10 +376,88 @@ class ServerRuntime:
 
         self.select_versioned_device_ota(board_root)
 
-    def _has_command(self, name: str) -> bool:
+    def _windows_service_image_path(self, service_name: str) -> str:
+        if os.name != "nt":
+            return ""
+
+        query = (
+            f"(Get-CimInstance -ClassName Win32_Service "
+            f"-Filter \"Name='{service_name}'\" -ErrorAction SilentlyContinue).PathName"
+        )
+        try:
+            return subprocess.check_output(
+                ["powershell.exe", "-NoProfile", "-Command", query],
+                text=True,
+                stderr=subprocess.DEVNULL,
+                timeout=5,
+            ).strip()
+        except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            return ""
+
+    def _extract_windows_exe_path(self, raw_command: str) -> str:
+        raw = (raw_command or "").strip()
+        if not raw:
+            return ""
+
+        candidate = ""
+        if raw.startswith('"'):
+            end_quote = raw.find('"', 1)
+            if end_quote > 1:
+                candidate = raw[1:end_quote]
+        else:
+            exe_match = re.search(r"\.exe\b", raw, flags=re.IGNORECASE)
+            if exe_match:
+                candidate = raw[: exe_match.end()]
+            else:
+                try:
+                    parts = shlex.split(raw, posix=False)
+                except ValueError:
+                    parts = []
+                if parts:
+                    candidate = parts[0].strip('"')
+
+        candidate = os.path.expandvars(candidate.strip().strip('"'))
+        if not candidate:
+            return ""
+
+        path = pathlib.Path(candidate)
+        if path.name.lower() != "mosquitto.exe":
+            return ""
+        if not path.is_file():
+            return ""
+        return str(path)
+
+    def resolve_mosquitto_command(self) -> str:
         from shutil import which
 
-        return bool(which(name))
+        for name in ("mosquitto", "mosquitto.exe"):
+            found = which(name)
+            if found:
+                return found
+
+        if os.name != "nt":
+            return ""
+
+        service_path = self._extract_windows_exe_path(
+            self._windows_service_image_path("mosquitto")
+        )
+        if service_path:
+            return service_path
+
+        candidate_roots = [
+            os.environ.get("ProgramFiles", ""),
+            os.environ.get("ProgramFiles(x86)", ""),
+            r"C:\Program Files",
+            r"C:\Program Files (x86)",
+        ]
+        for root in candidate_roots:
+            if not root:
+                continue
+            candidate = pathlib.Path(root) / "mosquitto" / "mosquitto.exe"
+            if candidate.is_file():
+                return str(candidate)
+
+        return ""
 
     def load_state_runtime(self) -> None:
         if not self.env_file.is_file():
@@ -509,8 +589,12 @@ class ServerRuntime:
                 f"device OTA artifact not found under {self.resolve_device_ota_dir()}"
             )
 
-        if not self._has_command("mosquitto"):
-            raise RuntimeError("required command not found: mosquitto")
+        self.mosquitto_command = self.resolve_mosquitto_command()
+        if not self.mosquitto_command:
+            raise RuntimeError(
+                "required command not found: mosquitto "
+                "(add mosquitto.exe to PATH, or install the Windows mosquitto service)"
+            )
 
         self.state_dir_obj.mkdir(parents=True, exist_ok=True)
         self.upload_dir_obj.mkdir(parents=True, exist_ok=True)
@@ -522,6 +606,7 @@ class ServerRuntime:
         self.log_info(f"State Dir   : {self.state_dir}")
         self.log_info(f"Serve Dir   : {self.serve_dir}")
         self.log_info(f"Upload Dir  : {self.upload_dir}")
+        self.log_info(f"Mosquitto   : {self.mosquitto_command}")
         self.log_info(f"Requested MQTT Port: {self.mqtt_port}")
         self.log_info(f"Requested HTTP Port: {self.http_port}")
 
@@ -639,7 +724,7 @@ class ServerRuntime:
         http_log_handle = self.http_log.open("a", encoding="utf-8")
 
         mqtt_proc = subprocess.Popen(
-            ["mosquitto", "-c", str(self.mosq_conf), "-v"],
+            [self.mosquitto_command or "mosquitto", "-c", str(self.mosq_conf), "-v"],
             stdin=subprocess.DEVNULL,
             stdout=mqtt_log_handle,
             stderr=subprocess.STDOUT,
