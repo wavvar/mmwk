@@ -287,7 +287,7 @@ Wire-level meaning of these topics:
 
 BRIDGE-only extension:
 
-- `uart_enabled` (boolean): forward `RADAR_SVC_EVT_SENSOR_DATA` notifications to UART transport.
+- `uart_enabled` (boolean): forward `MMWK_SERVICE_EVT_SENSOR_DATA` notifications to UART transport.
 
 Get mode (when `enabled` is absent):
 

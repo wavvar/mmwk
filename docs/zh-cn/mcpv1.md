@@ -288,7 +288,7 @@ BRIDGE 和 HUB 都使用固定的 raw topic：
 
 BRIDGE 专属扩展：
 
-- `uart_enabled`：是否将 `RADAR_SVC_EVT_SENSOR_DATA` 通知同时转发到 UART
+- `uart_enabled`：是否将 `MMWK_SERVICE_EVT_SENSOR_DATA` 通知同时转发到 UART
 
 查询模式（无 `enabled` 时）：
 
