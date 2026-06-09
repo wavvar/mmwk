@@ -93,11 +93,11 @@ MMWK 支持你把自己的软件和硬件带入生态：
 
 **硬件：** 先选择一块受支持的 MMWK 板卡，上面的板卡表和 [模组产品总览](./modules/README_CN.md) 可帮助你判断硬件系列。出厂刷机路径或板卡接线只暴露 UART 时，需要 UART-USB 转换器；需要通过 UART 快速下发首次配置或调试命令时，也建议准备 UART-USB 转换器。如果板卡已经提供受支持的 USB 串口，则直接使用该接口作为本地 CLI 入口。
 
-**主机 CLI：** CLI 支持 macOS/Linux POSIX shell 入口 `./cli/run.sh`，也支持 Windows PowerShell 入口 `./cli/run.ps1`。POSIX wrapper 会管理自己的 `./cli/venv`；PowerShell wrapper 使用当前或系统 Python 3.10+ 环境，因此需要先安装 `./cli/requirements.txt`。任务 helper 也提供 PowerShell wrapper，其 parity 差异见 [CLI README](./cli/docs/zh-cn/README.md#主机平台入口)。
+**主机 CLI：** CLI 支持 macOS/Linux POSIX shell 入口 `./cli/run.sh`，也支持 Windows PowerShell 入口 `./cli/run.ps1`。两种 wrapper 都会从调用 wrapper 时所在目录解析相对 firmware/config/output 路径。POSIX wrapper 会管理自己的 `./cli/venv`；PowerShell wrapper 使用当前或系统 Python 3.10+ 环境，因此需要先安装 `./cli/requirements.txt`。任务 helper 也提供 PowerShell wrapper，其 parity 差异见 [CLI README](./cli/docs/zh-cn/README.md#主机平台入口)。
 
 **网络：** 准备 Wi-Fi 配网，或在支持蜂窝网络的板卡上准备可用的 4G/Cat1 SIM 卡和天线。Wi-Fi 可以通过设备 AP/浏览器门户配置，也可以通过 UART CLI 快速配置；4G 只适用于支持蜂窝硬件的板卡，并遵循共享网络优先级行为。开始 MQTT 控制、MQTT raw 采集、HTTP OTA 下载或上传/录制验证前，都应先确认网络可用。
 
-**服务器：** MQTT 和 HTTP 可以运行在本机、局域网主机或云服务器上。MQTT 是控制与数据 broker：负责 CLI JSON 命令/响应，以及采集流程使用的 raw 雷达 topic。HTTP 用于设备下载雷达/ESP 固件和配置文件，也可作为 record 验证时的上传端点。本地实验建议从 CLI 的 [本地 Server 辅助脚本](./cli/docs/zh-cn/README.md#本地-server-辅助脚本-serversh) 开始；`server.sh` / `server.ps1` 会提供 [5 分钟采集示例](./docs/zh-cn/collect.md) 和 [设备 OTA 指南](./docs/zh-cn/ota.md) 中需要复用的 MQTT broker 与 HTTP 文件服务上下文。
+**服务器：** MQTT 和 HTTP 可以运行在本机、局域网主机或云服务器上。MQTT 是控制与数据 broker：负责 CLI JSON 命令/响应，以及采集流程使用的 raw 雷达 topic。HTTP 用于设备下载雷达/ESP 固件和配置文件，也可作为 record 验证时的上传端点。本地实验建议从 CLI 的 [本地 Server 辅助脚本](./cli/docs/zh-cn/README.md#本地-server-辅助脚本-serversh) 开始；POSIX `server.sh` 要求 `mosquitto` 位于 `PATH`，Windows `server.ps1` 可以使用 `PATH` 中的 `mosquitto`，也可以解析已安装的 Windows mosquitto service/path。
 
 ### 3.2 应用场景
 
