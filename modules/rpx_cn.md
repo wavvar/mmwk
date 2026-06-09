@@ -183,6 +183,46 @@ USB 转 UART V1.3 调试板用于固件烧录和串口控制台访问，提供�
 | GND | 黑色 | GND |
 | VBUS | 红色 | 5V |
 
+### 4.6 管脚描述
+
+| 模组IO | 类型 | 功能 |
+| ---- | ---- | ------------------ |
+| IO0  | I/O  | BOOT_SET（启动模式） |
+| IO1  | I/O  | I2C_SCL |
+| IO2  | I/O  | I2C_SDA |
+| IO3  | I/O  | I2S_DOUT |
+| IO4  | I/O  | I2S_DIN |
+| IO5  | I/O  | I2S_LRCK |
+| IO6  | I/O  | I2S_SCLK |
+| IO7  | I/O  | I2S_MCLK |
+| IO8  | I/O  | RS232_TX |
+| IO9  | I/O  | RS232_RX |
+| IO10 | I/O  | NRESET |
+| IO11 | I/O  | SPIA_MOSI |
+| IO12 | I/O  | CAT1_RESET |
+| IO13 | I/O  | SPIA_MISO |
+| IO14 | I/O  | SPIA_CLK |
+| IO15 | I/O  | SPIA_CS |
+| IO16 | I/O  | POWER_ADC2_CH5 |
+| IO17 | I/O  | AU_PA_CTL |
+| IO18 | I/O  | PW_ON |
+| IO19 | I/O  | 内部保留，禁止复用 |
+| IO20 | I/O  | 内部保留，禁止复用 |
+| IO35 | I/O  | 内部保留，禁止复用（PSRAM占用） |
+| IO36 | I/O  | 内部保留，禁止复用（PSRAM占用） |
+| IO37 | I/O  | 内部保留，禁止复用（PSRAM占用） |
+| IO38 | I/O  | MODE_SET |
+| IO39 | I/O  | 内部保留，禁止复用 |
+| IO40 | I/O  | KEY_IN |
+| IO41 | I/O  | 内部保留，禁止复用 |
+| IO42 | I/O  | 内部保留，禁止复用 |
+| IO43 | UART | DEBUG_TX |
+| IO44 | UART | DEBUG_RX |
+| IO45 | I/O  | FLASH_POW_CTL |
+| IO46 | I/O  | 内部保留，禁止复用 |
+| IO47 | I/O  | SYSTEM_STATUS_LED |
+| IO48 | I/O  | 内部保留，禁止复用 |
+
 ## 5. 定制外壳与工业设计
 
 Wavvar 提供端到端的产品落地服务。除上述感知模块外，我们还提供工业设计和机械设计支持，帮助客户完成整机集成。

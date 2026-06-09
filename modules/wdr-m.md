@@ -11,8 +11,12 @@
 - [4.1 USB Type-C Interface Reference](#41-usb-type-c-interface-reference)
 - [4.2 Status LED Interface Reference](#42-status-led-interface-reference)
 - [4.3 Key Interface Reference](#43-key-interface-reference)
-- [4.4 External Radar Interface Description](#44-external-radar-interface-description)
+- [4.4 Audio Schematic Description](#44-audio-schematic-description)
+- [4.4.1 Audio Playback and Amplifier Path](#441-audio-playback-and-amplifier-path)
+- [4.4.2 Microphone Capture Path](#442-microphone-capture-path)
+- [4.5 External Radar Interface Description](#45-external-radar-interface-description)
 - [5. Interconnect and Board-Level Reference Diagrams](#5-interconnect-and-board-level-reference-diagrams)
+- [5.4 ESP32-S3-WROOM-1U-N8R8 Pin Description](#54-esp32-s3-wroom-1u-n8r8-pin-description)
 - [6. Related Documents](#6-related-documents)
 
 ## 1. Board Overview
@@ -53,6 +57,7 @@
 |  | PSRAM | 8 MB |
 |  | Flash Storage | 8 MB (main MCU) |
 |  | I/O and Indicators | 1x status LED, 1x key |
+|  | Audio Capability | Supports `I2S` / `I2C` audio codec control, `2x MIC` inputs, and `1x` speaker output |
 |  | External Radar (Optional) | External radar chip / radar board connected into the WDR system through the interface |
 |  | Cellular Network (Optional) | External WDR-4G add-on (see Note 1) |
 
@@ -79,7 +84,7 @@ Both radar-board variants use the same radar-side interface definition. If only 
 
 ## 4. Interface Description
 
-The main interfaces on the `WDR-M` board include `USB Type-C`, the status `LED`, key input, and the external radar access method.
+The main interfaces on the `WDR-M` board include `USB Type-C`, the status `LED`, key input, the audio path, and the external radar access method.
 
 ### 4.1 USB Type-C Interface Reference
 
@@ -108,7 +113,38 @@ The `WDR-M` board provides a key input, which can be used for local control or i
   <p style="margin: 4px 0 0 0;">Figure 3. Key reference on WDR-M</p>
 </div>
 
-### 4.4 External Radar Interface Description
+### 4.4 Audio Schematic Description
+
+Based on the newly added schematics, `WDR-M` reserves a complete audio subsystem. The main controller configures the audio devices over `I2C` and carries digital audio data over `I2S`. At a high level, the design is divided into two parts:
+
+- A codec and power-amplifier path for speaker playback
+- A multi-channel capture path for microphone input
+
+### 4.4.1 Audio Playback and Amplifier Path
+
+`wdr-m-audio1.png` shows the playback-side design of `WDR-M`. In this schematic, `ES8311` is used as the audio codec. It is configured from `ESP32-S3` over `I2C` (`SCL` / `SDA`), while playback data is transferred over `I2S` (`MCLK` / `SCLK` / `LRCK` / `DIN`).
+
+<div style="text-align: center; margin: 10px 0;">
+  <img src="./img/MDR/wdr-m-audio1.png" alt="WDR-M audio playback and amplifier path schematic" width="92%" style="display: block; margin: 0 auto;" />
+  <p style="margin: 4px 0 0 0;">Figure 4. WDR-M audio playback and amplifier path schematic</p>
+</div>
+
+For port mapping, `P1` is the speaker connection port.
+
+### 4.4.2 Microphone Capture Path
+
+`wdr-m-audio2.png` shows the recording-side design of `WDR-M`. In this schematic, `ES7210` is used as the audio `ADC` / microphone front end. The main controller configures it over `I2C` and reads captured audio data back over `I2S` (`MCLK` / `SCLK` / `LRCK` / `DOUT`).
+
+<div style="text-align: center; margin: 10px 0;">
+  <img src="./img/MDR/wdr-m-audio2.png" alt="WDR-M microphone capture path schematic" width="92%" style="display: block; margin: 0 auto;" />
+  <p style="margin: 4px 0 0 0;">Figure 5. WDR-M microphone capture path schematic</p>
+</div>
+
+For port mapping, `P2` and `P3` are the microphone connection ports.
+
+From a system-integration perspective, these two schematics together show that `WDR-M` is not only the main control and interconnect board of the radar system, but also has the hardware foundation for voice prompts, sound capture, and voice-interaction oriented features.
+
+### 4.5 External Radar Interface Description
 
 The `WDR-M` board does not integrate a radar chip locally. The radar function is connected as an external board. During system integration, the external radar board works together with `WDR-M` and the `4G Cat1` communication board. At the document level, `WDR-M` mainly retains the controller-side and interface-side description and does not expand on onboard radar parameters.
 
@@ -118,15 +154,58 @@ Both the `4G Cat1` communication board and the radar board connect to `WDR-M` th
 
 <div style="text-align: center; margin: 10px 0;">
   <img src="./img/MDR/mdr-m-to-radar-board-connection.png" alt="MDR-M to radar board connection reference" width="85%" style="display: block; margin: 0 auto;" />
-  <p style="margin: 4px 0 0 0;">Figure 4. WDR-M to radar board connection reference</p>
+  <p style="margin: 4px 0 0 0;">Figure 6. WDR-M to radar board connection reference</p>
 </div>
 
 <div style="text-align: center; margin: 10px 0;">
   <img src="./img/MDR/mdr-m-to-cat1-board-connection.png" alt="MDR-M to Cat1 communication board connection reference" width="85%" style="display: block; margin: 0 auto;" />
-  <p style="margin: 4px 0 0 0;">Figure 5. WDR-M to 4G Cat1 communication board connection reference</p>
+  <p style="margin: 4px 0 0 0;">Figure 7. WDR-M to 4G Cat1 communication board connection reference</p>
 </div>
 
 These references are suitable for checking plug-in direction, tracing `UART` or `USB` related signals, or reviewing how the communication board and radar board connect into `WDR-M`.
+
+### 5.1 Pin Description
+
+`WDR-M` uses the `ESP32-S3-WROOM-1U-N8R8` as the main controller module. The following table lists the main exposed pins and their functions.
+
+| Module IO | Type | Function |
+| ---- | ---- | ---- |
+| IO0  | I/O  | BOOT_SET (boot mode) |
+| IO1  | I/O  | I2C_SDA |
+| IO2  | I/O  | I2C_SCL |
+| IO3  | I/O  | I2S_DOUT / JTAG control |
+| IO4  | I/O  | I2S_DIN |
+| IO5  | I/O  | I2S_LRCK |
+| IO6  | I/O  | I2S_SCLK |
+| IO7  | I/O  | I2S_MCLK |
+| IO8  | I/O  | RS232_TX |
+| IO9  | I/O  | RS232_RX |
+| IO10 | I/O  | NRESET |
+| IO11 | I/O  | SPIA_MOSI |
+| IO12 | I/O  | CAT1_RST |
+| IO13 | I/O  | SPIA_MISO |
+| IO14 | I/O  | SPIA_CLK |
+| IO15 | I/O  | SPIA_CS |
+| IO16 | I/O  | S_IN_SW |
+| IO17 | I/O  | AU_PA_CTL |
+| IO18 | I/O  | Internal reserved, do not multiplex |
+| IO19 | I/O  | USB_DM |
+| IO20 | I/O  | USB_DP |
+| IO21 | I/O  | IOT_PWCTL |
+| IO35 | I/O  | Used internally by the module's PSRAM, do not multiplex |
+| IO36 | I/O  | Used internally by the module's PSRAM, do not multiplex |
+| IO37 | I/O  | Used internally by the module's PSRAM, do not multiplex |
+| IO38 | I/O  | RADA_MODE_SET |
+| IO39 | I/O  | Internal reserved, do not multiplex |
+| IO40 | I/O  | ALARM_IN |
+| IO41 | I/O  | UART2_RX |
+| IO42 | I/O  | UART2_TX |
+| IO43 | UART | DEBUG_TX |
+| IO44 | UART | DEBUG_RX |
+| IO45 | I/O  | RADA_POW_CTL |
+| IO46 | I/O  | MSG_EN |
+| IO47 | I/O  | STATUS_LED |
+| IO48 | I/O  | Internal reserved, do not multiplex |
 
 ## 6. Related Documents
 

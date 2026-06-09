@@ -30,7 +30,7 @@
 |  | UART_RX | Main module serial receive (`MAIN_RXD`) |
 | **P4 Interface Definition** | VBAT | External power input |
 |  | GND | Power ground |
-|  | CAT1_RST | Board-to-board name for the EG800Z `PWRKEY` power-on control |
+|  | CAT1_RST | Module reset / power-on control |
 | **Communication Capability** | UART | Main AT command channel for communication with an external host controller |
 |  | USB | Supports USB 2.0 (CDC virtual serial port) for AT commands, debugging, and upgrades |
 | **SIM Function** | SIM Type | Nano SIM |
