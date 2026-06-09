@@ -14,6 +14,7 @@
 - [4.4.2 麦克风采集链路](#442-麦克风采集链路)
 - [4.5 外挂雷达接口说明](#45-外挂雷达接口说明)
 - [5. 连接关系与板级参考图](#5-连接关系与板级参考图)
+- [5.4 ESP32-S3-WROOM-1U-N8R8 管脚描述](#54-esp32-s3-wroom-1u-n8r8-管脚描述)
 - [6. 相关文档](#6-相关文档)
 
 ## 1. 板卡概述
@@ -160,6 +161,49 @@
 </div>
 
 这些图适合在确认插接方向、追踪 `UART` 或 `USB` 相关信号，或检查通信板与雷达板如何接入 `WDR-M` 时使用。
+
+### 5.1 管脚描述
+
+`WDR-M` 采用 `ESP32-S3-WROOM-1U-N8R8` 作为主控模组。以下表格列出模组主要引出管脚及对应功能说明。
+
+| 模组IO | 类型 | 功能 |
+| ---- | ---- | ---- |
+| IO0  | I/O  | BOOT_SET（启动模式） |
+| IO1  | I/O  | I2C_SDA |
+| IO2  | I/O  | I2C_SCL |
+| IO3  | I/O  | I2S_DOUT / JTAG 控制 |
+| IO4  | I/O  | I2S_DIN |
+| IO5  | I/O  | I2S_LRCK |
+| IO6  | I/O  | I2S_SCLK |
+| IO7  | I/O  | I2S_MCLK |
+| IO8  | I/O  | RS232_TX |
+| IO9  | I/O  | RS232_RX |
+| IO10 | I/O  | NRESET |
+| IO11 | I/O  | SPIA_MOSI |
+| IO12 | I/O  | CAT1_RST |
+| IO13 | I/O  | SPIA_MISO |
+| IO14 | I/O  | SPIA_CLK |
+| IO15 | I/O  | SPIA_CS |
+| IO16 | I/O  | S_IN_SW |
+| IO17 | I/O  | AU_PA_CTL |
+| IO18 | I/O  | 内部保留，禁止复用 |
+| IO19 | I/O  | USB_DM |
+| IO20 | I/O  | USB_DP |
+| IO21 | I/O  | IOT_PWCTL |
+| IO35 | I/O  | 模组内部 PSRAM 占用，禁止复用 |
+| IO36 | I/O  | 模组内部 PSRAM 占用，禁止复用 |
+| IO37 | I/O  | 模组内部 PSRAM 占用，禁止复用 |
+| IO38 | I/O  | RADA_MODE_SET |
+| IO39 | I/O  | 内部保留，禁止复用 |
+| IO40 | I/O  | ALARM_IN |
+| IO41 | I/O  | UART2_RX |
+| IO42 | I/O  | UART2_TX |
+| IO43 | UART | DEBUG_TX |
+| IO44 | UART | DEBUG_RX |
+| IO45 | I/O  | RADA_POW_CTL |
+| IO46 | I/O  | MSG_EN |
+| IO47 | I/O  | STATUS_LED |
+| IO48 | I/O  | 内部保留，禁止复用 |
 
 ## 6. 相关文档
 

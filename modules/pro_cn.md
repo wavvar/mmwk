@@ -10,6 +10,7 @@
 - [5.1 烧录调试器 Type-C 接口说明](#51-烧录调试器-type-c-接口说明)
 - [5.2 状态 RGB LED 接口参考](#52-状态-rgb-led-接口参考)
 - [5.3 按键接口参考](#53-按键接口参考)
+- [5.4 ESP 芯片管脚描述](#54-esp-芯片管脚描述)
 - [6. 相关文档](#6-相关文档)
 
 ## 1. 模组概述
@@ -133,6 +134,63 @@
   <img src="./img/RPX/6843/pro-key.png" alt="PRO 按键接口参考" width="35%" style="display: block; margin: 0 auto;" />
   <p style="margin: 4px 0 0 0;">PRO 按键接口参考</p>
 </div>
+
+### 5.4 ESP 芯片管脚描述
+
+下表为 `PRO` 模组上 `ESP32-S3` 芯片的管脚功能说明。
+
+| GPIO   | 类型    | 功能                      |
+| ------ | ----- | ----------------------- |
+| GPIO0  | I/O   | ESP32_IO0下载设置    |
+| GPIO1  | I/O   | I2C_SCL                 |
+| GPIO2  | I/O   | I2C_SDA                 |
+| GPIO3  | I/O   | I2S_DOUT                |
+| GPIO4  | I/O   | I2S_DIN                 |
+| GPIO5  | I/O   | I2S_LRCK                |
+| GPIO6  | I/O   | I2S_BCLK                |
+| GPIO7  | I/O   | I2S_MCLK                |
+| GPIO8  | I/O   | U2TXD                   |
+| GPIO9  | I/O   | U2RXD                   |
+| GPIO10 | I/O   | AR_NRST（BMI160 复位）       |
+| GPIO11 | I/O   | SPI_MOSI（BMI160）        |
+| GPIO12 | I/O   | U1RXD                   |
+| GPIO13 | I/O   | SPI_CS（BMI160）          |
+| GPIO14 | I/O   | SPI_CLK（BMI160）         |
+| GPIO15 | I/O   | SPI_MISO（BMI160）        |
+| GPIO16 | I/O   | SPI_HOSR_INT（BMI160 中断）  |
+| GPIO17 | I/O   | PA_CTL（射频 PA 控制）          |
+| GPIO18 | I/O   | VEML6030_INT            |
+| GPIO19 | I/O   | USB_D-                  |
+| GPIO20 | I/O   | USB_D+                  |
+| GPIO21 | I/O   | IOT_PWCTL               |
+| GPIO26 | SPI 专用 | QSPI_PSRAM_CS（内部 PSRAM）  |
+| GPIO27 | SPI 专用 | QSPI_D2（内部 Flash/PSRAM）  |
+| GPIO28 | SPI 专用 | QSPI_D3（内部 Flash/PSRAM）  |
+| GPIO29 | SPI 专用 | QSPI_FLASH_CS（内部 Flash）  |
+| GPIO30 | SPI 专用 | QSPI_CLK（内部 Flash/PSRAM） |
+| GPIO31 | SPI 专用 | QSPI_D1（内部 Flash/PSRAM）  |
+| GPIO32 | SPI 专用 | QSPI_D0（内部 Flash/PSRAM）  |
+| GPIO33 | I/O   | KEY_IN（按键输入）            |
+| GPIO34 | I/O   | BMI160_INT1             |
+| GPIO35 | I/O   | CAT1_RESET              |
+| GPIO36 | I/O   | U0TXD（CAT1 串口发送）         |
+| GPIO37 | I/O   | U0RXD（CAT1 串口接收）         |
+| GPIO38 | I/O   | 内部保留，不能他用               |
+| GPIO39 | I/O   | 内部保留，不能他用               |
+| GPIO40 | I/O   | 内部保留，不能他用               |
+| GPIO41 | I/O   | 内部保留，不能他用               |
+| GPIO42 | I/O   | 内部保留，不能他用               |
+| GPIO43 | UART  | 调试串口 TXD（U0TXD）          |
+| GPIO44 | UART  | 调试串口 RXD（U0RXD）          |
+| GPIO45 | 输入    | ESP32_FLASH_POW_IO45     |
+| GPIO46 | 输入    | STATUS（启动配置脚）           |
+
+说明：
+
+- `GPIO26` 至 `GPIO32` 已连接片内 `Flash/PSRAM`，不建议作为普通 `GPIO` 使用。
+- `GPIO45`、`GPIO46` 为 `ESP32-S3` `Strapping` 管脚（启动配置脚），虽然引出使用，但需注意上电状态。
+- `GPIO38` 至 `GPIO42` 在原理图中未连接任何外设，按要求标记为内部保留，不能他用。
+- `GPIO43`、`GPIO44` 为下载调试串口。
 
 ## 6. 相关文档
 

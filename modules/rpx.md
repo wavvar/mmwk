@@ -183,6 +183,46 @@ If used for power supply only, the module does not distinguish between A and B s
 | GND | Black | GND |
 | VBUS | Red | 5V |
 
+### 4.6 Pin Descriptions
+
+| Module IO | Type | Function |
+| ---- | ---- | ------------------ |
+| IO0  | I/O  | BOOT_SET (boot mode) |
+| IO1  | I/O  | I2C_SCL |
+| IO2  | I/O  | I2C_SDA |
+| IO3  | I/O  | I2S_DOUT |
+| IO4  | I/O  | I2S_DIN |
+| IO5  | I/O  | I2S_LRCK |
+| IO6  | I/O  | I2S_SCLK |
+| IO7  | I/O  | I2S_MCLK |
+| IO8  | I/O  | RS232_TX |
+| IO9  | I/O  | RS232_RX |
+| IO10 | I/O  | NRESET |
+| IO11 | I/O  | SPIA_MOSI |
+| IO12 | I/O  | CAT1_RESET |
+| IO13 | I/O  | SPIA_MISO |
+| IO14 | I/O  | SPIA_CLK |
+| IO15 | I/O  | SPIA_CS |
+| IO16 | I/O  | POWER_ADC2_CH5 |
+| IO17 | I/O  | AU_PA_CTL |
+| IO18 | I/O  | PW_ON |
+| IO19 | I/O  | Internally reserved, do not multiplex |
+| IO20 | I/O  | Internally reserved, do not multiplex |
+| IO35 | I/O  | Internally reserved, do not multiplex (occupied by PSRAM) |
+| IO36 | I/O  | Internally reserved, do not multiplex (occupied by PSRAM) |
+| IO37 | I/O  | Internally reserved, do not multiplex (occupied by PSRAM) |
+| IO38 | I/O  | MODE_SET |
+| IO39 | I/O  | Internally reserved, do not multiplex |
+| IO40 | I/O  | KEY_IN |
+| IO41 | I/O  | Internally reserved, do not multiplex |
+| IO42 | I/O  | Internally reserved, do not multiplex |
+| IO43 | UART | DEBUG_TX |
+| IO44 | UART | DEBUG_RX |
+| IO45 | I/O  | FLASH_POW_CTL |
+| IO46 | I/O  | Internally reserved, do not multiplex |
+| IO47 | I/O  | SYSTEM_STATUS_LED |
+| IO48 | I/O  | Internally reserved, do not multiplex |
+
 ## 5. Custom Enclosures and Industrial Design
 
 Wavvar offers end-to-end product realization services. Beyond the sensing modules discussed above, we also provide industrial design and mechanical design support for product integration.

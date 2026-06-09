@@ -12,6 +12,7 @@
 - [5.1 Type-C Interface on the Flashing Debugger](#51-type-c-interface-on-the-flashing-debugger)
 - [5.2 Status LED Interface Reference](#52-status-led-interface-reference)
 - [5.3 Key Interface Reference](#53-key-interface-reference)
+- [5.4 ESP Chip Pin Description](#54-esp-chip-pin-description)
 - [6. Related Documents](#6-related-documents)
 
 ## 1. Module Overview
@@ -128,6 +129,45 @@ The key input is connected to `ESP32_KEY_IN_IO37` and is pulled up to `3V3` thro
   <img src="./img/RPX/6843/mini-key.png" alt="MINI key interface reference" width="35%" style="display: block; margin: 0 auto;" />
   <p style="margin: 4px 0 0 0;">MINI key interface reference</p>
 </div>
+
+### 5.4 ESP Chip Pin Description
+
+| GPIO Name | Type | Function |
+| --- | --- | --- |
+| GPIO0  | I/O | ESP32_I2S_MCLK_IO0 |
+| GPIO1  | I/O | ESP32_U0TXD_IO1 |
+| GPIO2  | I/O | ESP32_WR6843_SPI_IRQ_IO2 |
+| GPIO3  | I/O | ESP32_U0RXD_IO3 |
+| GPIO4  | I/O | ESP32_U2TXD_IO4 |
+| GPIO5  | I/O | Internally reserved, not for other use |
+| GPIO6  | I/O | ESP32_QSPI_CLK_IO6 |
+| GPIO7  | I/O | ESP32_QSPI_D1_IO7 |
+| GPIO8  | I/O | ESP32_QSPI_D0_IO8 |
+| GPIO9  | I/O | ESP32_QSPI_D3_IO9 |
+| GPIO10 | I/O | ESP32_QSPI_D2_IO10 |
+| GPIO11 | I/O | ESP32_QSPI_FLASH_CS_IO11 |
+| GPIO12 | I/O | ESP32_WR6843_SPI_MISO1_IO12 |
+| GPIO13 | I/O | ESP32_WR6843_SPI_MOSI1_IO13 |
+| GPIO14 | I/O | ESP32_WR6843_SPI_CLK_IO14 |
+| GPIO15 | I/O | ESP32_WR6843_SPI_CS1_IO15 |
+| GPIO16 | I/O | ESP32_QSPI_PSRAM_CS_IO16 |
+| GPIO17 | I/O | ESP32_PSRAM_CLK_IO17 |
+| GPIO18 | I/O | ESP32_I2C_SDA_IO18 |
+| GPIO19 | I/O | ESP32_U2RXD_IO19 |
+| GPIO21 | I/O | Internally reserved, not for other use |
+| GPIO22 | I/O | ESP32_STATUS_IO22 |
+| GPIO23 | I/O | ESP32_I2C_SCL_IO23 |
+| GPIO25 | I/O | Internally reserved, not for other use |
+| GPIO26 | I/O | Internally reserved, not for other use |
+| GPIO27 | I/O | ESP32_WR6843_PW_EN_IO27 |
+| GPIO32 | I/O | ESP32_U1RXD_IO32 |
+| GPIO33 | I/O | ESP32_FLASH_POW_IO33 |
+| GPIO34 | I | Internally reserved, not for other use |
+| GPIO35 | I | Internally reserved, not for other use |
+| GPIO36 | I | ESP32_VEML6030_INT_IO36 |
+| GPIO37 | I | ESP32_KEY_IN_IO37 |
+| GPIO38 | I | ESP32_BMI160_INT1_IO38 |
+| GPIO39 | I | ESP32_SPI_HOSR_INT_IO39 |
 
 ## 6. Related Documents
 

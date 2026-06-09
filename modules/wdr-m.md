@@ -16,6 +16,7 @@
 - [4.4.2 Microphone Capture Path](#442-microphone-capture-path)
 - [4.5 External Radar Interface Description](#45-external-radar-interface-description)
 - [5. Interconnect and Board-Level Reference Diagrams](#5-interconnect-and-board-level-reference-diagrams)
+- [5.4 ESP32-S3-WROOM-1U-N8R8 Pin Description](#54-esp32-s3-wroom-1u-n8r8-pin-description)
 - [6. Related Documents](#6-related-documents)
 
 ## 1. Board Overview
@@ -162,6 +163,49 @@ Both the `4G Cat1` communication board and the radar board connect to `WDR-M` th
 </div>
 
 These references are suitable for checking plug-in direction, tracing `UART` or `USB` related signals, or reviewing how the communication board and radar board connect into `WDR-M`.
+
+### 5.1 Pin Description
+
+`WDR-M` uses the `ESP32-S3-WROOM-1U-N8R8` as the main controller module. The following table lists the main exposed pins and their functions.
+
+| Module IO | Type | Function |
+| ---- | ---- | ---- |
+| IO0  | I/O  | BOOT_SET (boot mode) |
+| IO1  | I/O  | I2C_SDA |
+| IO2  | I/O  | I2C_SCL |
+| IO3  | I/O  | I2S_DOUT / JTAG control |
+| IO4  | I/O  | I2S_DIN |
+| IO5  | I/O  | I2S_LRCK |
+| IO6  | I/O  | I2S_SCLK |
+| IO7  | I/O  | I2S_MCLK |
+| IO8  | I/O  | RS232_TX |
+| IO9  | I/O  | RS232_RX |
+| IO10 | I/O  | NRESET |
+| IO11 | I/O  | SPIA_MOSI |
+| IO12 | I/O  | CAT1_RST |
+| IO13 | I/O  | SPIA_MISO |
+| IO14 | I/O  | SPIA_CLK |
+| IO15 | I/O  | SPIA_CS |
+| IO16 | I/O  | S_IN_SW |
+| IO17 | I/O  | AU_PA_CTL |
+| IO18 | I/O  | Internal reserved, do not multiplex |
+| IO19 | I/O  | USB_DM |
+| IO20 | I/O  | USB_DP |
+| IO21 | I/O  | IOT_PWCTL |
+| IO35 | I/O  | Used internally by the module's PSRAM, do not multiplex |
+| IO36 | I/O  | Used internally by the module's PSRAM, do not multiplex |
+| IO37 | I/O  | Used internally by the module's PSRAM, do not multiplex |
+| IO38 | I/O  | RADA_MODE_SET |
+| IO39 | I/O  | Internal reserved, do not multiplex |
+| IO40 | I/O  | ALARM_IN |
+| IO41 | I/O  | UART2_RX |
+| IO42 | I/O  | UART2_TX |
+| IO43 | UART | DEBUG_TX |
+| IO44 | UART | DEBUG_RX |
+| IO45 | I/O  | RADA_POW_CTL |
+| IO46 | I/O  | MSG_EN |
+| IO47 | I/O  | STATUS_LED |
+| IO48 | I/O  | Internal reserved, do not multiplex |
 
 ## 6. Related Documents
 
