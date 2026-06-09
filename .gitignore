@@ -24,3 +24,10 @@ firmwares/esp/*/*/*/factory/
 firmwares/esp/*/*/*/ota/
 
 cli/build_output
+
+# Local agent workspace notes
+.codex
+AGENTS.md
+findings.md
+progress.md
+task_plan.md
