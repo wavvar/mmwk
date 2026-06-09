@@ -1,0 +1,96 @@
+name: CLI PowerShell Smoke
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "cli/**"
+      - ".github/workflows/cli-windows-ps1-smoke.yml"
+  push:
+    branches:
+      - "main"
+      - "dev"
+    paths:
+      - "cli/**"
+      - ".github/workflows/cli-windows-ps1-smoke.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  powershell-smoke:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python deps
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r cli/requirements.txt
+
+      - name: Compile Python
+        run: |
+          python -m py_compile cli/mmwk/server.py cli/mmwk/server_runtime.py
+
+      - name: Check PowerShell wrappers
+        shell: pwsh
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = "Stop"
+
+          Set-Location cli
+
+          # run.ps1 / server.ps1 should always provide CLI help without requiring external devices.
+          $runHelp = & .\run.ps1 --help
+          if ($LASTEXITCODE -ne 0) { throw "run.ps1 --help failed" }
+          if (-not $runHelp) { throw "run.ps1 --help returned empty output" }
+
+          $serverHelp = & .\server.ps1 --help
+          if ($LASTEXITCODE -ne 0) { throw "server.ps1 --help failed" }
+          if (-not $serverHelp) { throw "server.ps1 --help returned empty output" }
+
+          # collect.ps1 should route trigger mode to pure-MQTT path.
+          & .\collect.ps1 --trigger none --help
+          if ($LASTEXITCODE -ne 0) { throw "collect.ps1 --trigger none --help failed" }
+
+          # config.ps1 should at least report usage in environments without bash.
+          # On this runner bash is expected, but with no bash fallback text should still be actionable.
+          & .\config.ps1 --help
+          if ($LASTEXITCODE -ne 0) { throw "config.ps1 --help failed" }
+
+          # Optional live start/status/stop smoke if mosquitto exists in runner environment.
+          if (Get-Command mosquitto -ErrorAction SilentlyContinue) {
+            $stateDir = Join-Path $env:TEMP "mmwk-server-win-smoke"
+            $serveDir = Join-Path $stateDir "serve"
+            $logPath = Join-Path $stateDir "server-start-smoke.log"
+            if (Test-Path $stateDir) {
+              Remove-Item -Recurse -Force $stateDir
+            }
+            New-Item -ItemType Directory -Force -Path $serveDir | Out-Null
+            Set-Content -Path (Join-Path $serveDir "fw.bin") -Value "ok" -NoNewline
+
+            Write-Host "Running server start/status/stop smoke..."
+            & .\server.ps1 start --state-dir $stateDir --serve-dir $serveDir --host-ip 127.0.0.1 --mqtt-port 1889 --http-port 8389 | Tee-Object -FilePath $logPath
+            if ($LASTEXITCODE -ne 0) { throw "server.ps1 start failed" }
+
+            $statusText = & .\server.ps1 status --state-dir $stateDir
+            if (-not ($statusText -match "MQTT Up   : yes")) { throw "server status not reporting MQTT up" }
+            if (-not ($statusText -match "HTTP Up   : yes")) { throw "server status not reporting HTTP up" }
+
+            & .\server.ps1 stop --state-dir $stateDir
+            if ($LASTEXITCODE -ne 0) { throw "server.ps1 stop failed" }
+
+            $stopped = & .\server.ps1 status --state-dir $stateDir
+            if (($stopped -match "MQTT Up   : yes") -or ($stopped -match "HTTP Up   : yes")) {
+                throw "server.ps1 stop did not stop services"
+            }
+            Remove-Item -Recurse -Force $stateDir
+          } else {
+            Write-Host "mosquitto not installed; skipping live server start/status/stop smoke."
+          }

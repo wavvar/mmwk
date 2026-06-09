@@ -1,0 +1,85 @@
+menu "Radar Board Configuration"
+    choice RADAR_BOARD_TYPE
+        prompt "Radar Board Type"
+        default RADAR_BOARD_MINI if IDF_TARGET_ESP32
+        default RADAR_BOARD_RPI if IDF_TARGET_ESP32S3
+        help
+            Select a radar board type.
+
+            Board compatibility with ESP chips:
+            - MINI: ESP32 only
+            - PRO, RPI, CFH, IOT: ESP32S3 only
+
+        config RADAR_BOARD_MINI
+            depends on IDF_TARGET_ESP32
+            help
+                MINI Board (ESP32 + IWR6843AoP)
+            bool "MINI"
+
+        config RADAR_BOARD_PRO
+            depends on IDF_TARGET_ESP32S3
+            help
+                PRO Board (ESP32S3 + IWR6843AoP)
+            bool "PRO"
+
+        config RADAR_BOARD_RPI
+            depends on IDF_TARGET_ESP32S3
+            help
+                RPI Board (ESP32S3 + IWRL6432AoP)
+            bool "RPI"
+
+        config RADAR_BOARD_IOT
+            depends on IDF_TARGET_ESP32S3
+            help
+                IOT Board (ESP32S3 + IWR6843AoP + 4G/LTE Support)
+            bool "IOT"
+
+        config RADAR_BOARD_CFH
+            depends on IDF_TARGET_ESP32S3
+            help
+                CFH Board (ESP32S3 + IWR6843AoP)
+            bool "CFH"
+
+        config RADAR_BOARD_WDR
+            depends on IDF_TARGET_ESP32S3
+            help
+                WDR Board (ESP32S3 + IWRL6432AoP + 4G/LTE Support)
+            bool "WDR"
+    endchoice
+
+    config RADAR_BOARD_NAME
+        string
+        default "MINI" if RADAR_BOARD_MINI
+        default "PRO" if RADAR_BOARD_PRO
+        default "RPI" if RADAR_BOARD_RPI
+        default "IOT" if RADAR_BOARD_IOT
+        default "CFH" if RADAR_BOARD_CFH
+        default "WDR" if RADAR_BOARD_WDR
+
+    config RADAR_BOARD_RADAR_CHIP
+        int
+        default 6843 if RADAR_BOARD_MINI
+        default 6843 if RADAR_BOARD_PRO
+        default 6432 if RADAR_BOARD_RPI
+        default 6843 if RADAR_BOARD_IOT
+        default 6843 if RADAR_BOARD_CFH
+        default 6432 if RADAR_BOARD_WDR
+
+    menu "Radar Board Resources"
+        config RADAR_BOARD_PARTITION
+            string "SPIFFS Partition Name"
+            default "assets"
+            help
+                Partition name for the radar board SPIFFS partition in the filesystem
+                The board configuration file, radar configuration file, firmware and other resources will be accessible at this path. Make sure there is a partition in partitions.csv of your project.
+    endmenu
+
+    menu "Radar Board Features"
+        config RADAR_BOARD_AUDIO_ENABLED
+            bool "Enable Audio Support"
+            depends on RADAR_BOARD_PRO || RADAR_BOARD_CFH || RADAR_BOARD_WDR || AUDIO_BOARD_CUSTOM
+            default y
+            help
+                Enable audio board support for radar boards for the ESP-ADF framework.
+    endmenu
+endmenu

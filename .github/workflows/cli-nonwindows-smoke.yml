@@ -1,0 +1,85 @@
+name: CLI Shell Smoke
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "cli/**"
+      - ".github/workflows/cli-nonwindows-smoke.yml"
+  push:
+    branches:
+      - "main"
+      - "dev"
+    paths:
+      - "cli/**"
+      - ".github/workflows/cli-nonwindows-smoke.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  shell-smoke:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python deps
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r cli/requirements.txt
+
+      - name: Install mosquitto
+        run: |
+          if command -v apt-get >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y mosquitto
+          elif command -v brew >/dev/null 2>&1; then
+            brew install mosquitto || true
+          else
+            echo "No package manager available; skipping mosquitto install."
+          fi
+
+      - name: Compile Python
+        run: |
+          python -m py_compile cli/mmwk/server.py cli/mmwk/server_runtime.py
+
+      - name: Check shell wrappers
+        run: |
+          set -euo pipefail
+
+          bash -n cli/server.sh
+          bash -n cli/run.sh
+          bash -n cli/config.sh
+          bash -n cli/collect.sh
+
+          (cd cli && ./run.sh -h >/tmp/run_help.txt)
+          (cd cli && ./config.sh -h >/tmp/config_help.txt)
+          (cd cli && ./collect.sh -h >/tmp/collect_help.txt)
+          (cd cli && ./server.sh -h >/tmp/server_help.txt)
+
+          for f in /tmp/run_help.txt /tmp/config_help.txt /tmp/collect_help.txt /tmp/server_help.txt; do
+            if [ ! -s "$f" ]; then
+              echo "Empty help output: $f"
+              exit 1
+            fi
+          done
+
+      - name: Run SDK contract test
+        run: |
+          set -euo pipefail
+          if [ -d ../mmwk_sdk ]; then
+            echo "Found sibling mmwk_sdk; running public_server_sh contract test."
+            cd ../mmwk_sdk/projects/mmwk_sensor_bridge/cli/tests/public_cli
+            PYTHONPATH=. python3 -m unittest -v test_server_sh
+          else
+            echo "No sibling mmwk_sdk directory; skipping public_sdk tests."
+          fi
