@@ -12,6 +12,7 @@
 - [5.1 Type-C Interface on the Flashing Debugger](#51-type-c-interface-on-the-flashing-debugger)
 - [5.2 Status RGB LED Interface Reference](#52-status-rgb-led-interface-reference)
 - [5.3 Key Interface Reference](#53-key-interface-reference)
+- [5.4 ESP Chip Pin Description](#54-esp-chip-pin-description)
 - [6. Related Documents](#6-related-documents)
 
 ## 1. Module Overview
@@ -63,7 +64,7 @@ Typical applications include:
 |  |  | Station / SoftAP / Station + SoftAP |
 |  |  | Up to 150 Mbps (theoretical; actual performance depends on the network environment) |
 |  | Local Communication | UART (data format is defined by firmware and can support binary or JSON) |
-|  | Cellular Network | Standard onboard LTE Cat.1 bis (4G, full-network support) |
+|  | Cellular Network (Optional) | LTE Cat.1 bis (4G, full-network support) |
 |  |  | Up to 10 Mbps downlink / up to 5 Mbps uplink (see Note 2) |
 | **Hardware Architecture** | Processing Architecture | Dual-chip heterogeneous architecture (mmWave radar SoC + main MCU) |
 |  | Radar Processing Unit | ARM Cortex-R4F + C674x DSP + Hardware Accelerator (HWA) |
@@ -135,6 +136,63 @@ The `PRO` board provides a key input interface. The current reference diagram is
   <img src="./img/RPX/6843/pro-key.png" alt="PRO key interface reference" width="35%" style="display: block; margin: 0 auto;" />
   <p style="margin: 4px 0 0 0;">PRO key interface reference</p>
 </div>
+
+### 5.4 ESP Chip Pin Description
+
+The following table describes the pin functions of the `ESP32-S3` chip on the `PRO` module.
+
+| GPIO | Type | Function |
+| --- | --- | --- |
+| GPIO0 | I/O | ESP32_IO0 download setting |
+| GPIO1 | I/O | I2C_SCL |
+| GPIO2 | I/O | I2C_SDA |
+| GPIO3 | I/O | I2S_DOUT |
+| GPIO4 | I/O | I2S_DIN |
+| GPIO5 | I/O | I2S_LRCK |
+| GPIO6 | I/O | I2S_BCLK |
+| GPIO7 | I/O | I2S_MCLK |
+| GPIO8 | I/O | U2TXD |
+| GPIO9 | I/O | U2RXD |
+| GPIO10 | I/O | AR_NRST (BMI160 reset) |
+| GPIO11 | I/O | SPI_MOSI (BMI160) |
+| GPIO12 | I/O | U1RXD |
+| GPIO13 | I/O | SPI_CS (BMI160) |
+| GPIO14 | I/O | SPI_CLK (BMI160) |
+| GPIO15 | I/O | SPI_MISO (BMI160) |
+| GPIO16 | I/O | SPI_HOSR_INT (BMI160 interrupt) |
+| GPIO17 | I/O | PA_CTL (RF PA control) |
+| GPIO18 | I/O | VEML6030_INT |
+| GPIO19 | I/O | USB_D- |
+| GPIO20 | I/O | USB_D+ |
+| GPIO21 | I/O | IOT_PWCTL |
+| GPIO26 | SPI dedicated | QSPI_PSRAM_CS (internal PSRAM) |
+| GPIO27 | SPI dedicated | QSPI_D2 (internal Flash/PSRAM) |
+| GPIO28 | SPI dedicated | QSPI_D3 (internal Flash/PSRAM) |
+| GPIO29 | SPI dedicated | QSPI_FLASH_CS (internal Flash) |
+| GPIO30 | SPI dedicated | QSPI_CLK (internal Flash/PSRAM) |
+| GPIO31 | SPI dedicated | QSPI_D1 (internal Flash/PSRAM) |
+| GPIO32 | SPI dedicated | QSPI_D0 (internal Flash/PSRAM) |
+| GPIO33 | I/O | KEY_IN (key input) |
+| GPIO34 | I/O | BMI160_INT1 |
+| GPIO35 | I/O | CAT1_RESET |
+| GPIO36 | I/O | U0TXD (CAT1 serial TX) |
+| GPIO37 | I/O | U0RXD (CAT1 serial RX) |
+| GPIO38 | I/O | Internally reserved, not for other use |
+| GPIO39 | I/O | Internally reserved, not for other use |
+| GPIO40 | I/O | Internally reserved, not for other use |
+| GPIO41 | I/O | Internally reserved, not for other use |
+| GPIO42 | I/O | Internally reserved, not for other use |
+| GPIO43 | UART | Debug serial TXD (U0TXD) |
+| GPIO44 | UART | Debug serial RXD (U0RXD) |
+| GPIO45 | Input | ESP32_FLASH_POW_IO45 |
+| GPIO46 | Input | STATUS (boot strapping pin) |
+
+Notes:
+
+- `GPIO26` to `GPIO32` are connected to on-chip `Flash/PSRAM`, so they are not recommended for use as general-purpose `GPIO`s.
+- `GPIO45` and `GPIO46` are `ESP32-S3` strapping pins. Although they are exposed, their power-on states must be handled carefully.
+- `GPIO38` to `GPIO42` are not connected to any peripherals in the schematic and are marked as internally reserved.
+- `GPIO43` and `GPIO44` are used for the download/debug serial port.
 
 ## 6. Related Documents
 

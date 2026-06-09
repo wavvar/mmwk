@@ -10,6 +10,7 @@
 - [5.1 烧录调试器 Type-C 接口说明](#51-烧录调试器-type-c-接口说明)
 - [5.2 状态 LED 接口参考](#52-状态-led-接口参考)
 - [5.3 按键接口参考](#53-按键接口参考)
+- [5.4 ESP芯片管脚描述](#54-esp芯片管脚描述)
 - [6. 相关文档](#6-相关文档)
 
 ## 1. 模组概述
@@ -126,6 +127,45 @@
   <img src="./img/RPX/6843/mini-key.png" alt="MINI 按键接口参考" width="35%" style="display: block; margin: 0 auto;" />
   <p style="margin: 4px 0 0 0;">MINI 按键接口参考</p>
 </div>
+
+### 5.4 ESP芯片管脚描述
+
+| GPIO名称 | 类型 | 功能 |
+| ------ | --- | --------------------------- |
+| GPIO0  | I/O | ESP32_I2S_MCLK_IO0          |
+| GPIO1  | I/O | ESP32_U0TXD_IO1             |
+| GPIO2  | I/O | ESP32_WR6843_SPI_IRQ_IO2    |
+| GPIO3  | I/O | ESP32_U0RXD_IO3             |
+| GPIO4  | I/O | ESP32_U2TXD_IO4             |
+| GPIO5  | I/O | 内部保留，不能它用 |
+| GPIO6  | I/O | ESP32_QSPI_CLK_IO6          |
+| GPIO7  | I/O | ESP32_QSPI_D1_IO7           |
+| GPIO8  | I/O | ESP32_QSPI_D0_IO8           |
+| GPIO9  | I/O | ESP32_QSPI_D3_IO9           |
+| GPIO10 | I/O | ESP32_QSPI_D2_IO10          |
+| GPIO11 | I/O | ESP32_QSPI_FLASH_CS_IO11    |
+| GPIO12 | I/O | ESP32_WR6843_SPI_MISO1_IO12 |
+| GPIO13 | I/O | ESP32_WR6843_SPI_MOSI1_IO13 |
+| GPIO14 | I/O | ESP32_WR6843_SPI_CLK_IO14   |
+| GPIO15 | I/O | ESP32_WR6843_SPI_CS1_IO15   |
+| GPIO16 | I/O | ESP32_QSPI_PSRAM_CS_IO16    |
+| GPIO17 | I/O | ESP32_PSRAM_CLK_IO17        |
+| GPIO18 | I/O | ESP32_I2C_SDA_IO18          |
+| GPIO19 | I/O | ESP32_U2RXD_IO19            |
+| GPIO21 | I/O | 内部保留，不能它用 |
+| GPIO22 | I/O | ESP32_STATUS_IO22           |
+| GPIO23 | I/O | ESP32_I2C_SCL_IO23          |
+| GPIO25 | I/O | 内部保留，不能它用 |
+| GPIO26 | I/O | 内部保留，不能它用 |
+| GPIO27 | I/O | ESP32_WR6843_PW_EN_IO27     |
+| GPIO32 | I/O | ESP32_U1RXD_IO32            |
+| GPIO33 | I/O | ESP32_FLASH_POW_IO33        |
+| GPIO34 | I   | 内部保留，不能它用 |
+| GPIO35 | I   | 内部保留，不能它用 |
+| GPIO36 | I   | ESP32_VEML6030_INT_IO36     |
+| GPIO37 | I   | ESP32_KEY_IN_IO37           |
+| GPIO38 | I   | ESP32_BMI160_INT1_IO38      |
+| GPIO39 | I   | ESP32_SPI_HOSR_INT_IO39     |
 
 ## 6. 相关文档
 
