@@ -5,7 +5,7 @@
 - [1. 模组简介](#1-模组简介)
 - [2. 技术规格和主要特性](#2-技术规格和主要特性)
 - [3. 应用领域](#3-应用领域)
-- [4. WDR/MDR 系列集成说明](#4-wdrmdr-系列集成说明)
+- [4. WDR 系列集成说明](#4-wdr-系列集成说明)
 - [5. 接口说明](#5-接口说明)
 - [5.1 接口参考图](#51-接口参考图)
 - [5.2 状态 LED 参考](#52-状态-led-参考)
@@ -19,7 +19,7 @@
 
 ## 1. 模组简介
 
-`ML6432A_BO` 是基于 TI `IWRL6432AOP` 芯片开发的高性能低功耗毫米波雷达模组。模组集成了雷达射频前端、数字处理单元及天线，具有尺寸紧凑、集成度高等特点。本模组主要面向智能家居、人员存在检测、体征检测、运动检测等应用领域。支持 `UART`、`SPI` 和 `CAN-FD` 接口，方便用户进行快速开发和集成，并适合作为 `MDR-M` / `WDR-M` 的直插式雷达板方案。
+`ML6432A_BO` 是基于 TI `IWRL6432AOP` 芯片开发的高性能低功耗毫米波雷达模组。模组集成了雷达射频前端、数字处理单元及天线，具有尺寸紧凑、集成度高等特点。本模组主要面向智能家居、人员存在检测、体征检测、运动检测等应用领域。支持 `UART`、`SPI` 和 `CAN-FD` 接口，方便用户进行快速开发和集成，并适合作为 `WDR-M` 的直插式雷达板方案。
 
 <div style="text-align: center; margin: 10px 0;">
   <img src="./img/MDR/ml6432a-bo-front-view.png" alt="ML6432A_BO 模组正面" width="60%" style="display: block; margin: 0 auto;" />
@@ -76,21 +76,21 @@
 - 安防监控：可视门铃、IP 网络摄像头、运动检测器
 - 汽车电子：车内入侵检测等
 
-## 4. WDR/MDR 系列集成说明
+## 4. WDR 系列集成说明
 
-在系统集成场景下，`ML6432A_BO` 与 `ML6432A` 在雷达侧保持相同的电气接口类别，但安装方式不同。`ML6432A_BO` 是面向 `MDR-M` / `WDR-M` 的优先直插版本，在构建完整 `WDR/MDR` 模块时更适合作为直插式雷达板方案。
+在系统集成场景下，`ML6432A_BO` 与 `ML6432A` 在雷达侧保持相同的电气接口类别，但安装方式不同。`ML6432A_BO` 是面向 `WDR-M` 的优先直插版本，在构建完整 `WDR` 模块时更适合作为直插式雷达板方案。
 
 <div style="text-align: center; margin: 10px 0;">
-  <img src="./img/MDR/mdr-m-board-attachment-orientation.png" alt="MDR-M 插接方向参考" width="42%" style="display: inline-block; margin: 0 12px;" />
+  <img src="./img/MDR/mdr-m-board-attachment-orientation.png" alt="WDR-M 插接方向参考" width="42%" style="display: inline-block; margin: 0 12px;" />
   <img src="./img/MDR/ml6432a-bo-attachment-orientation.png" alt="ML6432A_BO 插接方向参考" width="42%" style="display: inline-block; margin: 0 12px;" />
-  <p style="margin: 4px 0 0 0;">MDR-M 与 ML6432A_BO 的直插方向参考</p>
+  <p style="margin: 4px 0 0 0;">WDR-M 与 ML6432A_BO 的直插方向参考</p>
 </div>
 
-如需查看完整的 `WDR/MDR` 系统级说明，请参考 [mdr_cn.md](./mdr_cn.md)。
+如需查看完整的 `WDR` 主控与系统级说明，请参考 [wdr-m_cn.md](./wdr-m_cn.md)。
 
 ## 5. 接口说明
 
-模组通过板对板连接方式接入 `WDR/MDR` 系统，同时保留与 `ML6432A` 相同的雷达侧接口类别。由于 `ML6432A_BO` 的对外接口排列与 `ML6432A` 不一致，本节先保留 `BO` 版本的外观与接口参考图。
+模组通过板对板连接方式接入 `WDR` 系统，同时保留与 `ML6432A` 相同的雷达侧接口类别。由于 `ML6432A_BO` 的对外接口排列与 `ML6432A` 不一致，本节先保留 `BO` 版本的外观与接口参考图。
 
 <div style="text-align: center; margin: 10px 0;">
   <img src="./img/MDR/ml6432a-bo-front-view.png" alt="ML6432A_BO 正面" width="60%" style="display: block; margin: 0 auto;" />
@@ -201,6 +201,6 @@
 
 ## 7. 相关文档
 
-- [MDR 模块简介](./mdr_cn.md)
 - [WDR-M 主控承载板简介](./wdr-m_cn.md)
+- [WDR-4G 通信板简介](./wdr-4g_cn.md)
 - [ML6432A 模组简介](./ml6432a_cn.md)

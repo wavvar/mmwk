@@ -10,7 +10,7 @@
 
 本文档聚焦 `RPX` 系列模块，包括 `6843` 系列产品以及 `6432` 类别中的 `RPI` 平台。
 
-`WDR` 属于另一条产品系列，因此单独维护文档。关于 `WDR/MDR` 系统级说明，请参考 [./mdr_cn.md](./mdr_cn.md)；关于独立 `ML6432Ax` 雷达板说明，请参考 [./ml6432ax_cn.md](./ml6432ax_cn.md)。
+`WDR` 属于另一条产品系列，因此单独维护文档。关于 `WDR` 主控与系统级说明，请参考 [./wdr-m_cn.md](./wdr-m_cn.md)；关于独立 `ML6432Ax` 雷达板说明，请参考 [./ml6432ax_cn.md](./ml6432ax_cn.md)。
 
 ## 2. 6843 系列感知模块
 
@@ -78,7 +78,7 @@
 | --- | --- | --- |
 | <img src="./img/RPX/6432/RPI_overview.png" width="210"> | <img src="./img/RPX/6432/RPI_top_back.png" width="210"> | 49×7mm |
 
-关于基于 `ML6432A` / `ML6432A_BO` 的 `WDR/MDR` 系列，请参考 [./mdr_cn.md](./mdr_cn.md) 和 [./ml6432ax_cn.md](./ml6432ax_cn.md)。
+关于基于 `ML6432A` / `ML6432A_BO` 的 `WDR` 系列，请参考 [./wdr-m_cn.md](./wdr-m_cn.md)、[./wdr-4g_cn.md](./wdr-4g_cn.md) 和 [./ml6432ax_cn.md](./ml6432ax_cn.md)。
 
 ### 3.1 目标应用
 

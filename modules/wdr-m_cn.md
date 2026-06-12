@@ -19,11 +19,11 @@
 
 ## 1. 板卡概述
 
-`WDR-M` 是 `WDR` 系统中的主控承载板。在详细硬件说明中，该角色统一以 `MDR-M` 表示，用于说明具体板级结构。`WDR` 完整模组由 `ML6432A_BO` 雷达板、`MDR-M` 主控板和 `WDR-4G` 通信板组成，其中 `WDR-M` 负责供电分配、本地控制、外围管理和板间互连。
+`WDR-M` 是 `WDR` 系统中的主控承载板。`WDR` 完整模组由 `ML6432A_BO` 雷达板、`WDR-M` 主控板和 `WDR-4G` 通信板组成，其中 `WDR-M` 负责供电分配、本地控制、外围管理和板间互连。
 
 <div style="text-align: center; margin: 10px 0;">
-  <img src="./img/MDR/mdr-module-top-view.png" alt="MDR 模块顶视图" width="80%" style="display: block; margin: 0 auto;" />
-  <p style="margin: 4px 0 0 0;">MDR 模块顶视图</p>
+  <img src="./img/MDR/mdr-module-top-view.png" alt="WDR 模块顶视图" width="80%" style="display: block; margin: 0 auto;" />
+  <p style="margin: 4px 0 0 0;">WDR 模块顶视图</p>
 </div>
 
 <div style="text-align: center; margin: 10px 0;">
@@ -75,7 +75,7 @@
 两种雷达板在雷达侧使用相同的接口定义。如果用户只需要进行独立雷达板的烧录或调试，`ML6432A` 与 `ML6432A_BO` 都可以按统一的 `ML6432Ax` 使用流程操作。
 
 <div style="text-align: center; margin: 10px 0;">
-  <img src="./img/MDR/mdr-m-board-attachment-orientation.png" alt="MDR-M 插接方向参考" width="42%" style="display: inline-block; margin: 0 12px;" />
+  <img src="./img/MDR/mdr-m-board-attachment-orientation.png" alt="WDR-M 插接方向参考" width="42%" style="display: inline-block; margin: 0 12px;" />
   <img src="./img/MDR/ml6432a-bo-attachment-orientation.png" alt="ML6432A_BO 插接方向参考" width="42%" style="display: inline-block; margin: 0 12px;" />
   <p style="margin: 4px 0 0 0;">WDR-M 与 ML6432A_BO 的直插方向参考</p>
 </div>
@@ -89,7 +89,7 @@
 `P7` 为 `USB Type-C` 接口，可用于本地连接或调试维护。
 
 <div style="text-align: center; margin: 10px 0;">
-  <img src="./img/MDR/mdr-m-usb-typec-reference.png" alt="MDR-M USB Type-C 参考图" width="75%" style="display: block; margin: 0 auto;" />
+  <img src="./img/MDR/mdr-m-usb-typec-reference.png" alt="WDR-M USB Type-C 参考图" width="75%" style="display: block; margin: 0 auto;" />
   <p style="margin: 4px 0 0 0;">图 1 WDR-M 上的 USB Type-C 接口参考</p>
 </div>
 
@@ -98,7 +98,7 @@
 `WDR-M` 板上提供状态 `LED` 指示，便于快速观察调试状态。
 
 <div style="text-align: center; margin: 10px 0;">
-  <img src="./img/MDR/mdr-m-status-led-reference.png" alt="MDR-M LED 参考图" width="60%" style="display: block; margin: 0 auto;" />
+  <img src="./img/MDR/mdr-m-status-led-reference.png" alt="WDR-M LED 参考图" width="60%" style="display: block; margin: 0 auto;" />
   <p style="margin: 4px 0 0 0;">图 2 WDR-M 上的状态 LED 参考</p>
 </div>
 
@@ -107,7 +107,7 @@
 `WDR-M` 板上提供按键输入，可用于本地控制或交互行为设计。
 
 <div style="text-align: center; margin: 10px 0;">
-  <img src="./img/MDR/mdr-m-key-reference.png" alt="MDR-M 按键参考图" width="80%" style="display: block; margin: 0 auto;" />
+  <img src="./img/MDR/mdr-m-key-reference.png" alt="WDR-M 按键参考图" width="80%" style="display: block; margin: 0 auto;" />
   <p style="margin: 4px 0 0 0;">图 3 WDR-M 上的按键参考</p>
 </div>
 
@@ -151,12 +151,12 @@
 `4G Cat1` 通信板和雷达板都通过专用板级信号连接到 `WDR-M`。下列图示用于说明 `WDR-M` 与雷达板、通信板之间的主要连接关系。
 
 <div style="text-align: center; margin: 10px 0;">
-  <img src="./img/MDR/mdr-m-to-radar-board-connection.png" alt="MDR-M 与雷达板连接参考图" width="85%" style="display: block; margin: 0 auto;" />
+  <img src="./img/MDR/mdr-m-to-radar-board-connection.png" alt="WDR-M 与雷达板连接参考图" width="85%" style="display: block; margin: 0 auto;" />
   <p style="margin: 4px 0 0 0;">图 6 WDR-M 与雷达板连接参考图</p>
 </div>
 
 <div style="text-align: center; margin: 10px 0;">
-  <img src="./img/MDR/mdr-m-to-cat1-board-connection.png" alt="MDR-M 与 Cat1 通信板连接参考图" width="85%" style="display: block; margin: 0 auto;" />
+  <img src="./img/MDR/mdr-m-to-cat1-board-connection.png" alt="WDR-M 与 Cat1 通信板连接参考图" width="85%" style="display: block; margin: 0 auto;" />
   <p style="margin: 4px 0 0 0;">图 7 WDR-M 与 4G Cat1 通信板连接参考图</p>
 </div>
 
@@ -207,7 +207,6 @@
 
 ## 6. 相关文档
 
-- [MDR 模块简介](./mdr_cn.md)
 - [ML6432Ax 系列介绍](./ml6432ax_cn.md)
 - [WDR-4G 通信板简介](./wdr-4g_cn.md)
 - [PRO 模组简介](./pro_cn.md)

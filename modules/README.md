@@ -2,7 +2,7 @@
 
 [中文版](./README_CN.md)
 
-This directory contains documentation for three product lines: [`RPX`](./rpx.md), [`WDR / MDR`](./mdr.md) with [`ML6432Ax`](./ml6432ax.md), and [`F9`](./f9a1.md). The sections below provide a quick product map and link to the corresponding detailed documents.
+This directory contains documentation for three product lines: [`RPX`](./rpx.md), [`WDR`](./wdr-m.md) with [`ML6432Ax`](./ml6432ax.md), and [`F9`](./f9a1.md). The sections below provide a quick product map and link to the corresponding detailed documents.
 
 ## 1. RPX Series
 
@@ -25,15 +25,15 @@ The `RPX` series focuses on standalone sensing modules and compact development p
   <p style="margin: 4px 0 0 0;">Representative system view from the WDR series</p>
 </div>
 
-The `WDR` product series is a system-level platform built around the `ML6432Ax` radar-board family. In the [detailed hardware document](./mdr.md), the controller-board role is described as `MDR-M`, but the outward-facing product-series name is `WDR`.
+The `WDR` product series is a system-level platform built around the `ML6432Ax` radar-board family. The [WDR-M hardware document](./wdr-m.md) covers the controller-board role in this system.
 
-- `WDR` is the complete module assembly formed by the `ML6432A_BO` radar board, the `MDR-M` main controller board, and the `4G Cat1` communication board.
-- [`WDR-M`](./wdr-m.md), described as `MDR-M` in the detailed hardware notes, is the carrier and control board that connects the radar subsystem with local interfaces and cellular communication.
+- `WDR` is the complete module assembly formed by the `ML6432A_BO` radar board, the `WDR-M` main controller board, and the `4G Cat1` communication board.
+- [`WDR-M`](./wdr-m.md) is the carrier and control board that connects the radar subsystem with local interfaces and cellular communication.
 - [`WDR-4G`](./wdr-4g.md) is the communication board responsible for cellular connectivity in the `WDR` system.
 - [`ML6432A_BO`](./ml6432a_bo.md) is the preferred direct-plug radar-board option for the `WDR` platform.
 - [`ML6432A`](./ml6432a.md) provides the same radar-side functional class, but it is connected through an adapter cable instead of direct board insertion.
-- System overview: [MDR module introduction](./mdr.md) | [中文](./mdr_cn.md)
-- Board-level details: [WDR-M](./wdr-m.md) | [中文](./wdr-m_cn.md) | [WDR-4G](./wdr-4g.md) | [中文](./wdr-4g_cn.md)
+- System and controller overview: [WDR-M](./wdr-m.md) | [中文](./wdr-m_cn.md)
+- Communication-board details: [WDR-4G](./wdr-4g.md) | [中文](./wdr-4g_cn.md)
 - Radar-board details: [ML6432Ax series introduction](./ml6432ax.md) | [中文](./ml6432ax_cn.md) | [ML6432A_BO](./ml6432a_bo.md) | [中文](./ml6432a_bo_cn.md) | [ML6432A](./ml6432a.md) | [中文](./ml6432a_cn.md)
 
 ## 3. F9 Series
@@ -47,5 +47,5 @@ The `F9` series is represented here by rear safety radar products for electric t
 ## 4. Reading Guide
 
 - Start with [mini.md](./mini.md) or [pro.md](./pro.md) for dedicated `6843` module details, or [rpx.md](./rpx.md) if you want the broader RPX product map including `RPI`.
-- Start with [mdr.md](./mdr.md) if you need a complete `6432`-based controller-and-communication platform, then continue with [wdr-m.md](./wdr-m.md), [wdr-4g.md](./wdr-4g.md), [ml6432a_bo.md](./ml6432a_bo.md), or [ml6432a.md](./ml6432a.md) for board-level details.
+- Start with [wdr-m.md](./wdr-m.md) if you need a complete `6432`-based controller-and-communication platform, then continue with [wdr-4g.md](./wdr-4g.md), [ml6432a_bo.md](./ml6432a_bo.md), or [ml6432a.md](./ml6432a.md) for board-level details.
 - Start with [f9a1.md](./f9a1.md) if the target application is rear safety sensing for electric two-wheel or three-wheel vehicles.

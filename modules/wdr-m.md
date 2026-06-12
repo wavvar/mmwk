@@ -21,11 +21,11 @@
 
 ## 1. Board Overview
 
-`WDR-M` is the main controller carrier board in the `WDR` system. In detailed hardware descriptions, this role is consistently denoted as `MDR-M` to identify the specific board-level structure. A complete `WDR` module is composed of the `ML6432A_BO` radar board, the `MDR-M` main controller board, and the `WDR-4G` communication board. Within this architecture, `WDR-M` handles power distribution, local control, peripheral management, and board-to-board interconnection.
+`WDR-M` is the main controller carrier board in the `WDR` system. A complete `WDR` module is composed of the `ML6432A_BO` radar board, the `WDR-M` main controller board, and the `WDR-4G` communication board. Within this architecture, `WDR-M` handles power distribution, local control, peripheral management, and board-to-board interconnection.
 
 <div style="text-align: center; margin: 10px 0;">
-  <img src="./img/MDR/mdr-module-top-view.png" alt="MDR module top view" width="80%" style="display: block; margin: 0 auto;" />
-  <p style="margin: 4px 0 0 0;">MDR module top view</p>
+  <img src="./img/MDR/mdr-module-top-view.png" alt="WDR module top view" width="80%" style="display: block; margin: 0 auto;" />
+  <p style="margin: 4px 0 0 0;">WDR module top view</p>
 </div>
 
 <div style="text-align: center; margin: 10px 0;">
@@ -77,7 +77,7 @@ At the functional-support level, `WDR-M` supports the `ML6432Ax` series. The mai
 Both radar-board variants use the same radar-side interface definition. If only standalone radar-board flashing or debugging is required, both `ML6432A` and `ML6432A_BO` can be used with the same `ML6432Ax` workflow.
 
 <div style="text-align: center; margin: 10px 0;">
-  <img src="./img/MDR/mdr-m-board-attachment-orientation.png" alt="MDR-M plug-in orientation reference" width="42%" style="display: inline-block; margin: 0 12px;" />
+  <img src="./img/MDR/mdr-m-board-attachment-orientation.png" alt="WDR-M plug-in orientation reference" width="42%" style="display: inline-block; margin: 0 12px;" />
   <img src="./img/MDR/ml6432a-bo-attachment-orientation.png" alt="ML6432A_BO plug-in orientation reference" width="42%" style="display: inline-block; margin: 0 12px;" />
   <p style="margin: 4px 0 0 0;">Direct plug-in orientation reference between WDR-M and ML6432A_BO</p>
 </div>
@@ -91,7 +91,7 @@ The main interfaces on the `WDR-M` board include `USB Type-C`, the status `LED`,
 `P7` is the `USB Type-C` interface, which can be used for local connection or debugging and maintenance.
 
 <div style="text-align: center; margin: 10px 0;">
-  <img src="./img/MDR/mdr-m-usb-typec-reference.png" alt="MDR-M USB Type-C reference" width="75%" style="display: block; margin: 0 auto;" />
+  <img src="./img/MDR/mdr-m-usb-typec-reference.png" alt="WDR-M USB Type-C reference" width="75%" style="display: block; margin: 0 auto;" />
   <p style="margin: 4px 0 0 0;">Figure 1. USB Type-C interface reference on WDR-M</p>
 </div>
 
@@ -100,7 +100,7 @@ The main interfaces on the `WDR-M` board include `USB Type-C`, the status `LED`,
 The `WDR-M` board provides a status `LED` indicator for quick observation of the current debug status.
 
 <div style="text-align: center; margin: 10px 0;">
-  <img src="./img/MDR/mdr-m-status-led-reference.png" alt="MDR-M LED reference" width="60%" style="display: block; margin: 0 auto;" />
+  <img src="./img/MDR/mdr-m-status-led-reference.png" alt="WDR-M LED reference" width="60%" style="display: block; margin: 0 auto;" />
   <p style="margin: 4px 0 0 0;">Figure 2. Status LED reference on WDR-M</p>
 </div>
 
@@ -109,7 +109,7 @@ The `WDR-M` board provides a status `LED` indicator for quick observation of the
 The `WDR-M` board provides a key input, which can be used for local control or interaction behavior design.
 
 <div style="text-align: center; margin: 10px 0;">
-  <img src="./img/MDR/mdr-m-key-reference.png" alt="MDR-M key reference" width="80%" style="display: block; margin: 0 auto;" />
+  <img src="./img/MDR/mdr-m-key-reference.png" alt="WDR-M key reference" width="80%" style="display: block; margin: 0 auto;" />
   <p style="margin: 4px 0 0 0;">Figure 3. Key reference on WDR-M</p>
 </div>
 
@@ -153,12 +153,12 @@ The `WDR-M` board does not integrate a radar chip locally. The radar function is
 Both the `4G Cat1` communication board and the radar board connect to `WDR-M` through dedicated board-level signals. The diagrams below illustrate the main interconnect relationships between `WDR-M`, the radar board, and the communication board.
 
 <div style="text-align: center; margin: 10px 0;">
-  <img src="./img/MDR/mdr-m-to-radar-board-connection.png" alt="MDR-M to radar board connection reference" width="85%" style="display: block; margin: 0 auto;" />
+  <img src="./img/MDR/mdr-m-to-radar-board-connection.png" alt="WDR-M to radar board connection reference" width="85%" style="display: block; margin: 0 auto;" />
   <p style="margin: 4px 0 0 0;">Figure 6. WDR-M to radar board connection reference</p>
 </div>
 
 <div style="text-align: center; margin: 10px 0;">
-  <img src="./img/MDR/mdr-m-to-cat1-board-connection.png" alt="MDR-M to Cat1 communication board connection reference" width="85%" style="display: block; margin: 0 auto;" />
+  <img src="./img/MDR/mdr-m-to-cat1-board-connection.png" alt="WDR-M to Cat1 communication board connection reference" width="85%" style="display: block; margin: 0 auto;" />
   <p style="margin: 4px 0 0 0;">Figure 7. WDR-M to 4G Cat1 communication board connection reference</p>
 </div>
 
@@ -209,7 +209,6 @@ These references are suitable for checking plug-in direction, tracing `UART` or 
 
 ## 6. Related Documents
 
-- [MDR Module Introduction](./mdr.md)
 - [ML6432Ax Series Introduction](./ml6432ax.md)
 - [WDR-4G Communication Board Introduction](./wdr-4g.md)
 - [PRO Module Introduction](./pro.md)

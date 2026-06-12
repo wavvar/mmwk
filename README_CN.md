@@ -42,7 +42,7 @@ Name | ESP | Audio | Radar | LED | 4G/LTE Support
 [RPI](./modules/rpx_cn.md#3-rpi-6432-感知模块) | ESP32S3 | Yes | IWRL6432AoP | 1 | No
 [CFH](./modules/rpx_cn.md#2-6843-系列感知模块) | ESP32S3 | Yes | IWR6843AoP | 1 | No
 IOT | ESP32S3 | No | IWR6843AoP | 1 | Yes
-[WDR](./modules/mdr_cn.md) | ESP32S3 | Yes | IWRL6432AoP | 2 | Optional
+[WDR](./modules/wdr-m_cn.md) | ESP32S3 | Yes | IWRL6432AoP | 2 | Optional
 
 这里的 `LED` 特指雷达芯片侧 LED，其 IO 继承自 TI 参考例程，必须由雷达固件控制。所有板卡还包含一个由 ESP 控制的按键和一个由 ESP 控制的 LED；其共享行为见 [mmWave Sensor Development Kit](./docs/zh-cn/mmwk-sensor.md#5-用户交互)。产品线级别的硬件背景请从 [模组产品总览](./modules/README_CN.md) 开始。
 

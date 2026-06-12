@@ -68,8 +68,6 @@ MODULE_DOCS = [
     ("mini_cn.md", "mini-zh-cn.pdf"),
     ("pro.md", "pro-en.pdf"),
     ("pro_cn.md", "pro-zh-cn.pdf"),
-    ("mdr.md", "mdr-en.pdf"),
-    ("mdr_cn.md", "mdr-zh-cn.pdf"),
     ("wdr-m.md", "wdr-m-en.pdf"),
     ("wdr-m_cn.md", "wdr-m-zh-cn.pdf"),
     ("wdr-4g.md", "wdr-4g-en.pdf"),
