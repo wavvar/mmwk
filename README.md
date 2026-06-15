@@ -42,7 +42,7 @@ Name | ESP | Audio | Radar | LED | 4G/LTE Support
 [RPI](./modules/rpx.md#3-rpi-6432-sensing-module) | ESP32S3 | Yes | IWRL6432AoP | 1 | No
 [CFH](./modules/rpx.md#2-6843-series-sensing-modules) | ESP32S3 | Yes | IWR6843AoP | 1 | No
 IOT | ESP32S3 | No | IWR6843AoP | 1 | Yes
-[WDR](./modules/mdr.md) | ESP32S3 | Yes | IWRL6432AoP | 2 | Optional
+[WDR](./modules/wdr-m.md) | ESP32S3 | Yes | IWRL6432AoP | 2 | Optional
 
 `LED` specifically refers to the radar-chip LED. Its IO follows the TI reference examples and must be controlled by the radar firmware. All boards also include one ESP-controlled button and one ESP-controlled LED; their shared behavior is documented in the [mmWave Sensor Development Kit](./docs/en/mmwk-sensor.md#5-user-interaction). For product-line hardware details, start with the [Product Module Overview](./modules/README.md).
 

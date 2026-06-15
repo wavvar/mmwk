@@ -7,7 +7,7 @@
 - [1. Module Introduction](#1-module-introduction)
 - [2. Technical Specifications and Key Features](#2-technical-specifications-and-key-features)
 - [3. Application Areas](#3-application-areas)
-- [4. WDR/MDR Series Integration](#4-wdrmdr-series-integration)
+- [4. WDR Series Integration](#4-wdr-series-integration)
 - [5. Interface Description](#5-interface-description)
 - [5.1 Interface Reference](#51-interface-reference)
 - [5.2 Status LED Reference](#52-status-led-reference)
@@ -21,7 +21,7 @@
 
 ## 1. Module Introduction
 
-`ML6432A_BO` is a high-performance, low-power millimeter-wave radar module developed on the TI `IWRL6432AOP` chip. The module integrates the radar RF front end, the digital processing unit, and the antenna in a compact and highly integrated design. It is intended for applications such as smart homes, human presence detection, vital-sign monitoring, and motion detection. It supports `UART`, `SPI`, and `CAN-FD` interfaces, which makes it convenient for rapid development and integration, and it is also suitable as a direct-plug radar-board solution for `MDR-M` / `WDR-M`.
+`ML6432A_BO` is a high-performance, low-power millimeter-wave radar module developed on the TI `IWRL6432AOP` chip. The module integrates the radar RF front end, the digital processing unit, and the antenna in a compact and highly integrated design. It is intended for applications such as smart homes, human presence detection, vital-sign monitoring, and motion detection. It supports `UART`, `SPI`, and `CAN-FD` interfaces, which makes it convenient for rapid development and integration, and it is also suitable as a direct-plug radar-board solution for `WDR-M`.
 
 <div style="text-align: center; margin: 10px 0;">
   <img src="./img/MDR/ml6432a-bo-front-view.png" alt="ML6432A_BO module front view" width="60%" style="display: block; margin: 0 auto;" />
@@ -78,21 +78,21 @@
 - Security and surveillance: video doorbells, IP cameras, and motion detectors
 - Automotive electronics: in-cabin intrusion detection and related applications
 
-## 4. WDR/MDR Series Integration
+## 4. WDR Series Integration
 
-In system-integration scenarios, `ML6432A_BO` and `ML6432A` share the same radar-side electrical interface categories, but they differ in installation method. `ML6432A_BO` is the preferred direct-plug version for `MDR-M` / `WDR-M` and is more suitable as the radar-board solution when building a complete `WDR/MDR` module.
+In system-integration scenarios, `ML6432A_BO` and `ML6432A` share the same radar-side electrical interface categories, but they differ in installation method. `ML6432A_BO` is the preferred direct-plug version for `WDR-M` and is more suitable as the radar-board solution when building a complete `WDR` module.
 
 <div style="text-align: center; margin: 10px 0;">
-  <img src="./img/MDR/mdr-m-board-attachment-orientation.png" alt="MDR-M plug-in orientation reference" width="42%" style="display: inline-block; margin: 0 12px;" />
+  <img src="./img/MDR/mdr-m-board-attachment-orientation.png" alt="WDR-M plug-in orientation reference" width="42%" style="display: inline-block; margin: 0 12px;" />
   <img src="./img/MDR/ml6432a-bo-attachment-orientation.png" alt="ML6432A_BO plug-in orientation reference" width="42%" style="display: inline-block; margin: 0 12px;" />
-  <p style="margin: 4px 0 0 0;">Direct plug-in orientation reference between MDR-M and ML6432A_BO</p>
+  <p style="margin: 4px 0 0 0;">Direct plug-in orientation reference between WDR-M and ML6432A_BO</p>
 </div>
 
-For the complete `WDR/MDR` system-level description, refer to [mdr.md](./mdr.md).
+For the complete `WDR` controller and system-level description, refer to [wdr-m.md](./wdr-m.md).
 
 ## 5. Interface Description
 
-The module connects into the `WDR/MDR` system through a board-to-board connection while retaining the same radar-side interface categories as `ML6432A`. Since the external interface arrangement of `ML6432A_BO` is different from `ML6432A`, this section retains the `BO`-version appearance and interface reference diagrams.
+The module connects into the `WDR` system through a board-to-board connection while retaining the same radar-side interface categories as `ML6432A`. Since the external interface arrangement of `ML6432A_BO` is different from `ML6432A`, this section retains the `BO`-version appearance and interface reference diagrams.
 
 <div style="text-align: center; margin: 10px 0;">
   <img src="./img/MDR/ml6432a-bo-front-view.png" alt="ML6432A_BO front view" width="60%" style="display: block; margin: 0 auto;" />
@@ -183,6 +183,6 @@ When the serial debugging adapter is connected to the computer through `USB`, th
 
 ## 7. Related Documents
 
-- [MDR Module Introduction](./mdr.md)
 - [WDR-M Main Controller Carrier Board Introduction](./wdr-m.md)
+- [WDR-4G Communication Board Introduction](./wdr-4g.md)
 - [ML6432A Module Introduction](./ml6432a.md)

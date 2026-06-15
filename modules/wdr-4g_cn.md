@@ -10,7 +10,7 @@
 
 ## 1. 板卡概述
 
-`WDR-4G` 是 `WDR` 系统中的 `4G Cat1` 通信板。在 `MDR` 系统说明中，该板以 `4G Cat1` 通信板的形式出现，用于提供蜂窝通信与远程联网能力。`WDR` 完整模组由 `ML6432A_BO` 雷达板、`MDR-M` 主控板和 `4G Cat1` 通信板组成，适合需要本地感知与远程联网能力的整机方案。
+`WDR-4G` 是 `WDR` 系统中的 `4G Cat1` 通信板。`WDR` 完整模组由 `ML6432A_BO` 雷达板、`WDR-M` 主控板和 `4G Cat1` 通信板组成，适合需要本地感知与远程联网能力的整机方案。
 
 ## 2. 技术规格和主要特性
 
@@ -45,7 +45,7 @@
 
 | 关联板卡 | 关系 | 说明 |
 | --- | --- | --- |
-| `WDR-M`（`MDR-M`） | 主控与互连 | `WDR-4G` 通过专用板级信号连接到 `WDR-M` |
+| `WDR-M` | 主控与互连 | `WDR-4G` 通过专用板级信号连接到 `WDR-M` |
 | `ML6432A_BO` 雷达板 | 系统组成 | 与 `WDR-M`、`WDR-4G` 共同构成完整 `WDR` 模组 |
 
 ## 4. 连接关系与板级参考图
@@ -58,7 +58,7 @@
 </div>
 
 <div style="text-align: center; margin: 10px 0;">
-  <img src="./img/MDR/mdr-m-to-cat1-board-connection.png" alt="MDR-M 与 Cat1 通信板连接参考图" width="85%" style="display: block; margin: 0 auto;" />
+  <img src="./img/MDR/mdr-m-to-cat1-board-connection.png" alt="WDR-M 与 Cat1 通信板连接参考图" width="85%" style="display: block; margin: 0 auto;" />
   <p style="margin: 4px 0 0 0;">图 2 WDR-4G 与 WDR-M 连接参考图</p>
 </div>
 
@@ -66,5 +66,4 @@
 
 ## 5. 相关文档
 
-- [MDR 模块简介](./mdr_cn.md)
 - [WDR-M 主控承载板简介](./wdr-m_cn.md)

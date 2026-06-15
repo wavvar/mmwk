@@ -43,6 +43,17 @@ class DisplayPathTest(unittest.TestCase):
         self.assertEqual(module_pdfs.display_path(external), str(external))
 
 
+class ModuleDocsTest(unittest.TestCase):
+    def test_configured_module_sources_exist(self) -> None:
+        missing_sources = [
+            source_name
+            for source_name, _output_name in module_pdfs.MODULE_DOCS
+            if not (module_pdfs.MODULES_ROOT / source_name).exists()
+        ]
+
+        self.assertEqual(missing_sources, [])
+
+
 class RegisterFontsTest(unittest.TestCase):
     def test_register_fonts_uses_reportlab_cid_font_name_for_fallback(self) -> None:
         with mock.patch.object(module_pdfs.Path, "exists", return_value=False):

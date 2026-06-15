@@ -12,7 +12,7 @@
 
 ## 1. Board Overview
 
-`WDR-4G` is the `4G Cat1` communication board in the `WDR` system. In `MDR` system documentation, this board appears as the `4G Cat1` communication board and is used to provide cellular communication and remote connectivity. A complete `WDR` module is composed of the `ML6432A_BO` radar board, the `MDR-M` main controller board, and the `4G Cat1` communication board, making it suitable for complete-device solutions that require both local sensing and remote networking.
+`WDR-4G` is the `4G Cat1` communication board in the `WDR` system. A complete `WDR` module is composed of the `ML6432A_BO` radar board, the `WDR-M` main controller board, and the `4G Cat1` communication board, making it suitable for complete-device solutions that require both local sensing and remote networking.
 
 ## 2. Technical Specifications and Key Features
 
@@ -46,7 +46,7 @@ Within the `WDR` system, `WDR-4G` is responsible for cellular communication and 
 
 | Associated Board | Relationship | Description |
 | --- | --- | --- |
-| `WDR-M` (`MDR-M`) | Main control and interconnect | `WDR-4G` connects to `WDR-M` through dedicated board-level signals |
+| `WDR-M` | Main control and interconnect | `WDR-4G` connects to `WDR-M` through dedicated board-level signals |
 | `ML6432A_BO` radar board | System component | Forms the complete `WDR` module together with `WDR-M` and `WDR-4G` |
 
 ## 4. Interconnect and Board-Level Reference Diagrams
@@ -59,7 +59,7 @@ The diagrams below illustrate the relationship between `WDR-4G` and `WDR-M`, tog
 </div>
 
 <div style="text-align: center; margin: 10px 0;">
-  <img src="./img/MDR/mdr-m-to-cat1-board-connection.png" alt="MDR-M to Cat1 communication board connection reference" width="85%" style="display: block; margin: 0 auto;" />
+  <img src="./img/MDR/mdr-m-to-cat1-board-connection.png" alt="WDR-M to Cat1 communication board connection reference" width="85%" style="display: block; margin: 0 auto;" />
   <p style="margin: 4px 0 0 0;">Figure 2. WDR-4G to WDR-M connection reference</p>
 </div>
 
@@ -67,5 +67,4 @@ These references are suitable for checking how `WDR-4G` is integrated into the s
 
 ## 5. Related Documents
 
-- [MDR Module Introduction](./mdr.md)
 - [WDR-M Main Controller Carrier Board Introduction](./wdr-m.md)

@@ -5,7 +5,7 @@
 - [1. 模组简介](#1-模组简介)
 - [2. 技术规格和主要特性](#2-技术规格和主要特性)
 - [3. 应用领域](#3-应用领域)
-- [4. WDR/MDR 系列集成说明](#4-wdrmdr-系列集成说明)
+- [4. WDR 系列集成说明](#4-wdr-系列集成说明)
 - [5. 接口说明](#5-接口说明)
 - [6. 使用与烧录说明](#6-使用与烧录说明)
 - [6.1 启动模式配置说明](#61-启动模式配置说明)
@@ -103,14 +103,14 @@ ML6432A 系列是基于 TI IWR6432AOP 芯片开发的高性能低功耗毫米波
 - 安防监控：可视门铃、IP 网络摄像头、运动检测器
 - 汽车电子：车内入侵检测等
 
-## 4. WDR/MDR 系列集成说明
+## 4. WDR 系列集成说明
 
-`ML6432Ax` 系列同时也是 `WDR/MDR` 产品线中的雷达板系列。在系统集成场景下，`ML6432A` 和 `ML6432A_BO` 在雷达侧保持相同的电气接口定义，但安装方式不同。
+`ML6432Ax` 系列同时也是 `WDR` 产品线中的雷达板系列。在系统集成场景下，`ML6432A` 和 `ML6432A_BO` 在雷达侧保持相同的电气接口定义，但安装方式不同。
 
-- `ML6432A_BO` 是面向 `MDR-M` / `WDR-M` 的优先直插版本。
+- `ML6432A_BO` 是面向 `WDR-M` 的优先直插版本。
 - `ML6432A` 使用相同的雷达侧接口类别，但通常需要通过转接线连接，而不是直接插接到主控板。
 
-以下图片来自 WDR/MDR 集成资料，可作为补充参考。
+以下图片来自 WDR 集成资料，可作为补充参考。
 
 <div style="text-align: center; margin: 10px 0;">
   <img src="./img/MDR/ml6432a-connector-layout-reference.png" alt="ML6432A 连接器布局参考图" width="48%" style="display: inline-block; margin: 0 12px;" />
@@ -120,10 +120,10 @@ ML6432A 系列是基于 TI IWR6432AOP 芯片开发的高性能低功耗毫米波
 
 <div style="text-align: center; margin: 10px 0;">
   <img src="./img/MDR/ml6432a-signal-schematic-reference.png" alt="ML6432A 信号原理参考图" width="70%" style="display: block; margin: 0 auto;" />
-  <p style="margin: 4px 0 0 0;">WDR/MDR 集成资料中的信号原理参考图</p>
+  <p style="margin: 4px 0 0 0;">WDR 集成资料中的信号原理参考图</p>
 </div>
 
-如需查看完整的 WDR/MDR 系统级说明，请参考 [mdr_cn.md](./mdr_cn.md)。
+如需查看完整的 WDR 主控与系统级说明，请参考 [wdr-m_cn.md](./wdr-m_cn.md)。
 
 ## 5. 接口说明
 

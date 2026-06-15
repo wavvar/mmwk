@@ -10,7 +10,7 @@
 
 This document covers the `RPX` series modules, including the `6843` series products and the `RPI` platform in the `6432` class.
 
-`WDR` is documented separately because it belongs to a different product series. For `WDR/MDR` system-level documentation, refer to [./mdr.md](./mdr.md). For standalone `ML6432Ax` radar board documentation, refer to [./ml6432ax.md](./ml6432ax.md).
+`WDR` is documented separately because it belongs to a different product series. For `WDR` controller and system-level documentation, refer to [./wdr-m.md](./wdr-m.md). For standalone `ML6432Ax` radar board documentation, refer to [./ml6432ax.md](./ml6432ax.md).
 
 ## 2. 6843 Series Sensing Modules
 
@@ -78,7 +78,7 @@ Within the RPX family, the `RPI` module provides a compact `6432`-class sensing 
 | --- | --- | --- |
 | <img src="./img/RPX/6432/RPI_overview.png" width="210"> | <img src="./img/RPX/6432/RPI_top_back.png" width="210"> | 49×7mm |
 
-For the `WDR/MDR` series based on `ML6432A` and `ML6432A_BO`, see [./mdr.md](./mdr.md) and [./ml6432ax.md](./ml6432ax.md).
+For the `WDR` series based on `ML6432A` and `ML6432A_BO`, see [./wdr-m.md](./wdr-m.md), [./wdr-4g.md](./wdr-4g.md), and [./ml6432ax.md](./ml6432ax.md).
 
 ### 3.1 Target Applications
 
