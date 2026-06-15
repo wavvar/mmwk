@@ -77,7 +77,7 @@ Choose this path if `node info` already reports a reachable `mmwk_sensor` firmwa
 
 Recommended order:
 
-1. Confirm the device is reachable over UART with `./cli/run.sh node info -p <port>` on POSIX shells, or `.\cli\run.ps1 node info -p COM3` on Windows PowerShell.
+1. Confirm the device is reachable over UART with `./cli/run.sh node info -p <port>` on POSIX shells, or `.\cli\run.ps1 node info --port COM3` on Windows PowerShell.
 2. If Wi-Fi and MQTT are not configured yet, follow the bring-up sequence in [Local `server.sh` + `run.sh` Wi-Fi Flash and 5-Minute Collection Example](./collect.md).
 3. Use [Local `server.sh` + `run.sh` Wi-Fi Flash and 5-Minute Collection Example](./collect.md) for the validated radar firmware flash plus 5-minute collection walkthrough.
 

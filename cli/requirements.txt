@@ -1,3 +1,4 @@
 pyserial>=3.5
 paho-mqtt>=1.6
 zeroconf>=0.131
+amqtt>=0.11,<0.12

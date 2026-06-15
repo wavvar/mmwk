@@ -97,7 +97,7 @@ MMWK 支持你把自己的软件和硬件带入生态：
 
 **网络：** 准备 Wi-Fi 配网，或在支持蜂窝网络的板卡上准备可用的 4G/Cat1 SIM 卡和天线。Wi-Fi 可以通过设备 AP/浏览器门户配置，也可以通过 UART CLI 快速配置；4G 只适用于支持蜂窝硬件的板卡，并遵循共享网络优先级行为。开始 MQTT 控制、MQTT raw 采集、HTTP OTA 下载或上传/录制验证前，都应先确认网络可用。
 
-**服务器：** MQTT 和 HTTP 可以运行在本机、局域网主机或云服务器上。MQTT 是控制与数据 broker：负责 CLI JSON 命令/响应，以及采集流程使用的 raw 雷达 topic。HTTP 用于设备下载雷达/ESP 固件和配置文件，也可作为 record 验证时的上传端点。本地实验建议从 CLI 的 [本地 Server 辅助脚本](./cli/docs/zh-cn/README.md#本地-server-辅助脚本-serversh) 开始；POSIX `server.sh` 要求 `mosquitto` 位于 `PATH`，Windows `server.ps1` 可以使用 `PATH` 中的 `mosquitto`，也可以解析已安装的 Windows mosquitto service/path。
+**服务器：** MQTT 和 HTTP 可以运行在本机、局域网主机或云服务器上。MQTT 是控制与数据 broker：负责 CLI JSON 命令/响应，以及采集流程使用的 raw 雷达 topic。HTTP 用于设备下载雷达/ESP 固件和配置文件，也可作为 record 验证时的上传端点。本地实验建议从 CLI 的 [本地 Server 辅助脚本](./cli/docs/zh-cn/README.md#本地-server-辅助脚本-serversh) 开始；helper 使用 `./cli/requirements.txt` 中的 Python aMQTT broker，不再要求安装系统 Mosquitto。
 
 ### 3.2 应用场景
 

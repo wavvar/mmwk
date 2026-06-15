@@ -78,7 +78,7 @@ This helper is pure MQTT for both control and raw capture. Use `./cli/config.sh 
 - `run`
   - Foreground mode. Recommended for a dedicated terminal or automation session.
 - `--state-dir`
-  - Directory for `pid`, `env`, `mosquitto.log`, `http.log`, and related runtime state.
+  - Directory for `pid`, `env`, `mqtt.log`, `amqtt.yml`, `http.log`, and related runtime state.
 - `--serve-dir`
   - Directory exposed by the local HTTP server. In this example it is written as `<artifact-dir>`.
 - `--host-ip`
@@ -520,7 +520,7 @@ If an immediate post-reboot UART CLI JSON query fails, retry once with `--reset`
   - `<demo-output-dir>/cmd_resp_300s.log`
   - `<demo-output-dir>/ota_cmd_resp.log`
   - `<demo-output-dir>/collect_300s.log`
-  - `<demo-output-dir>/local_server/mosquitto.log`
+  - `<demo-output-dir>/local_server/mqtt.log`
   - `<demo-output-dir>/local_server/http.log`
   - This document: `./collect.md`
 

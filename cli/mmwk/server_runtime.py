@@ -8,10 +8,10 @@ wrappers.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import os
 import pathlib
 import re
-import shlex
 import signal
 import socket
 import subprocess
@@ -170,14 +170,6 @@ def parse_env_file_value(path: pathlib.Path, key: str) -> str:
     return ""
 
 
-def _safe_relpath(target: pathlib.Path, root: pathlib.Path) -> str:
-    try:
-        rel = target.relative_to(root)
-        return str(rel.as_posix())
-    except ValueError:
-        return str(target.resolve())
-
-
 def _read_lines(path: pathlib.Path) -> list[str]:
     if not path.is_file():
         return []
@@ -262,6 +254,8 @@ class ServerRuntime:
         self.target_ip = (target_ip or "").strip()
         self.mqtt_port = int(mqtt_port)
         self.http_port = int(http_port)
+        self.device_ota_url = ""
+        self.device_ota_version = ""
 
         if self.device_ota:
             self.configure_device_ota_mode()
@@ -276,9 +270,6 @@ class ServerRuntime:
         else:
             self.device_ota_dir = ""
             self.device_ota_path = ""
-
-        self.device_ota_url = ""
-        self.device_ota_version = ""
 
         if self.device_ota:
             self.device_ota_board = self.device_ota_board
@@ -296,17 +287,16 @@ class ServerRuntime:
             self.upload_dir = self._abspath(f"{self.state_dir}/uploads")
 
         self.stop_file = pathlib.Path(self.state_dir) / "stop.request"
-        self.mqtt_pid_file = pathlib.Path(self.state_dir) / "mosquitto.pid"
+        self.mqtt_pid_file = pathlib.Path(self.state_dir) / "mqtt.pid"
         self.http_pid_file = pathlib.Path(self.state_dir) / "http.pid"
         self.server_pid_file = pathlib.Path(self.state_dir) / "server.pid"
         self.env_file = pathlib.Path(self.state_dir) / "server.env"
         self.server_log = pathlib.Path(self.state_dir) / "server.log"
-        self.mqtt_log = pathlib.Path(self.state_dir) / "mosquitto.log"
+        self.mqtt_log = pathlib.Path(self.state_dir) / "mqtt.log"
         self.http_log = pathlib.Path(self.state_dir) / "http.log"
-        self.mosq_conf = pathlib.Path(self.state_dir) / "mosquitto.conf"
+        self.mqtt_config = pathlib.Path(self.state_dir) / "amqtt.yml"
 
         self.prepared_host_ip: str = ""
-        self.mosquitto_command: str = ""
         self.mqtt_process = None
         self.http_process = None
 
@@ -409,88 +399,27 @@ class ServerRuntime:
 
         self.select_versioned_device_ota(board_root)
 
-    def _windows_service_image_path(self, service_name: str) -> str:
-        if os.name != "nt":
-            return ""
+    def ensure_amqtt_available(self) -> None:
+        if importlib.util.find_spec("amqtt") is None:
+            raise RuntimeError(
+                "required Python dependency not found: amqtt "
+                "(from the public package root, run python -m pip install -r cli/requirements.txt)"
+            )
 
-        query = (
-            f"(Get-CimInstance -ClassName Win32_Service "
-            f"-Filter \"Name='{service_name}'\" -ErrorAction SilentlyContinue).PathName"
+    def write_mqtt_config(self) -> None:
+        config_text = (
+            "listeners:\n"
+            "  default:\n"
+            "    type: tcp\n"
+            f"    bind: 0.0.0.0:{self.mqtt_port}\n"
+            "timeout_disconnect_delay: 0\n"
+            "plugins:\n"
+            "  amqtt.plugins.authentication.AnonymousAuthPlugin:\n"
+            "    allow_anonymous: true\n"
+            "  amqtt.plugins.sys.broker.BrokerSysPlugin:\n"
+            "    sys_interval: 20\n"
         )
-        try:
-            return subprocess.check_output(
-                ["powershell.exe", "-NoProfile", "-Command", query],
-                text=True,
-                stderr=subprocess.DEVNULL,
-                timeout=5,
-            ).strip()
-        except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
-            return ""
-
-    def _extract_windows_exe_path(self, raw_command: str) -> str:
-        raw = (raw_command or "").strip()
-        if not raw:
-            return ""
-
-        candidate = ""
-        if raw.startswith('"'):
-            end_quote = raw.find('"', 1)
-            if end_quote > 1:
-                candidate = raw[1:end_quote]
-        else:
-            exe_match = re.search(r"\.exe\b", raw, flags=re.IGNORECASE)
-            if exe_match:
-                candidate = raw[: exe_match.end()]
-            else:
-                try:
-                    parts = shlex.split(raw, posix=False)
-                except ValueError:
-                    parts = []
-                if parts:
-                    candidate = parts[0].strip('"')
-
-        candidate = os.path.expandvars(candidate.strip().strip('"'))
-        if not candidate:
-            return ""
-
-        path = pathlib.Path(candidate)
-        if path.name.lower() != "mosquitto.exe":
-            return ""
-        if not path.is_file():
-            return ""
-        return str(path)
-
-    def resolve_mosquitto_command(self) -> str:
-        from shutil import which
-
-        for name in ("mosquitto", "mosquitto.exe"):
-            found = which(name)
-            if found:
-                return found
-
-        if os.name != "nt":
-            return ""
-
-        service_path = self._extract_windows_exe_path(
-            self._windows_service_image_path("mosquitto")
-        )
-        if service_path:
-            return service_path
-
-        candidate_roots = [
-            os.environ.get("ProgramFiles", ""),
-            os.environ.get("ProgramFiles(x86)", ""),
-            r"C:\Program Files",
-            r"C:\Program Files (x86)",
-        ]
-        for root in candidate_roots:
-            if not root:
-                continue
-            candidate = pathlib.Path(root) / "mosquitto" / "mosquitto.exe"
-            if candidate.is_file():
-                return str(candidate)
-
-        return ""
+        self.mqtt_config.write_text(config_text, encoding="utf-8")
 
     def load_state_runtime(self) -> None:
         if not self.env_file.is_file():
@@ -556,14 +485,12 @@ class ServerRuntime:
         resolved_path = pathlib.Path(self.device_ota_path).resolve()
         serve_root = pathlib.Path(self.serve_dir).resolve()
 
-        if not str(resolved_path).startswith(str(serve_root)):
-            rel_path = _safe_relpath(resolved_path, serve_root)
-            if rel_path.startswith("..") or rel_path.startswith(("/", "\\")):
-                raise RuntimeError(
-                    f"device OTA artifact must live under the served HTTP directory ({serve_root})"
-                )
-        else:
-            rel_path = os.path.relpath(resolved_path, str(serve_root)).replace(os.sep, "/")
+        try:
+            rel_path = resolved_path.relative_to(serve_root).as_posix()
+        except ValueError as exc:
+            raise RuntimeError(
+                f"device OTA artifact must live under the served HTTP directory ({serve_root})"
+            ) from exc
 
         return f"http://{host}:{self.http_port}/{rel_path}"
 
@@ -630,12 +557,7 @@ class ServerRuntime:
                 f"device OTA artifact not found under {self.resolve_device_ota_dir()}"
             )
 
-        self.mosquitto_command = self.resolve_mosquitto_command()
-        if not self.mosquitto_command:
-            raise RuntimeError(
-                "required command not found: mosquitto "
-                "(add mosquitto.exe to PATH, or install the Windows mosquitto service)"
-            )
+        self.ensure_amqtt_available()
 
         self.state_dir_obj.mkdir(parents=True, exist_ok=True)
         self.upload_dir_obj.mkdir(parents=True, exist_ok=True)
@@ -648,7 +570,7 @@ class ServerRuntime:
         self.log_info(f"State Dir   : {self.state_dir}")
         self.log_info(f"Serve Dir   : {self.serve_dir}")
         self.log_info(f"Upload Dir  : {self.upload_dir}")
-        self.log_info(f"Mosquitto   : {self.mosquitto_command}")
+        self.log_info("MQTT Broker : aMQTT")
         self.log_info(f"Requested MQTT Port: {self.mqtt_port}")
         self.log_info(f"Requested HTTP Port: {self.http_port}")
 
@@ -659,17 +581,7 @@ class ServerRuntime:
         self.mqtt_port = self.pick_available_port(self.mqtt_port)
         self.http_port = self.pick_available_port(self.http_port)
 
-        self.mosq_conf.write_text(
-            "\n".join(
-                [
-                    "allow_anonymous true",
-                    "persistence false",
-                    f"listener {self.mqtt_port} 0.0.0.0",
-                ]
-            )
-            + "\n",
-            encoding="utf-8",
-        )
+        self.write_mqtt_config()
         self.mqtt_log.write_text("", encoding="utf-8")
         self.http_log.write_text("", encoding="utf-8")
         self.log_info(f"Resolved Host IP : {self.prepared_host_ip}")
@@ -777,6 +689,7 @@ class ServerRuntime:
             pass
 
     def write_stop_request(self, reason: str) -> None:
+        self.state_dir_obj.mkdir(parents=True, exist_ok=True)
         lines = [
             "stop",
             f"reason={reason}",
@@ -820,22 +733,6 @@ class ServerRuntime:
         self.log_info(f"MQTT Log   : {self.mqtt_log}")
         self.log_info(f"HTTP Log   : {self.http_log}")
 
-        mqtt_log_handle = self.mqtt_log.open("a", encoding="utf-8")
-        http_log_handle = self.http_log.open("a", encoding="utf-8")
-
-        mqtt_proc = subprocess.Popen(
-            [self.mosquitto_command or "mosquitto", "-c", str(self.mosq_conf), "-v"],
-            stdin=subprocess.DEVNULL,
-            stdout=mqtt_log_handle,
-            stderr=subprocess.STDOUT,
-        )
-        self.mqtt_process = mqtt_proc
-        self.mqtt_pid_file.write_text(f"{mqtt_proc.pid}\n", encoding="utf-8")
-        self.log_info(f"Starting mosquitto (pid={mqtt_proc.pid})")
-
-        if not self.wait_for_tcp("127.0.0.1", self.mqtt_port, timeout_sec=15):
-            raise RuntimeError(f"mosquitto failed to start. See {self.mqtt_log}")
-
         env = os.environ.copy()
         cli_dir = pathlib.Path(__file__).resolve().parents[1]
         existing_pythonpath = env.get("PYTHONPATH", "")
@@ -845,47 +742,71 @@ class ServerRuntime:
             else str(cli_dir)
         )
 
-        http_attempts = [
-            (
-                "local_http_server",
+        with (
+            self.mqtt_log.open("a", encoding="utf-8") as mqtt_log_handle,
+            self.http_log.open("a", encoding="utf-8") as http_log_handle,
+        ):
+            mqtt_proc = subprocess.Popen(
                 [
                     sys.executable,
                     "-m",
-                    "mmwk.local_http_server",
-                    "--serve-dir",
-                    self.serve_dir,
-                    "--bind",
-                    "0.0.0.0",
-                    "--port",
-                    str(self.http_port),
-                    "--upload-dir",
-                    self.upload_dir,
+                    "mmwk.local_mqtt_broker",
+                    "--config",
+                    str(self.mqtt_config),
                 ],
-            ),
-            (
-                "static http.server fallback",
-                [
-                    sys.executable,
-                    "-m",
-                    "http.server",
-                    str(self.http_port),
-                    "--bind",
-                    "0.0.0.0",
-                    "--directory",
-                    self.serve_dir,
-                ],
-            ),
-        ]
+                stdin=subprocess.DEVNULL,
+                stdout=mqtt_log_handle,
+                stderr=subprocess.STDOUT,
+                env=env,
+            )
+            self.mqtt_process = mqtt_proc
+            self.mqtt_pid_file.write_text(f"{mqtt_proc.pid}\n", encoding="utf-8")
+            self.log_info(f"Starting local MQTT broker (pid={mqtt_proc.pid})")
 
-        for index, (label, cmd) in enumerate(http_attempts):
-            if index > 0:
-                self.log_warn(
-                    "Falling back to static HTTP file serving; upload endpoints are unavailable"
-                )
-            http_proc = self.start_http_server_attempt(label, cmd, http_log_handle, env=env)
-            if http_proc is not None:
-                self.http_process = http_proc
-                return
+            if not self.wait_for_tcp("127.0.0.1", self.mqtt_port, timeout_sec=15):
+                raise RuntimeError(f"local MQTT broker failed to start. See {self.mqtt_log}")
+
+            http_attempts = [
+                (
+                    "local_http_server",
+                    [
+                        sys.executable,
+                        "-m",
+                        "mmwk.local_http_server",
+                        "--serve-dir",
+                        self.serve_dir,
+                        "--bind",
+                        "0.0.0.0",
+                        "--port",
+                        str(self.http_port),
+                        "--upload-dir",
+                        self.upload_dir,
+                    ],
+                ),
+                (
+                    "static http.server fallback",
+                    [
+                        sys.executable,
+                        "-m",
+                        "http.server",
+                        str(self.http_port),
+                        "--bind",
+                        "0.0.0.0",
+                        "--directory",
+                        self.serve_dir,
+                    ],
+                ),
+            ]
+
+            for index, (label, cmd) in enumerate(http_attempts):
+                if index > 0:
+                    self.log_warn(
+                        "Falling back to static HTTP file serving; upload endpoints are unavailable"
+                    )
+                http_proc = self.start_http_server_attempt(label, cmd, http_log_handle, env=env)
+                if http_proc is not None:
+                    self.http_process = http_proc
+                    return
 
         raise RuntimeError(f"HTTP server failed to start. See {self.http_log}")
 
@@ -1120,7 +1041,11 @@ class ServerRuntime:
 
 def _add_common_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--state-dir", default="", help="State/log/pid directory (default: ./build_output/local_server)")
-    parser.add_argument("--serve-dir", default="", help="Directory exposed by HTTP server")
+    parser.add_argument(
+        "--serve-dir",
+        default="",
+        help="Directory exposed by HTTP server (default: current working directory)",
+    )
     parser.add_argument("--upload-dir", default="", help="Directory for HTTP POST upload dumps")
     parser.add_argument("--device-ota", action="store_true", help="Publish bridge OTA artifact")
     parser.add_argument("--device-ota-board", default="", help="Board name for bridge OTA artifact lookup")
