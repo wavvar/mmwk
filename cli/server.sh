@@ -743,6 +743,7 @@ prepare_server() {
     mkdir -p "$STATE_DIR" "$UPLOAD_DIR"
     rm -f "$STOP_FILE"
     ensure_not_running
+    rm -f "$ENV_FILE"
 
     log_info "Preparing local server"
     log_info "State Dir   : $STATE_DIR"
@@ -1320,6 +1321,7 @@ start_server() {
     mkdir -p "$STATE_DIR"
     rm -f "$STOP_FILE"
     ensure_not_running
+    rm -f "$ENV_FILE"
     : > "$SERVER_LOG"
     log_info "Server Log : $SERVER_LOG"
 

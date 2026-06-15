@@ -307,6 +307,8 @@ class ServerRuntime:
 
         self.prepared_host_ip: str = ""
         self.mosquitto_command: str = ""
+        self.mqtt_process = None
+        self.http_process = None
 
     def _abspath(self, value: str) -> str:
         path = pathlib.Path(value)
@@ -317,10 +319,10 @@ class ServerRuntime:
     # ----------------------------- logging -----------------------------
 
     def log_info(self, text: str) -> None:
-        print(f"[{timestamp_now()}] [server] {text}")
+        print(f"[{timestamp_now()}] [server] {text}", flush=True)
 
     def log_warn(self, text: str) -> None:
-        print(f"[{timestamp_now()}] [server] {text}", file=sys.stderr)
+        print(f"[{timestamp_now()}] [server] {text}", file=sys.stderr, flush=True)
 
     # ---------------------------- helpers -----------------------------
 
@@ -611,6 +613,14 @@ class ServerRuntime:
         if any(is_pid_running(value) for value in (mqtt_pid, http_pid, server_pid)):
             raise RuntimeError(f"server already running in {self.state_dir}")
 
+    def prepare_start_state(self) -> None:
+        self.state_dir_obj.mkdir(parents=True, exist_ok=True)
+        self.upload_dir_obj.mkdir(parents=True, exist_ok=True)
+        self.stop_file.unlink(missing_ok=True)
+        self.ensure_not_running()
+        self.env_file.unlink(missing_ok=True)
+        self.server_log.write_text("", encoding="utf-8")
+
     def prepare_server(self) -> None:
         if self.device_ota and not self.device_ota_path:
             raise RuntimeError("device OTA mode requires --device-ota-board and valid artifact")
@@ -632,6 +642,7 @@ class ServerRuntime:
         self.stop_file.unlink(missing_ok=True)
 
         self.ensure_not_running()
+        self.env_file.unlink(missing_ok=True)
 
         self.log_info("Preparing local server")
         self.log_info(f"State Dir   : {self.state_dir}")
@@ -740,6 +751,31 @@ class ServerRuntime:
         except (OSError, ValueError):
             pass
 
+    def terminate_process(self, process) -> None:
+        if process is None:
+            return
+        if process.poll() is not None:
+            return
+        try:
+            process.terminate()
+        except OSError:
+            return
+
+        for _ in range(10):
+            if process.poll() is not None:
+                return
+            time.sleep(0.1)
+
+        if process.poll() is None:
+            try:
+                process.kill()
+            except OSError:
+                return
+        try:
+            process.wait(timeout=2)
+        except Exception:
+            pass
+
     def write_stop_request(self, reason: str) -> None:
         lines = [
             "stop",
@@ -793,6 +829,7 @@ class ServerRuntime:
             stdout=mqtt_log_handle,
             stderr=subprocess.STDOUT,
         )
+        self.mqtt_process = mqtt_proc
         self.mqtt_pid_file.write_text(f"{mqtt_proc.pid}\n", encoding="utf-8")
         self.log_info(f"Starting mosquitto (pid={mqtt_proc.pid})")
 
@@ -800,32 +837,84 @@ class ServerRuntime:
             raise RuntimeError(f"mosquitto failed to start. See {self.mqtt_log}")
 
         env = os.environ.copy()
-        env["PYTHONPATH"] = str(pathlib.Path(__file__).resolve().parent)
+        cli_dir = pathlib.Path(__file__).resolve().parents[1]
+        existing_pythonpath = env.get("PYTHONPATH", "")
+        env["PYTHONPATH"] = (
+            f"{cli_dir}{os.pathsep}{existing_pythonpath}"
+            if existing_pythonpath
+            else str(cli_dir)
+        )
 
+        http_attempts = [
+            (
+                "local_http_server",
+                [
+                    sys.executable,
+                    "-m",
+                    "mmwk.local_http_server",
+                    "--serve-dir",
+                    self.serve_dir,
+                    "--bind",
+                    "0.0.0.0",
+                    "--port",
+                    str(self.http_port),
+                    "--upload-dir",
+                    self.upload_dir,
+                ],
+            ),
+            (
+                "static http.server fallback",
+                [
+                    sys.executable,
+                    "-m",
+                    "http.server",
+                    str(self.http_port),
+                    "--bind",
+                    "0.0.0.0",
+                    "--directory",
+                    self.serve_dir,
+                ],
+            ),
+        ]
+
+        for index, (label, cmd) in enumerate(http_attempts):
+            if index > 0:
+                self.log_warn(
+                    "Falling back to static HTTP file serving; upload endpoints are unavailable"
+                )
+            http_proc = self.start_http_server_attempt(label, cmd, http_log_handle, env=env)
+            if http_proc is not None:
+                self.http_process = http_proc
+                return
+
+        raise RuntimeError(f"HTTP server failed to start. See {self.http_log}")
+
+    def start_http_server_attempt(self, label: str, cmd: list[str], log_handle, *, env=None):
+        self.http_pid_file.unlink(missing_ok=True)
+        self.log_info(f"Starting HTTP server command ({label}): {' '.join(cmd)}")
         http_proc = subprocess.Popen(
-            [
-                sys.executable,
-                "-m",
-                "mmwk.local_http_server",
-                "--serve-dir",
-                self.serve_dir,
-                "--bind",
-                "0.0.0.0",
-                "--port",
-                str(self.http_port),
-                "--upload-dir",
-                self.upload_dir,
-            ],
+            cmd,
             stdin=subprocess.DEVNULL,
-            stdout=http_log_handle,
+            stdout=log_handle,
             stderr=subprocess.STDOUT,
             env=env,
         )
+        self.http_process = http_proc
         self.http_pid_file.write_text(f"{http_proc.pid}\n", encoding="utf-8")
         self.log_info(f"Starting HTTP server (pid={http_proc.pid})")
 
-        if not self.wait_for_tcp("127.0.0.1", self.http_port, timeout_sec=15):
-            raise RuntimeError(f"HTTP server failed to start. See {self.http_log}")
+        if self.wait_for_tcp("127.0.0.1", self.http_port, timeout_sec=15):
+            return http_proc
+
+        self.log_warn(f"HTTP server attempt failed ({label}). See {self.http_log}")
+        self.terminate_process(http_proc)
+        self.http_pid_file.unlink(missing_ok=True)
+        return None
+
+    def owned_child_running(self, process, pid_file: pathlib.Path) -> bool:
+        if process is not None:
+            return process.poll() is None
+        return is_pid_running(_read_pid_file(pid_file))
 
     def run_server(self, stop_requested: bool = False) -> int:
         self.prepare_server()
@@ -867,11 +956,11 @@ class ServerRuntime:
                     self.log_info("Stop request detected")
                 break
 
-            if not is_pid_running(_read_pid_file(self.mqtt_pid_file)):
+            if not self.owned_child_running(self.mqtt_process, self.mqtt_pid_file):
                 self.log_warn("MQTT process exited unexpectedly")
                 exit_code = 1
                 break
-            if not is_pid_running(_read_pid_file(self.http_pid_file)):
+            if not self.owned_child_running(self.http_process, self.http_pid_file):
                 self.log_warn("HTTP process exited unexpectedly")
                 exit_code = 1
                 break
@@ -890,9 +979,7 @@ class ServerRuntime:
         return exit_code
 
     def start(self) -> int:
-        self.prepare_server()
-
-        self.server_log.write_text("", encoding="utf-8")
+        self.prepare_start_state()
         self.log_info(f"Server Log : {self.server_log}")
 
         run_cmd = [

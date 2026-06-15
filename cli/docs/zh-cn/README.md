@@ -68,8 +68,8 @@ pip install -r requirements.txt
 
 | 工作流 | macOS / Linux / Git Bash | Windows PowerShell | 说明 |
 |---|---|---|---|
-| 主 CLI | `./run.sh ...` | `.\run.ps1 ...` | `run.sh` 会管理 `./venv`；`run.ps1` 使用当前或系统 Python 3.10+ 环境。 |
-| 本地 MQTT + HTTP server | `./server.sh ...` | `.\server.ps1 ...` | 两者都要求本机 `PATH` 中存在 `mosquitto`。 |
+| 主 CLI | `./run.sh ...` | `.\run.ps1 ...` | 两者都会从调用 wrapper 时所在目录解析相对文件路径。`run.sh` 会管理 `./venv`；`run.ps1` 使用当前或系统 Python 3.10+ 环境。 |
+| 本地 MQTT + HTTP server | `./server.sh ...` | `.\server.ps1 ...` | POSIX `server.sh` 要求 `mosquitto` 位于 `PATH`；Windows `server.ps1` 可以使用 `PATH` 中的 `mosquitto`，也可以解析已安装的 Windows mosquitto service/path。 |
 | 注册表任务 helper | `./config.sh`、`./collect.sh` | `.\config.ps1`、`.\collect.ps1` | `config.ps1` 会转调 `config.sh`，因此需要 Bash，例如 Git Bash。`collect.ps1` 有 Bash 时会转调 `collect.sh`；没有 Bash 时，仍可使用 `--trigger` pure-MQTT 模式和受限的 registry 采集 fallback。 |
 | 直接 Python | `python3 -m mmwk ...` | `py -m mmwk ...` 或 `python -m mmwk ...` | 仅在你明确要绕过 wrapper 时使用。 |
 
@@ -80,6 +80,8 @@ PowerShell 下参数与 POSIX 示例保持一致，主要差异是 wrapper 名�
 .\server.ps1 run --serve-dir C:\mmwk\artifacts --host-ip 192.168.4.8
 .\collect.ps1 --trigger device-reboot --did dc5475c879c0
 ```
+
+相对 `--fw`、`--cfg`、`--serve-dir` 和输出路径都会从调用 wrapper 时所在目录解析，而不是从 `cli` 目录解析。
 
 ## Surface 更新（2026-04-13）
 
@@ -457,11 +459,11 @@ flowchart LR
 
 ### 本地 Server 辅助脚本 (`server.sh`)
 
-`server.sh` 是一个配套的高效辅助脚本。Windows PowerShell 下可以使用同一运行时的 `.\server.ps1`。它用于一键启动本地 MQTT Broker 和 HTTP 文件服务器，配合 CLI 执行 Wi-Fi OTA 升级和本地 MQTT 数据采集，无需依赖外部云基础设施。
+`server.sh` 是一个配套的高效辅助脚本。Windows PowerShell 下可以使用同一组受支持 helper surface 的 `.\server.ps1`。它用于一键启动本地 MQTT Broker 和 HTTP 文件服务器，配合 CLI 执行 Wi-Fi OTA 升级和本地 MQTT 数据采集，无需依赖外部云基础设施。
 
 **核心能力：**
-- **本地 MQTT Broker**：依赖本机已安装且在 `PATH` 中可见的 `mosquitto`。
-- **内置 HTTP 服务器**：封装 Python 自带的 `http.server`，提供固件与配置文件的 OTA 下载服务。
+- **本地 MQTT Broker**：POSIX `server.sh` 要求 `mosquitto` 位于 `PATH`；Windows `server.ps1` 可以使用 `PATH` 中的 `mosquitto`，也可以解析已安装的 Windows mosquitto service/path。
+- **内置 HTTP 服务器**：默认使用 CLI local HTTP server，提供固件/config 下载和 upload endpoint。detached startup 只有在 local HTTP module 无法启动时才回退到 Python 静态 `http.server`；该 fallback 仍可提供 OTA 下载，但不提供 upload endpoint。
 - **上下文导出**：提供 `env` 命令，输出包含主机 IP、MQTT URI、HTTP Base URL 的 `MMWK_SERVER_XXX` 变量行，可直接传递给 `run.sh`，或在 PowerShell 中取值后传给 `run.ps1`。
 
 **常用命令：**
@@ -494,8 +496,9 @@ eval "$(./server.sh env)"
 **说明：**
 - MQTT 默认使用端口 `1883`。
 - HTTP 默认从 `--serve-dir` 对外提供文件，端口 `8380`。
-- 如果没有显式传入 `--serve-dir`，`server.sh` 会对外提供它启动时的当前工作目录。
-- `server.sh status` 会同时检查 PID 存活和实际 TCP 端口监听状态。
+- 如果没有显式传入 `--serve-dir`，helper 会对外提供启动 `server.sh` 或 `server.ps1` 时的当前工作目录。
+- detached startup 会在 readiness polling 前清理旧的 `server.env`，避免失败启动继续导出上一次成功运行的环境变量。
+- `server.sh status` 和 `server.ps1 status` 会同时检查 PID 存活和实际 TCP 端口监听状态。
 - `server.sh env` 会输出可直接复用的主机 IP、MQTT URI 和 HTTP Base URL，方便传给 `network mqtt`、`radar fw ota`、`node ota` 和 `collect`。
 - 在 PowerShell 下，`.\server.ps1 env` 会输出同样的 `KEY=value` 行；可以把需要的 URL 值复制到 PowerShell 变量，或直接传给 `.\run.ps1`。
 - 仅适用于已运行设备的 OTA 流程请看 [设备 OTA 指南](../../../docs/zh-cn/ota.md)，出厂刷机请看 [出厂烧录指南](../../../docs/zh-cn/flash.md)。
@@ -568,6 +571,8 @@ python3 -m mmwk node info -p /dev/cu.usbserial-0001
 ```
 
 OTA 后第一次上电时，ESP 侧可能还在等待雷达 app 真正启动完成。请持续轮询 `radar status`，直到返回 `running`；不要用固定 sleep 去替代这一步。
+
+使用外部 `--base-url` 时，请先确认设备能打开这个完整 host/port。提供文件的 HTTP 服务必须从设备所在网络可达，而不只是 laptop 自己能通过 loopback 访问。
 
 版本号行为说明：
 - 对 `radar fw ota` 来说，显式传入的 `--version`、`--verify`、`--welcome` 会覆盖 `meta.json` 推断结果。
@@ -718,6 +723,10 @@ mosquitto_sub -h 192.168.1.100 -t 'mmwk/#' -v
 ```bash
 ./run.sh radar fw ota --fw firmware.bin --http-port 8381 -p /dev/cu.usbserial-0001
 ```
+
+### OTA “Failed to open HTTP connection”
+
+如果设备上报 `Failed to open HTTP connection`，先检查 `--base-url` 或 `server.ps1 env` 导出的 URL 是否使用设备能访问到的 laptop LAN IP，例如 `http://192.168.1.101:8380/`。不要用 `127.0.0.1`，也不要使用被防火墙拦截的网卡地址作为设备 OTA 下载地址。
 
 ### MQTT 不通或采集不到数据
 
