@@ -69,18 +69,20 @@ pip install -r requirements.txt
 
 | Workflow | macOS / Linux / Git Bash | Windows PowerShell | Notes |
 |---|---|---|---|
-| Main CLI | `./run.sh ...` | `.\run.ps1 ...` | `run.sh` manages `./venv`; `run.ps1` uses the active/system Python 3.10+ environment. |
-| Local MQTT + HTTP server | `./server.sh ...` | `.\server.ps1 ...` | Both require `mosquitto` in `PATH` for the MQTT broker. |
+| Main CLI | `./run.sh ...` | `.\run.ps1 ...` | Both resolve relative file arguments from the directory where you invoke the wrapper. `run.sh` manages `./venv`; `run.ps1` uses the active/system Python 3.10+ environment. |
+| Local MQTT + HTTP server | `./server.sh ...` | `.\server.ps1 ...` | Both wrappers use the Python dependencies from `requirements.txt`; no system Mosquitto install is required. |
 | Registry task helpers | `./config.sh`, `./collect.sh` | `.\config.ps1`, `.\collect.ps1` | `config.ps1` delegates to `config.sh` and requires Bash, for example Git Bash. `collect.ps1` delegates to Bash when available; without Bash, `--trigger` pure-MQTT mode and a limited registry collection fallback remain available. |
 | Direct Python | `python3 -m mmwk ...` | `py -m mmwk ...` or `python -m mmwk ...` | Use only when intentionally bypassing wrappers. |
 
-PowerShell command arguments are the same as the POSIX examples except for the wrapper name and serial-port spelling:
+PowerShell command arguments are the same as the POSIX examples except for the wrapper name and serial-port spelling. Use the long `--port` form for serial ports in PowerShell.
 
 ```powershell
-.\run.ps1 node info -p COM3
+.\run.ps1 node info --port COM3
 .\server.ps1 run --serve-dir C:\mmwk\artifacts --host-ip 192.168.4.8
 .\collect.ps1 --trigger device-reboot --did dc5475c879c0
 ```
+
+Relative `--fw`, `--cfg`, `--serve-dir`, and output paths are resolved from the directory where you invoke the wrapper, not from the `cli` directory.
 
 ## Surface Update (2026-04-13)
 
@@ -470,11 +472,11 @@ The `run.sh` wrapper script handles virtual environment setup, dependency instal
 
 ### Local Server Helper (`server.sh`)
 
-`server.sh` is a companion script that instantly spins up a local MQTT broker and an HTTP file server. Use `.\server.ps1` for the same server runtime from Windows PowerShell. This is highly recommended when you want to use the CLI for Wi-Fi-based OTA flashing and local MQTT data collection workflows without relying on external cloud infrastructure.
+`server.sh` is a companion script that instantly spins up a local MQTT broker and an HTTP file server. Use `.\server.ps1` for the same supported helper surface from Windows PowerShell. This is highly recommended when you want to use the CLI for Wi-Fi-based OTA flashing and local MQTT data collection workflows without relying on external cloud infrastructure.
 
 **Key Capabilities:**
-- **Local MQTT Broker:** Uses your local `mosquitto` installation, which must already be available in `PATH`.
-- **Built-in HTTP Server:** Wraps Python's `http.server` to serve firmware binaries and configuration files required for OTA updates.
+- **Local MQTT Broker:** The helper runs a Python aMQTT broker from `requirements.txt`; no system Mosquitto install is required.
+- **Built-in HTTP Server:** Uses the CLI local HTTP server for firmware/config downloads and upload endpoints. Detached startup falls back to Python's static `http.server` only if the local HTTP module cannot be launched; that fallback still serves OTA downloads but does not provide upload endpoints.
 - **Context Export:** Features an `env` command that generates `MMWK_SERVER_XXX` variable lines pointing to your host IP, MQTT URI, and HTTP Base URL. Pass them directly to `run.sh`, or read the values into PowerShell variables before calling `run.ps1`.
 
 **Common Commands:**
@@ -506,8 +508,10 @@ When `--device-ota` is used, `server.sh` first looks for the legacy top-level `f
 **Notes:**
 - MQTT always binds to `1883` by default.
 - HTTP serves files on `8380` by default.
-- If `--serve-dir` is omitted, `server.sh` serves the current working directory you launched it from.
-- `server.sh status` validates both PID liveness and actual TCP listening state.
+- If `--serve-dir` is omitted, the helper serves the current working directory where you launched `server.sh` or `server.ps1`.
+- Runtime state under `--state-dir` uses `server.env`, `mqtt.pid`, `mqtt.log`, `amqtt.yml`, `http.pid`, and `http.log`.
+- Detached startup clears stale `server.env` before readiness polling, so a failed start does not keep advertising an older successful run.
+- `server.sh status` and `server.ps1 status` validate both PID liveness and actual TCP listening state.
 - `server.sh env` prints the resolved host IP, MQTT URI, and HTTP base URL for reuse in `network mqtt`, `radar fw ota`, `node ota`, and `collect`.
 - In PowerShell, `.\server.ps1 env` prints the same `KEY=value` lines; copy the needed URL values into PowerShell variables or pass them directly to `.\run.ps1`.
 - For an OTA-only flow for already-running devices, use [Device OTA Guide](../../../docs/en/ota.md). Factory flashing is covered by [Factory Flash Guide](../../../docs/en/flash.md).
@@ -617,6 +621,8 @@ Optional arguments:
 - `--verify` / `--no-verify` — Enable or skip welcome-text version matching
 - `--welcome` / `--no-welcome` — Declare whether the target firmware emits startup CLI/welcome output
 - `--ota-timeout <sec>` — OTA timeout (default: 300)
+
+When using an external `--base-url`, verify the device can open that exact host and port before starting OTA. The host serving the file must be reachable from the device network, not only from the laptop loopback interface.
 
 Version behavior:
 - For `radar fw ota`, explicit `--version`, `--verify`, and `--welcome` values override `meta.json` inference.
@@ -844,6 +850,9 @@ Use the public `radar raw` surface for recorder state/config and recording trigg
 
 ### "Address already in use" (Error 48)
 When using `radar fw ota`, the CLI starts an HTTP server on port 8380 (or your chosen port). If this port is occupied, use `--http-port <new_port>`.
+
+### OTA "Failed to open HTTP connection"
+If the device reports `Failed to open HTTP connection`, check that the URL passed through `--base-url` or exported by `server.ps1 env` uses the laptop LAN IP that the device can reach, for example `http://192.168.1.101:8380/`. Do not use `127.0.0.1` or a firewall-blocked interface for device OTA downloads.
 
 ### UART Connection Issues
 Ensure no other serial monitor (e.g. `screen`, `minicom`) is holding the port. Use the `--reset` flag only when the device is stuck or you explicitly need a reboot. If a POSIX host misbehaves with the default no-reset backend, set `MMWK_CLI_UART_NORESET_BACKEND=pyserial` before running the CLI.

@@ -78,7 +78,7 @@ Windows PowerShell 下，安装 Python 依赖后可用 `.\cli\collect.ps1 --trig
 - `run`
   - 前台常驻模式，适合专用终端或自动化会话。
 - `--state-dir`
-  - 保存 `pid`、`env`、`mosquitto.log`、`http.log` 等运行状态文件。
+  - 保存 `pid`、`env`、`mqtt.log`、`amqtt.yml`、`http.log` 等运行状态文件。
 - `--serve-dir`
   - 本地 HTTP 对外提供文件的目录。本示例写作 `<artifact-dir>`。
 - `--host-ip`
@@ -520,7 +520,7 @@ done
   - `<demo-output-dir>/cmd_resp_300s.log`
   - `<demo-output-dir>/ota_cmd_resp.log`
   - `<demo-output-dir>/collect_300s.log`
-  - `<demo-output-dir>/local_server/mosquitto.log`
+  - `<demo-output-dir>/local_server/mqtt.log`
   - `<demo-output-dir>/local_server/http.log`
   - 本文档：`./collect.md`
 
