@@ -227,6 +227,10 @@ DEVICE_OTA_VERSION=""
 
 while [ $# -gt 0 ]; do
     case "$1" in
+        -h|--help)
+            usage
+            exit 0
+            ;;
         --state-dir)
             STATE_DIR="${2:?missing value for --state-dir}"
             shift 2

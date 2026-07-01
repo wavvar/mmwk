@@ -69,14 +69,14 @@ pip install -r requirements.txt
 | 工作流 | macOS / Linux / Git Bash | Windows PowerShell | 说明 |
 |---|---|---|---|
 | 主 CLI | `./run.sh ...` | `.\run.ps1 ...` | 两者都会从调用 wrapper 时所在目录解析相对文件路径。`run.sh` 会管理 `./venv`；`run.ps1` 使用当前或系统 Python 3.10+ 环境。 |
-| 本地 MQTT + HTTP server | `./server.sh ...` | `.\server.ps1 ...` | POSIX `server.sh` 要求 `mosquitto` 位于 `PATH`；Windows `server.ps1` 可以使用 `PATH` 中的 `mosquitto`，也可以解析已安装的 Windows mosquitto service/path。 |
+| 本地 MQTT + HTTP server | `./server.sh ...` | `.\server.ps1 ...` | 两个 wrapper 都使用 `requirements.txt` 中的 Python aMQTT broker 和内置 HTTP helper。 |
 | 注册表任务 helper | `./config.sh`、`./collect.sh` | `.\config.ps1`、`.\collect.ps1` | `config.ps1` 会转调 `config.sh`，因此需要 Bash，例如 Git Bash。`collect.ps1` 有 Bash 时会转调 `collect.sh`；没有 Bash 时，仍可使用 `--trigger` pure-MQTT 模式和受限的 registry 采集 fallback。 |
 | 直接 Python | `python3 -m mmwk ...` | `py -m mmwk ...` 或 `python -m mmwk ...` | 仅在你明确要绕过 wrapper 时使用。 |
 
 PowerShell 下参数与 POSIX 示例保持一致，主要差异是 wrapper 名和串口名：
 
 ```powershell
-.\run.ps1 node info -p COM3
+.\run.ps1 node info --port COM3
 .\server.ps1 run --serve-dir C:\mmwk\artifacts --host-ip 192.168.4.8
 .\collect.ps1 --trigger device-reboot --did dc5475c879c0
 ```
@@ -462,9 +462,10 @@ flowchart LR
 `server.sh` 是一个配套的高效辅助脚本。Windows PowerShell 下可以使用同一组受支持 helper surface 的 `.\server.ps1`。它用于一键启动本地 MQTT Broker 和 HTTP 文件服务器，配合 CLI 执行 Wi-Fi OTA 升级和本地 MQTT 数据采集，无需依赖外部云基础设施。
 
 **核心能力：**
-- **本地 MQTT Broker**：POSIX `server.sh` 要求 `mosquitto` 位于 `PATH`；Windows `server.ps1` 可以使用 `PATH` 中的 `mosquitto`，也可以解析已安装的 Windows mosquitto service/path。
+- **本地 MQTT Broker**：helper 使用 `requirements.txt` 中的 Python aMQTT broker；不再要求安装系统 Mosquitto。
 - **内置 HTTP 服务器**：默认使用 CLI local HTTP server，提供固件/config 下载和 upload endpoint。detached startup 只有在 local HTTP module 无法启动时才回退到 Python 静态 `http.server`；该 fallback 仍可提供 OTA 下载，但不提供 upload endpoint。
 - **上下文导出**：提供 `env` 命令，输出包含主机 IP、MQTT URI、HTTP Base URL 的 `MMWK_SERVER_XXX` 变量行，可直接传递给 `run.sh`，或在 PowerShell 中取值后传给 `run.ps1`。
+- **运行状态**：`--state-dir` 下的运行状态文件使用 `server.env`、`mqtt.pid`、`mqtt.log`、`amqtt.yml`、`http.pid` 和 `http.log`。
 
 **常用命令：**
 
@@ -596,6 +597,9 @@ ESP 固件：
 ```
 
 ESP MQTT stream OTA 请使用 app-only `.bin`；SDK 构建会把它暂存在 `firmwares/esp/<board>/<firmware>/v<version>/app.bin`。带 assets payload 的完整 MWFB bundle 必须使用 HTTP OTA。
+
+HTTP `node ota --target esp --url` 支持 app-only ESP 镜像、SDK `MWFB` 完整包以及 ERC whole-OTA 包。
+ERC 是一种二进制 whole-OTA 格式：前缀为 32-byte v1 或 256-byte v2 小端 header，后面依次是 ESP app 镜像和 radar payload 条目。受支持的 radar payload 条目由 radar firmware 加 4096-byte radar config 组成。
 
 雷达 firmware + config：
 

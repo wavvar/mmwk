@@ -573,6 +573,7 @@ def cmd_device_ota(args):
                 timeout=args.ota_timeout,
                 transport=getattr(args, "transport", "uart"),
                 ota_transport=getattr(args, "ota_transport", "http"),
+                post_reboot_check=os.environ.get("MMWK_DEVICE_OTA_POST_REBOOT_CHECK", "sdk-node"),
             )
         sys.exit(0 if ok else 1)
     finally:

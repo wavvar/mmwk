@@ -162,7 +162,12 @@ class DeviceOtaCommand:
             f"radar_cfg={hi_data.get('radar_cfg', '')}"
         )
 
-    def _execute_once(self, url: str, served_name: str, server, timeout: float) -> tuple[bool, bool]:
+    def _execute_once(self,
+                      url: str,
+                      served_name: str,
+                      server,
+                      timeout: float,
+                      post_reboot_check: str = "sdk-node") -> tuple[bool, bool]:
         start_response_uncertain = False
         try:
             # Drop stale OTA notifications from previous runs/retries.
@@ -251,6 +256,19 @@ class DeviceOtaCommand:
         if start_response_uncertain and served_name and not downloaded:
             logger.error("Device OTA start response timed out and no firmware download was observed")
             return False, True
+
+        if post_reboot_check == "none":
+            if success_seen or rebooting_seen:
+                elapsed = time.time() - start_time
+                logger.info(
+                    f"Device OTA reported success in {elapsed:.1f}s; skipping SDK post-reboot check"
+                )
+                return True, False
+            logger.error("Device OTA did not report success before post-reboot check was skipped")
+            return False, retriable_http_error
+        if post_reboot_check != "sdk-node":
+            logger.error("Unsupported device OTA post reboot check: %s", post_reboot_check)
+            return False, False
 
         logger.info("Waiting for device to come back after OTA reboot...")
         recover_after_reboot = getattr(self.mcp.transport, "recover_after_reboot", None)
@@ -382,7 +400,8 @@ class DeviceOtaCommand:
                 https_key: str = None,
                 timeout: float = 300.0,
                 transport: str = None,
-                ota_transport: str = "http") -> bool:
+                ota_transport: str = "http",
+                post_reboot_check: str = "sdk-node") -> bool:
         if not fw_path and not url:
             logger.error("Either fw_path or url is required for device OTA")
             return False
@@ -397,6 +416,9 @@ class DeviceOtaCommand:
             return self._execute_mqtt_stream(fw_path, timeout)
         if ota_transport not in (None, "http"):
             logger.error("Unsupported device OTA transport: %s", ota_transport)
+            return False
+        if post_reboot_check not in ("sdk-node", "none"):
+            logger.error("Unsupported device OTA post reboot check: %s", post_reboot_check)
             return False
 
         server = None
@@ -444,6 +466,7 @@ class DeviceOtaCommand:
                     served_name=served_name,
                     server=server,
                     timeout=timeout,
+                    post_reboot_check=post_reboot_check,
                 )
                 if ok:
                     return True

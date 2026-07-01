@@ -70,14 +70,14 @@ pip install -r requirements.txt
 | Workflow | macOS / Linux / Git Bash | Windows PowerShell | Notes |
 |---|---|---|---|
 | Main CLI | `./run.sh ...` | `.\run.ps1 ...` | Both resolve relative file arguments from the directory where you invoke the wrapper. `run.sh` manages `./venv`; `run.ps1` uses the active/system Python 3.10+ environment. |
-| Local MQTT + HTTP server | `./server.sh ...` | `.\server.ps1 ...` | POSIX `server.sh` requires `mosquitto` in `PATH`; Windows `server.ps1` can use `mosquitto` from `PATH` or an installed Windows mosquitto service/path. |
+| Local MQTT + HTTP server | `./server.sh ...` | `.\server.ps1 ...` | Both wrappers run the Python aMQTT broker from `requirements.txt` and the built-in HTTP helper. |
 | Registry task helpers | `./config.sh`, `./collect.sh` | `.\config.ps1`, `.\collect.ps1` | `config.ps1` delegates to `config.sh` and requires Bash, for example Git Bash. `collect.ps1` delegates to Bash when available; without Bash, `--trigger` pure-MQTT mode and a limited registry collection fallback remain available. |
 | Direct Python | `python3 -m mmwk ...` | `py -m mmwk ...` or `python -m mmwk ...` | Use only when intentionally bypassing wrappers. |
 
 PowerShell command arguments are the same as the POSIX examples except for the wrapper name and serial-port spelling:
 
 ```powershell
-.\run.ps1 node info -p COM3
+.\run.ps1 node info --port COM3
 .\server.ps1 run --serve-dir C:\mmwk\artifacts --host-ip 192.168.4.8
 .\collect.ps1 --trigger device-reboot --did dc5475c879c0
 ```
@@ -475,9 +475,10 @@ The `run.sh` wrapper script handles virtual environment setup, dependency instal
 `server.sh` is a companion script that instantly spins up a local MQTT broker and an HTTP file server. Use `.\server.ps1` for the same supported helper surface from Windows PowerShell. This is highly recommended when you want to use the CLI for Wi-Fi-based OTA flashing and local MQTT data collection workflows without relying on external cloud infrastructure.
 
 **Key Capabilities:**
-- **Local MQTT Broker:** POSIX `server.sh` requires `mosquitto` in `PATH`; Windows `server.ps1` can use `mosquitto` from `PATH` or an installed Windows mosquitto service/path.
+- **Local MQTT Broker:** The helper runs a Python aMQTT broker from `requirements.txt`; no system Mosquitto install is required.
 - **Built-in HTTP Server:** Uses the CLI local HTTP server for firmware/config downloads and upload endpoints. Detached startup falls back to Python's static `http.server` only if the local HTTP module cannot be launched; that fallback still serves OTA downloads but does not provide upload endpoints.
 - **Context Export:** Features an `env` command that generates `MMWK_SERVER_XXX` variable lines pointing to your host IP, MQTT URI, and HTTP Base URL. Pass them directly to `run.sh`, or read the values into PowerShell variables before calling `run.ps1`.
+- **Runtime State:** Runtime state under `--state-dir` uses `server.env`, `mqtt.pid`, `mqtt.log`, `amqtt.yml`, `http.pid`, and `http.log`.
 
 **Common Commands:**
 ```bash
@@ -645,6 +646,9 @@ ESP firmware:
 ```
 
 For ESP MQTT stream OTA, use an app-only `.bin`; SDK builds stage this as `firmwares/esp/<board>/<firmware>/v<version>/app.bin`. Full MWFB bundles with an assets payload must use HTTP OTA.
+
+HTTP `node ota --target esp --url` accepts app-only ESP images, SDK `MWFB` full bundles, and ERC whole-OTA packages.
+An ERC package is a binary whole-OTA format with a 32-byte v1 or 256-byte v2 little-endian header, followed by an ESP app image and radar payload entries. Supported radar payload entries store radar firmware followed by a 4096-byte radar config.
 
 Radar firmware plus config:
 
