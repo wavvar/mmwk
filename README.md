@@ -1,5 +1,9 @@
 # Wavvar MMWK
 
+<p align="center">
+  <img src="./assets/mmwk.svg" alt="Wavvar MMWK logo" width="160">
+</p>
+
 Chinese version: [中文文档](./README_CN.md)
 
 Wavvar MMWK (mmWave Kit) is a product-level mmWave radar sensor platform. This directory contains all pre-built firmwares, documentation, and CLI tools needed to operate and manage MMWK devices.
