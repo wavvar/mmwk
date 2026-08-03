@@ -103,22 +103,34 @@ def _build_radar_config_tool() -> dict:
     )
 
 
-def _build_radar_fw_tool() -> dict:
+def _build_radar_fw_tool(profile: str) -> dict:
+    actions = ["version", "flash", "ota", "list", "set", "switch", "del", "download"]
+    if profile == "bridge":
+        actions.append("storage")
+    properties = {
+        "action": _action_property(actions, "Firmware operation"),
+        "index": {"type": "number", "description": "Firmware index"},
+        "persist": {"type": "boolean", "description": "Persist target as default firmware for action=switch"},
+        "source": {"type": "string", "description": "Firmware source URL/path"},
+        "name": {"type": "string", "description": "Firmware name"},
+        "version": {"type": "string", "description": "Firmware version"},
+        "size": {"type": "number", "description": "Firmware size"},
+    }
+    if profile == "bridge":
+        properties["op"] = {
+            "type": "string",
+            "enum": ["status", "cleanup"],
+            "description": "Storage operation for action=storage",
+        }
+        properties["required"] = {
+            "type": "number",
+            "description": "Required bytes including firmware, config, and safety margin",
+        }
+
     return _tool(
         "radar.fw",
         "Radar firmware catalog management and package acquisition.",
-        {
-            "action": _action_property(
-                ["version", "flash", "ota", "list", "set", "switch", "del", "download"],
-                "Firmware operation",
-            ),
-            "index": {"type": "number", "description": "Firmware index"},
-            "persist": {"type": "boolean", "description": "Persist target as default firmware for action=switch"},
-            "source": {"type": "string", "description": "Firmware source URL/path"},
-            "name": {"type": "string", "description": "Firmware name"},
-            "version": {"type": "string", "description": "Firmware version"},
-            "size": {"type": "number", "description": "Firmware size"},
-        },
+        properties,
         ["action"],
     )
 
@@ -204,7 +216,7 @@ def _canonical_tools(profile: str) -> list[dict]:
     tools = [
         _build_radar_tool(),
         _build_radar_config_tool(),
-        _build_radar_fw_tool(),
+        _build_radar_fw_tool(profile),
         _build_radar_raw_tool(),
         _build_radar_diag_tool(),
     ]
