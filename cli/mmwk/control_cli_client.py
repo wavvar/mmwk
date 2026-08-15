@@ -39,7 +39,8 @@ def _build_node_tool(profile: str) -> dict:
         actions.append("reboot")
     return _tool(
         "node",
-        "Node-level configuration: agent flags, heartbeat, identity probe, and ESP OTA.",
+        "Node-level configuration: agent flags, WDR local-control startup policy, "
+        "heartbeat, identity probe, and ESP OTA.",
         {
             "action": _action_property(actions, "Operation"),
             "mqtt": {"type": "number", "description": "MQTT agent enable (0/1)"},
@@ -48,6 +49,15 @@ def _build_node_tool(profile: str) -> dict:
             "uart_split": {"type": "number", "description": "Split single-UART runtime data after sensorStart (0/1)"},
             "led": {"type": "number", "description": "LED error display enable (0/1)"},
             "reboot_ms": {"type": "number", "description": "Reboot threshold when MQTT stays disconnected"},
+            "usb_ms": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 60000,
+                "description": (
+                    "WDR UART-to-USB CDC idle window in milliseconds "
+                    "(0 disables auto-switch)"
+                ),
+            },
             "interval": {"type": "number", "description": "Heartbeat interval"},
             "fields": {"type": "array", "items": {"type": "string"}, "description": "Heartbeat fields"},
             "prod": {"type": "string", "description": "Product route segment for action=claim"},

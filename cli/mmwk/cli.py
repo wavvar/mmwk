@@ -116,6 +116,21 @@ def _load_json_object_arg(raw_value):
     return data
 
 
+def _usb_ms_arg(value):
+    try:
+        parsed = int(value, 10)
+    except (TypeError, ValueError) as exc:
+        raise argparse.ArgumentTypeError(
+            "usb_ms must be an integer from 0 to 60000"
+        ) from exc
+
+    if parsed < 0 or parsed > 60000:
+        raise argparse.ArgumentTypeError(
+            "usb_ms must be an integer from 0 to 60000"
+        )
+    return parsed
+
+
 def _set_active_protocol(protocol):
     global _ACTIVE_PROTOCOL
     _ACTIVE_PROTOCOL = protocol
@@ -600,6 +615,8 @@ def cmd_device_agent(args):
             dev_args["led"] = args.led
         if getattr(args, "reboot_ms", None) is not None:
             dev_args["reboot_ms"] = args.reboot_ms
+        if getattr(args, "usb_ms", None) is not None:
+            dev_args["usb_ms"] = args.usb_ms
 
         result = mcp.call_tool("node", dev_args, timeout=args.timeout)
         text = mcp.extract_text(result)
@@ -1333,7 +1350,10 @@ def main():
     add_transport_args(device_ota_parser)
     device_ota_parser.set_defaults(func=cmd_device_ota)
 
-    device_agent_parser = node_sub.add_parser("agent", help="Enable/disable built-in agent services")
+    device_agent_parser = node_sub.add_parser(
+        "agent",
+        help="Configure built-in agents and WDR local-control startup policy",
+    )
     device_agent_parser.add_argument("--mqtt", type=int, choices=[0, 1], default=None,
                                      help="MQTT agent enable (0=off, 1=on)")
     device_agent_parser.add_argument("--uart", type=int, choices=[0, 1], default=None,
@@ -1346,6 +1366,13 @@ def main():
                                      help="LED error display enable (0=off, 1=on)")
     device_agent_parser.add_argument("--reboot-ms", dest="reboot_ms", type=int, default=None,
                                      help="Reboot threshold when MQTT stays disconnected")
+    device_agent_parser.add_argument(
+        "--usb-ms",
+        dest="usb_ms",
+        type=_usb_ms_arg,
+        default=None,
+        help="WDR UART idle window before USB CDC takeover (0=stay on UART, max 60000)",
+    )
     add_transport_args(device_agent_parser)
     device_agent_parser.set_defaults(func=cmd_device_agent)
 
