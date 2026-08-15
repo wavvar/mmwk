@@ -337,6 +337,27 @@ flowchart LR
 ./run.sh radar fw flash --fw fw.bin -p /dev/cu.usbserial-0001 --baudrate 921600 --reset
 ```
 
+#### WDR UART / USB CDC 控制通道选择
+
+标准 WDR bridge 固件启用本地控制 adapter 后先使用 UART，并观察 UART RX
+5000 ms。窗口内有 UART 输入，本次运行保持 UART；窗口持续空闲，则把现有
+CLI/MCP 控制通道切到原生 USB CDC（Linux 为 `/dev/ttyACM*`，macOS 为
+`/dev/cu.usbmodem*`）。
+
+```bash
+./run.sh node agent -p <当前控制端口>
+./run.sh node agent --usb-ms 8000 -p <当前控制端口>
+./run.sh node agent --usb-ms 0 -p <当前控制端口>
+```
+
+`usb_ms` 接受 `0..60000` 的整数毫秒值。键不存在时使用固件出厂策略（标准
+WDR 为 5000 ms）；显式保存 `0` 会关闭 USB 自动接管并保持 UART。保存参数
+不会切断当前连接，而是在下次启动或 4G 释放 USB 后生效。`node agent` 是唯一
+公开读写入口；`node info` 和 `network diag` 不提供该字段。非 WDR 查询省略该
+字段，写入返回 `not.supported`。
+
+USB CDC 仅承载 CLI/MCP 控制，不提供雷达原始数据 USB 透传。
+
 ### MQTT（远程）
 
 ```bash
@@ -364,7 +385,7 @@ flowchart LR
 | `node factory-reset` | 触发恢复出厂（清 NVS + 运行期资源，1 秒后重启） |
 | `node reboot` | 重启设备 |
 | `node ota` | 通过 HTTP 或 MQTT stream OTA 升级 ESP 固件 |
-| `node agent` | 配置 agent 服务 |
+| `node agent` | 配置内置 agent 与 WDR 本地控制启动策略 |
 | `node heartbeat` | 配置心跳 |
 | `node key status/set/clear` | 查看、设置、更新或清除 CLI key 保护 |
 | `endpoint list` | 查看当前 profile / effective sensor set 的面向 Matter 的 endpoint 目录 |

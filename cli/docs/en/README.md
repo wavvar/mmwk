@@ -336,6 +336,30 @@ Primary transport for factory setup, local debugging, and recovery. Ordinary UAR
 ./run.sh radar fw flash --fw fw.bin -p /dev/cu.usbserial-0001 --baudrate 921600 --reset
 ```
 
+#### WDR UART / USB CDC control selection
+
+On standard WDR bridge firmware, the enabled local control adapter starts on
+UART and watches for UART RX for 5000 ms. UART input during that window keeps
+control on UART; an idle window switches the existing CLI/MCP control channel
+to native USB CDC (`/dev/ttyACM*` on Linux or `/dev/cu.usbmodem*` on macOS).
+
+```bash
+./run.sh node agent -p <current-control-port>
+./run.sh node agent --usb-ms 8000 -p <current-control-port>
+./run.sh node agent --usb-ms 0 -p <current-control-port>
+```
+
+`usb_ms` accepts integer milliseconds from `0` through `60000`. A missing value
+uses the firmware factory policy (5000 ms on standard WDR); explicit `0`
+disables automatic USB takeover and stays on UART. Saving a value does not
+switch the current connection: it applies on the next boot or after 4G releases
+USB. `node agent` is the only public read/write surface; `node info` and
+`network diag` do not expose this field. Non-WDR queries omit it, and non-WDR
+writes return `not.supported`.
+
+USB CDC carries CLI/MCP control only. It does not carry raw radar-data
+passthrough.
+
 ### MQTT (Remote)
 Recommended transport for real applications, dashboards, automation, and fleet/device management over the network.
 ```bash
@@ -368,7 +392,7 @@ Recommended transport for real applications, dashboards, automation, and fleet/d
 | `node factory-reset` | Trigger factory reset (clear NVS + runtime assets, reboot after 1s) |
 | `node reboot` | Reboot the device |
 | `node ota` | Update the ESP firmware via HTTP or MQTT stream OTA |
-| `node agent` | Enable/disable built-in agent services |
+| `node agent` | Configure built-in agents and WDR local-control startup policy |
 | `node heartbeat` | Configure system heartbeat packets |
 | `node key status/set/clear` | Inspect, set, update, or clear CLI key protection |
 | `endpoint list` | Show the active Matter-oriented endpoint directory for the current profile / effective sensor set |
