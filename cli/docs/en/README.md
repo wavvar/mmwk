@@ -1,6 +1,6 @@
 # MMWK CLI Wrapper
 
-This document covers the host-side MMWK CLI wrappers for controlling and managing MMWK bridge/hub devices. The POSIX entrypoint is [`./run.sh`](../../run.sh) on macOS/Linux/Git Bash, and the PowerShell entrypoint is [`.\run.ps1`](../../run.ps1) on Windows. Both wrappers call the Python CLI in [`mmwk/`](../../mmwk/) and expose the same command surface over UART (Serial) and MQTT, defaulting to canonical CLI JSON while also supporting MCP when paired with an MCP-enabled firmware build.
+This document covers the host-side MMWK CLI wrappers for controlling and managing MMWK bridge/hub devices. The POSIX entrypoint is [`./run.sh`](../../run.sh) on macOS/Linux/Git Bash, and the PowerShell entrypoint is [`.\run.ps1`](../../run.ps1) on Windows. Both wrappers call the Python CLI in [`mmwk/`](../../mmwk/) and expose the same command surface over UART, WDR USB CDC, and MQTT, defaulting to canonical CLI JSON while also supporting MCP when paired with an MCP-enabled firmware build.
 
 The CLI now defaults to the canonical CLI JSON protocol. Most MMWK firmware builds also ship with CLI as the built-in control protocol. Some firmware versions additionally provide MCP support; contact us if you need an MCP-enabled firmware version. When using such a firmware version, select `--protocol mcp`.
 
@@ -24,6 +24,7 @@ The CLI now defaults to the canonical CLI JSON protocol. Most MMWK firmware buil
 - [Communication Layers](#communication-layers)
   - [Recommended Architecture](#recommended-architecture)
   - [UART (Local)](#uart-local)
+  - [USB CDC (WDR Local)](#usb-cdc-wdr-local)
   - [MQTT (Remote)](#mqtt-remote)
 - [Command Reference](#command-reference)
 - [Project Documentation](#project-documentation)
@@ -36,7 +37,7 @@ The CLI now defaults to the canonical CLI JSON protocol. Most MMWK firmware buil
 
 ### Prerequisites
 - Python 3.10 or higher
-- USB serial access to the device (when using UART)
+- USB serial access to the device (when using UART or WDR USB CDC)
 - For POSIX workflows: macOS/Linux with `bash`, or Windows with Git Bash
 - For Windows PowerShell workflows: PowerShell plus Python dependencies installed with `pip install -r requirements.txt`
 
@@ -90,7 +91,7 @@ Relative `--fw`, `--cfg`, `--serve-dir`, and output paths are resolved from the 
 - The hub-only public increment is `scene` plus the extra sensor endpoints/events that appear only after the requested sensor set passes support check.
 - Public capability introspection now uses `endpoint list` and `proto list|status|manifest`.
 - Public raw recorder/config control now uses `radar raw status`, `radar raw config get|set --json ...`, and `radar raw start|stop|trigger`.
-- `node claim` is the UART/local route identity claim flow; it obtains `cid`/`oid` and optional MQTT credentials. `network prov` remains Wi-Fi provisioning.
+- `node claim` is the UART/USB-local route identity claim flow; it obtains `cid`/`oid` and optional MQTT credentials. `network prov` remains Wi-Fi provisioning.
 - Legacy discovery roots were removed from public help/discovery; the command reference below reflects the current public surface.
 - `scene` is hub-only. On bridge, direct `scene` calls return unknown tool.
 
@@ -117,7 +118,7 @@ Factory or empty-key devices remain open for bring-up. After you set a key, prot
 
 ## Device Claim
 
-`node claim` obtains the route identity (`cid` and `oid`) and optional MQTT credentials from a claim provider. It is local only and must use UART; MQTT transport is rejected.
+`node claim` obtains the route identity (`cid` and `oid`) and optional MQTT credentials from a claim provider. It is local only and may use UART or WDR USB CDC; MQTT transport is rejected.
 
 ```bash
 ./run.sh node claim --endpoint https://claim.example.com/device --token ONE_TIME_TOKEN -p /dev/cu.usbserial-0001
@@ -323,6 +324,7 @@ flowchart LR
 
 This is the recommended communication model:
 - **UART** is the local service path. Use it for factory provisioning, initial flashing, low-level bring-up, bench debugging, and rescue access when the device is not yet on the network.
+- **USB CDC** is an additional local service path for WDR command control after the firmware selects the native Type-C route. It is text-only and is not a firmware-update or raw-data path.
 - **MQTT CLI JSON** is the builtin device interaction channel configured by `network mqtt`. It is the right path for real applications to send commands, read status, and manage devices remotely.
 - **MQTT RAW** is the radar passthrough channel auto-derived from the device MQTT identity. In bridge/auto mode it is an output-only radar surface carrying `raw_data` and `raw_resp`; host mode can additionally enable `raw_cmd`.
 - **Radar Raw Recorder Surface** is the public `radar raw` command family for recorder state/config and recording triggers.
@@ -360,6 +362,39 @@ writes return `not.supported`.
 USB CDC carries CLI/MCP control only. It does not carry raw radar-data
 passthrough.
 
+### USB CDC (WDR Local)
+
+`--transport usb` is a WDR-only local control path. It uses the native Type-C
+USB CDC serial interface at 115200 baud and carries the existing newline-
+delimited CLI/MCP text protocol. It does not add binary framing.
+
+```bash
+# One immediate descriptor scan; auto-select a single Wavvar/WDR CDC port
+./run.sh node info --transport usb --protocol cli
+
+# Wait up to 8 seconds for enumeration, then validate board=WDR
+./run.sh node info --transport usb --usb-wait-ms 8000
+
+# Pin one exact CDC path when more than one WDR candidate is attached
+./run.sh radar status --transport usb --port /dev/ttyACM0 --did dc5475c8784c
+```
+
+Without `--port`, the host first filters serial descriptors with
+`manufacturer=Wavvar` and `product=WDR`, then probes `node info` and requires
+`board=WDR`. If more than one candidate remains, provide `--did` or an exact
+`--port`; DID matching uses `did`, then the legacy `id` or `client_id` fields,
+case-insensitively. An explicit `--port` never scans another path.
+
+`--usb-wait-ms` is only a host-side enumeration budget. The default `0` means
+scan immediately; a positive value uses a monotonic deadline and does not
+assume a fixed firmware idle window or read/write the device's `usb_ms` policy.
+The upper application may query that policy separately over UART or an already
+open USB session. USB selection never falls back to UART or MQTT and never
+reboots the device. Use `--reset` and `--uart-proxy` only with UART.
+
+Binary update paths (`node ota`, `radar fw flash`, `radar fw ota`, and `radar
+fw download`) remain on UART/MQTT. `collect` remains an MQTT raw-capture flow.
+
 ### MQTT (Remote)
 Recommended transport for real applications, dashboards, automation, and fleet/device management over the network.
 ```bash
@@ -388,7 +423,7 @@ Recommended transport for real applications, dashboards, automation, and fleet/d
 | Command | Action Description |
 |---------|---------------------|
 | `node info` | Handshake: identify model, version, and published metadata |
-| `node claim` | Claim route identity and credentials over UART/local transport |
+| `node claim` | Claim route identity and credentials over UART or WDR USB-local transport |
 | `node factory-reset` | Trigger factory reset (clear NVS + runtime assets, reboot after 1s) |
 | `node reboot` | Reboot the device |
 | `node ota` | Update the ESP firmware via HTTP or MQTT stream OTA |

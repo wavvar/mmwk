@@ -9,6 +9,7 @@ import os
 from mmwk._logging import logger
 from mmwk.transport import create_transport
 from mmwk.protocol_client import create_protocol_client
+from mmwk.usb_transport import UsbTransportError
 from mmwk.commands.flash import FlashCommand
 from mmwk.commands.ota import OtaCommand
 from mmwk.commands.reconf import ReconfCommand
@@ -40,10 +41,92 @@ def _cli_create_transport(args):
         _set_active_key(args)
         _set_active_request_retry_args(args)
         retries, retry_delay = _resolve_transport_retry_args(args)
-        return create_transport(args, retries=retries, retry_delay=retry_delay)
-    except ValueError as e:
+        if getattr(args, "transport", "uart") == "usb":
+            return create_transport(
+                args,
+                retries=retries,
+                retry_delay=retry_delay,
+                usb_probe=_build_usb_probe(args),
+            )
+        return create_transport(
+            args,
+            retries=retries,
+            retry_delay=retry_delay,
+        )
+    except (ValueError, UsbTransportError) as e:
         print(f"Error: {e}")
         sys.exit(1)
+
+
+def _identity_values(payload):
+    """Return flattened node identity views from old and new response shapes."""
+    if not isinstance(payload, dict):
+        return []
+
+    views = [payload]
+    for key in ("data", "result"):
+        nested = payload.get(key)
+        if isinstance(nested, dict):
+            views.append(nested)
+            data = nested.get("data")
+            if isinstance(data, dict):
+                views.append(data)
+    return views
+
+
+def _usb_node_info_matches(text, expected_did=None):
+    try:
+        payload = json.loads(text)
+    except (TypeError, ValueError):
+        logger.debug("USB node info probe returned non-JSON text: %r", text)
+        return False
+
+    views = _identity_values(payload)
+    board = next(
+        (view.get("board") for view in views if view.get("board") is not None),
+        None,
+    )
+    reported_did = None
+    for view in views:
+        for key in ("did", "id", "client_id"):
+            if view.get(key) is not None:
+                reported_did = view.get(key)
+                break
+        if reported_did is not None:
+            break
+
+    if str(board or "").strip().casefold() != "wdr":
+        logger.debug("USB node info probe rejected board=%r", board)
+        return False
+    if expected_did and str(reported_did or "").strip().casefold() != expected_did:
+        logger.debug(
+            "USB node info probe rejected DID=%r expected=%r",
+            reported_did,
+            expected_did,
+        )
+        return False
+    return True
+
+
+def _build_usb_probe(args):
+    expected_did = str(getattr(args, "did", "") or "").strip().casefold() or None
+    protocol = getattr(args, "protocol", None) or _ACTIVE_PROTOCOL
+    key = _ACTIVE_KEY
+
+    def probe(transport, timeout):
+        probe_timeout = max(0.1, float(timeout))
+        client = create_protocol_client(
+            protocol,
+            transport,
+            key=key,
+            request_retries=1,
+            request_retry_delay=0.0,
+        )
+        client.initialize(timeout=probe_timeout)
+        result = client.call_tool("node", {"action": "info"}, timeout=probe_timeout)
+        return _usb_node_info_matches(client.extract_text(result), expected_did)
+
+    return probe
 
 
 def _resolve_transport_retry_args(args):
@@ -131,6 +214,21 @@ def _usb_ms_arg(value):
     return parsed
 
 
+def _usb_wait_ms_arg(value):
+    try:
+        parsed = int(value, 10)
+    except (TypeError, ValueError) as exc:
+        raise argparse.ArgumentTypeError(
+            "usb-wait-ms must be a non-negative integer"
+        ) from exc
+
+    if parsed < 0:
+        raise argparse.ArgumentTypeError(
+            "usb-wait-ms must be a non-negative integer"
+        )
+    return parsed
+
+
 def _set_active_protocol(protocol):
     global _ACTIVE_PROTOCOL
     _ACTIVE_PROTOCOL = protocol
@@ -189,14 +287,24 @@ def add_transport_args(parser, include_route_args=True):
     group.add_argument("--protocol", choices=["mcp", "cli"],
                        help="Control protocol (default: cli; use mcp as fallback)")
     group.add_argument("--transport", "-t", default="uart",
-                       choices=["uart", "mqtt"], help="Transport layer (default: uart)")
-    group.add_argument("--port", "-p", help="Serial port (for UART, e.g. /dev/ttyUSB0)")
+                       choices=["uart", "usb", "mqtt"],
+                       help="Transport layer (default: uart; USB is WDR CDC only)")
+    group.add_argument("--port", "-p", help="Serial port (UART or exact USB CDC path)")
     group.add_argument("--baudrate", "-b", type=int, default=115200,
-                       help="Serial baudrate (default: 115200)")
+                       help="UART baudrate (USB CDC always uses 115200; default: 115200)")
+    group.add_argument(
+        "--usb-wait-ms",
+        type=_usb_wait_ms_arg,
+        default=0,
+        help=(
+            "Host-side USB CDC enumeration wait budget in milliseconds "
+            "(default: 0; does not read or set the device usb_ms window)"
+        ),
+    )
     group.add_argument("--reset", action="store_true",
-                       help="Reset device via DTR/RTS before connecting")
+                       help="Reset UART device via DTR/RTS before connecting (not valid for USB)")
     group.add_argument("--uart-proxy", choices=["auto", "off"], default=None,
-                       help="Use persistent local UART proxy for short CLI calls (default: auto; env MMWK_CLI_UART_PROXY_MODE)")
+                       help="Use persistent local UART proxy (UART only; default: auto)")
     group.add_argument("--broker", default="localhost",
                        help="MQTT broker address (default: localhost)")
     group.add_argument("--mqtt-port", type=int, default=1883,
@@ -239,6 +347,12 @@ def require_mqtt_control_for_mqtt_ota(args) -> None:
         sys.exit(1)
 
 
+def reject_usb_binary_command(args, command: str) -> None:
+    if getattr(args, "transport", "uart") == "usb":
+        print(f"Error: {command} is not supported over USB CDC")
+        sys.exit(1)
+
+
 def reject_radar_only_node_ota_args_for_esp(args) -> None:
     if getattr(args, "version", None):
         print("Error: --version is only supported with --target radar")
@@ -259,6 +373,7 @@ def reject_radar_only_node_ota_args_for_esp(args) -> None:
 
 def cmd_radar_flash(args):
     """Handle: mmwk radar flash ..."""
+    reject_usb_binary_command(args, "radar fw flash")
     transport = _cli_create_transport(args)
     try:
         mcp = McpClient(transport)
@@ -284,6 +399,7 @@ def cmd_radar_flash(args):
 
 def cmd_radar_ota(args):
     """Handle: mmwk radar ota ..."""
+    reject_usb_binary_command(args, "radar fw ota")
     require_mqtt_control_for_mqtt_ota(args)
     transport = _cli_create_transport(args)
     try:
@@ -509,8 +625,8 @@ def cmd_node_factory_reset(args):
 
 def cmd_node_claim(args):
     """Handle: mmwk node claim ..."""
-    if getattr(args, "transport", "uart") != "uart":
-        print("Error: node claim is only supported over UART/local transport")
+    if getattr(args, "transport", "uart") not in ("uart", "usb"):
+        print("Error: node claim is only supported over UART or USB/local transport")
         sys.exit(1)
 
     payload = {"action": "claim"}
@@ -529,6 +645,7 @@ def cmd_node_claim(args):
 
 def cmd_device_ota(args):
     """Handle: mmwk device ota ..."""
+    reject_usb_binary_command(args, "node ota")
     target = getattr(args, "target", "esp") or "esp"
     if target == "radar" and args.url:
         print("Error: node ota --target radar requires --fw and does not support --url")
@@ -737,6 +854,7 @@ def cmd_fw_del(args):
 
 def cmd_fw_download(args):
     """Handle: mmwk fw download ..."""
+    reject_usb_binary_command(args, "radar fw download")
     transport = _cli_create_transport(args)
     try:
         mcp = McpClient(transport)

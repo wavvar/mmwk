@@ -9,6 +9,7 @@ from importlib import import_module
 
 from mmwk._logging import logger
 from mmwk.transport import RadarTransport, UartTransport, MqttTransport, create_transport
+from mmwk.usb_transport import UsbPortCandidate, UsbPortResolver, UsbTransport, UsbTransportError
 from mmwk.control_cli_client import ControlCliClient
 from mmwk.mcp_client import McpClient
 from mmwk.protocol_client import create_protocol_client
@@ -18,6 +19,10 @@ __all__ = [
     "RadarTransport",
     "UartTransport",
     "MqttTransport",
+    "UsbTransport",
+    "UsbPortCandidate",
+    "UsbPortResolver",
+    "UsbTransportError",
     "create_transport",
     "ControlCliClient",
     "McpClient",

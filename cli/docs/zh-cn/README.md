@@ -1,6 +1,6 @@
 # MMWK CLI Wrapper
 
-本文档介绍 MMWK 主机侧 CLI wrapper。macOS / Linux / Git Bash 使用 POSIX 入口 [`./run.sh`](../../run.sh)，Windows PowerShell 使用 [`.\run.ps1`](../../run.ps1)。两类入口都会调用 [`mmwk/`](../../mmwk/) 中的 Python CLI，并通过 UART（串口）和 MQTT 暴露同一套命令面，默认走标准 CLI JSON；在配套的 MCP 固件版本下，也支持 MCP 协议。
+本文档介绍 MMWK 主机侧 CLI wrapper。macOS / Linux / Git Bash 使用 POSIX 入口 [`./run.sh`](../../run.sh)，Windows PowerShell 使用 [`./run.ps1`](../../run.ps1)。两类入口都会调用 [`mmwk/`](../../mmwk/) 中的 Python CLI，并通过 UART（串口）、WDR USB CDC 和 MQTT 暴露同一套命令面，默认走标准 CLI JSON；在配套的 MCP 固件版本下，也支持 MCP 协议。
 
 CLI 现在默认使用标准 CLI JSON 协议。大多数 MMWK 固件版本也默认内置 CLI 控制协议。部分固件版本还提供 MCP 支持；如需 MCP 版本，请联系我们获取对应固件版本。使用这类固件版本时，请显式指定 `--protocol mcp`。
 
@@ -21,6 +21,7 @@ CLI 现在默认使用标准 CLI JSON 协议。大多数 MMWK 固件版本也默
 - [快速开始](#快速开始)
 - [核心概念](#核心概念)
 - [通信层](#通信层)
+  - [USB CDC（WDR 本地）](#usb-cdcwdr-本地)
 - [命令参考](#命令参考)
 - [项目文档](#项目文档)
 - [硬件交互](#硬件交互)
@@ -89,7 +90,7 @@ PowerShell 下参数与 POSIX 示例保持一致，主要差异是 wrapper 名�
 - hub 唯一新增的公开面是 `scene`，以及那些只有在 requested sensor set 通过 support check 后才会暴露出来的额外 sensor endpoint/event。
 - 能力发现统一收敛到 `endpoint list` 和 `proto list|status|manifest`。
 - 原始录制/配置统一收敛到 `radar raw status`、`radar raw config get|set --json ...`、`radar raw start|stop|trigger`。
-- `node claim` 是 UART/local 的设备身份 claim 流程，用来获取 `cid`/`oid` 和可选 MQTT 凭据；`network prov` 仍然只是 Wi-Fi 配网。
+- `node claim` 是 UART/USB-local 的设备身份 claim 流程，用来获取 `cid`/`oid` 和可选 MQTT 凭据；`network prov` 仍然只是 Wi-Fi 配网。
 - `scene` 仅 hub 支持；bridge 上直接调用 `scene` 会返回 unknown tool。
 
 ---
@@ -115,7 +116,7 @@ PowerShell 下参数与 POSIX 示例保持一致，主要差异是 wrapper 名�
 
 ## 设备身份 Claim
 
-`node claim` 从 claim provider 获取设备身份（`cid` / `oid`）和可选 MQTT 凭据。它只能通过本地 UART 执行；MQTT transport 会被拒绝。
+`node claim` 从 claim provider 获取设备身份（`cid` / `oid`）和可选 MQTT 凭据。它只能通过本地 UART 或 WDR USB CDC 执行；MQTT transport 会被拒绝。
 
 ```bash
 ./run.sh node claim --endpoint https://claim.example.com/device --token ONE_TIME_TOKEN -p /dev/cu.usbserial-0001
@@ -326,6 +327,7 @@ flowchart LR
 ```
 
 - **UART**：本地工厂配置、刷写、bring-up、调试
+- **USB CDC**：WDR 原生 Type-C 的本地命令控制路径，只承载文本控制，不用于固件更新或 raw 数据
 - **MQTT CLI JSON**：默认内置控制通道，通过 `network mqtt` 暴露设备控制与状态读取
 - **MQTT RAW**：雷达原始数据透传。bridge/auto 模式下只负责输出 `raw_data` / `raw_resp`；host 模式下可额外启用 `raw_cmd`
 - **MCPv1**：兼容/参考层，仅在 MCP 客户端明确需要该协议形态时使用
@@ -358,6 +360,38 @@ WDR 为 5000 ms）；显式保存 `0` 会关闭 USB 自动接管并保持 UART�
 
 USB CDC 仅承载 CLI/MCP 控制，不提供雷达原始数据 USB 透传。
 
+### USB CDC（WDR 本地）
+
+`--transport usb` 只对 WDR 开放，是通过原生 Type-C USB CDC 执行本地命令的
+路径。它固定使用 115200 baud，承载现有的换行分隔 CLI/MCP 文本协议；本次
+不增加二进制 frame。
+
+```bash
+# 立即扫描一次；自动选择唯一的 Wavvar/WDR CDC 端口
+./run.sh node info --transport usb --protocol cli
+
+# 最多等待 8 秒枚举，然后用 node info 验证 board=WDR
+./run.sh node info --transport usb --usb-wait-ms 8000
+
+# 同时存在多个 WDR 候选时，指定精确 CDC 路径
+./run.sh radar status --transport usb --port /dev/ttyACM0 --did dc5475c8784c
+```
+
+未传 `--port` 时，主机先按串口 descriptor 的
+`manufacturer=Wavvar`、`product=WDR` 筛选，再执行 `node info`，并要求
+`board=WDR`。如果有多个候选，必须传 `--did` 或精确的 `--port`；DID
+依次兼容 `did`、旧版 `id`、`client_id` 字段，比较不区分大小写。传入
+`--port` 后只等待、打开和验证该路径，不会扫描其他端口。
+
+`--usb-wait-ms` 只是主机侧等待 USB CDC 枚举的预算。默认值 `0` 表示立即
+扫描；正值使用单调时钟截止时间，不假设固件固定 5000 ms，也不会读取或写入
+设备的 `usb_ms` 策略。等待时间由上层应用通过 UART 或已建立的 USB 会话查询
+设备后决定。USB 失败不会自动回退 UART/MQTT，也不会自动重启设备；`--reset`
+和 `--uart-proxy` 只能用于 UART。
+
+二进制更新入口（`node ota`、`radar fw flash`、`radar fw ota`、`radar fw
+download`）仍使用 UART/MQTT；`collect` 仍是 MQTT raw capture 流程。
+
 ### MQTT（远程）
 
 ```bash
@@ -381,7 +415,7 @@ USB CDC 仅承载 CLI/MCP 控制，不提供雷达原始数据 USB 透传。
 | Command | 说明 |
 |---------|------|
 | `node info` | 读取设备身份与已发布元数据 |
-| `node claim` | 通过 UART/local claim 设备身份与凭据 |
+| `node claim` | 通过 UART 或 WDR USB-local claim 设备身份与凭据 |
 | `node factory-reset` | 触发恢复出厂（清 NVS + 运行期资源，1 秒后重启） |
 | `node reboot` | 重启设备 |
 | `node ota` | 通过 HTTP 或 MQTT stream OTA 升级 ESP 固件 |
