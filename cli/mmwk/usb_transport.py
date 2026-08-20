@@ -3,11 +3,18 @@
 from dataclasses import dataclass
 import json
 import os
+import re
 import threading
 import time
 
 from mmwk._logging import logger
 from mmwk.transport import RadarTransport
+
+
+# Windows may bind the native ESP32-S3 CDC interface to its generic serial
+# driver and replace the firmware-provided Wavvar/WDR descriptor strings.
+_ESP32_NATIVE_USB_VID = 0x303A
+_ESP32_NATIVE_WDR_CDC_PID = 0x4001
 
 
 @dataclass(frozen=True)
@@ -19,6 +26,8 @@ class UsbPortCandidate:
     product: str = ""
     interface: str = ""
     serial_number: str = ""
+    vid: int | None = None
+    pid: int | None = None
 
 
 class UsbTransportError(RuntimeError):
@@ -38,6 +47,8 @@ def _default_port_provider():
             product=str(getattr(info, "product", "") or ""),
             interface=str(getattr(info, "interface", "") or ""),
             serial_number=str(getattr(info, "serial_number", "") or ""),
+            vid=getattr(info, "vid", None),
+            pid=getattr(info, "pid", None),
         )
         for info in list_ports.comports()
     ]
@@ -53,6 +64,8 @@ def _coerce_candidate(value) -> UsbPortCandidate:
         product=str(getattr(value, "product", "") or ""),
         interface=str(getattr(value, "interface", "") or ""),
         serial_number=str(getattr(value, "serial_number", "") or ""),
+        vid=getattr(value, "vid", None),
+        pid=getattr(value, "pid", None),
     )
 
 
@@ -61,6 +74,19 @@ def _descriptor_is_wdr(candidate: UsbPortCandidate) -> bool:
         candidate.manufacturer.strip().casefold() == "wavvar"
         and candidate.product.strip().casefold() == "wdr"
     )
+
+
+def _vid_pid_is_native_wdr(candidate: UsbPortCandidate) -> bool:
+    return (
+        candidate.vid == _ESP32_NATIVE_USB_VID
+        and candidate.pid == _ESP32_NATIVE_WDR_CDC_PID
+    )
+
+
+def _is_explicit_windows_serial_path(path: str) -> bool:
+    """Accept a user-supplied COM path even when enumeration omits it briefly."""
+
+    return bool(re.fullmatch(r"(?i)COM\d+", path.strip()))
 
 
 class UsbPortResolver:
@@ -109,11 +135,15 @@ class UsbPortResolver:
             exact = [candidate for candidate in snapshot if candidate.device == port]
             if exact:
                 return exact
-            if self.path_exists(port):
+            if self.path_exists(port) or _is_explicit_windows_serial_path(port):
                 return [UsbPortCandidate(device=port)]
             return []
 
-        return [candidate for candidate in snapshot if _descriptor_is_wdr(candidate)]
+        return [
+            candidate
+            for candidate in snapshot
+            if _descriptor_is_wdr(candidate) or _vid_pid_is_native_wdr(candidate)
+        ]
 
     @staticmethod
     def _close_quietly(transport):
@@ -224,6 +254,8 @@ class UsbTransport(RadarTransport):
         ser.port = port
         ser.baudrate = self.baudrate
         ser.timeout = timeout
+        # Keep native USB CDC modem-control lines idle.  They are not needed
+        # for readiness and must not be used as a UART-style reset signal.
         ser.dtr = False
         ser.rts = False
         ser.open()

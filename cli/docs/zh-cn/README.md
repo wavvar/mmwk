@@ -374,14 +374,16 @@ USB CDC 仅承载 CLI/MCP 控制，不提供雷达原始数据 USB 透传。
 ./run.sh node info --transport usb --usb-wait-ms 8000
 
 # 同时存在多个 WDR 候选时，指定精确 CDC 路径
-./run.sh radar status --transport usb --port /dev/ttyACM0 --did dc5475c8784c
+./run.sh radar status --transport usb --port /dev/ttyACM0 --did 1020ba76b404
 ```
 
 未传 `--port` 时，主机先按串口 descriptor 的
-`manufacturer=Wavvar`、`product=WDR` 筛选，再执行 `node info`，并要求
-`board=WDR`。如果有多个候选，必须传 `--did` 或精确的 `--port`；DID
-依次兼容 `did`、旧版 `id`、`client_id` 字段，比较不区分大小写。传入
-`--port` 后只等待、打开和验证该路径，不会扫描其他端口。
+`manufacturer=Wavvar`、`product=WDR` 筛选，或识别原生 ESP32 WDR CDC 的
+VID/PID `303A:4001`，再执行 `node info` 并要求 `board=WDR`。Windows 通用
+驱动可能把它显示为 `Microsoft` / `USB Serial Device`，因此需要 VID/PID
+兜底。若有多个候选，必须传 `--did` 或精确的 `--port`；DID 依次兼容
+`did`、旧版 `id`、`client_id` 字段，比较不区分大小写。传入 `--port` 后只
+等待、打开和验证该路径，不会扫描其他端口。
 
 `--usb-wait-ms` 只是主机侧等待 USB CDC 枚举的预算。默认值 `0` 表示立即
 扫描；正值使用单调时钟截止时间，不假设固件固定 5000 ms，也不会读取或写入

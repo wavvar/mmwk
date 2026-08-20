@@ -376,14 +376,17 @@ delimited CLI/MCP text protocol. It does not add binary framing.
 ./run.sh node info --transport usb --usb-wait-ms 8000
 
 # Pin one exact CDC path when more than one WDR candidate is attached
-./run.sh radar status --transport usb --port /dev/ttyACM0 --did dc5475c8784c
+./run.sh radar status --transport usb --port /dev/ttyACM0 --did 1020ba76b404
 ```
 
 Without `--port`, the host first filters serial descriptors with
-`manufacturer=Wavvar` and `product=WDR`, then probes `node info` and requires
-`board=WDR`. If more than one candidate remains, provide `--did` or an exact
-`--port`; DID matching uses `did`, then the legacy `id` or `client_id` fields,
-case-insensitively. An explicit `--port` never scans another path.
+`manufacturer=Wavvar` and `product=WDR`, or the native ESP32 WDR CDC VID/PID
+`303A:4001`. Windows may expose that CDC through its generic driver as
+`Microsoft` / `USB Serial Device`, so the VID/PID fallback is intentional. The
+host then probes `node info` and requires `board=WDR`. If more than one
+candidate remains, provide `--did` or an exact `--port`; DID matching uses
+`did`, then the legacy `id` or `client_id` fields, case-insensitively. An
+explicit `--port` never scans another path.
 
 `--usb-wait-ms` is only a host-side enumeration budget. The default `0` means
 scan immediately; a positive value uses a monotonic deadline and does not
