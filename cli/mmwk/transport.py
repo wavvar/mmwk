@@ -949,22 +949,54 @@ class MqttTransport(RadarTransport):
         self.client.disconnect()
 
 
-def create_transport(args, retries: int = 1, retry_delay: float = 2.0) -> RadarTransport:
+def create_transport(
+    args,
+    retries: int = 1,
+    retry_delay: float = 2.0,
+    *,
+    usb_probe=None,
+) -> RadarTransport:
     """Create transport from parsed arguments.
 
     Args:
         args: Namespace with transport configuration attributes.
         retries: Number of connection attempts (default: 1 for CLI, use 3 for tests).
         retry_delay: Seconds between retries.
+        usb_probe: Optional node-info callback used to validate a WDR USB port.
 
     Returns:
         A connected RadarTransport instance.
 
     Raises:
-        ValueError: If required arguments are missing.
+        ValueError: If required arguments are missing or transport options conflict.
         Exception: If connection fails after all retries.
     """
     transport_type = getattr(args, 'transport', 'uart')
+
+    if transport_type == "usb":
+        if getattr(args, "reset", False):
+            raise ValueError("--reset cannot be used with --transport usb")
+        if getattr(args, "uart_proxy", None) is not None:
+            raise ValueError("--uart-proxy cannot be used with --transport usb")
+
+        from mmwk.usb_transport import UsbPortResolver, UsbTransport
+
+        wait_ms = getattr(args, "usb_wait_ms", 0)
+        if wait_ms is None:
+            wait_ms = 0
+        probe = usb_probe or (lambda _transport, _timeout: True)
+        resolver = UsbPortResolver()
+        return resolver.resolve(
+            port=getattr(args, "port", None),
+            wait_ms=wait_ms,
+            did=getattr(args, "did", None),
+            probe_timeout=getattr(args, "timeout", 1.0),
+            open_transport=lambda path: UsbTransport(
+                path,
+                timeout=getattr(args, "timeout", 1.0),
+            ),
+            probe=probe,
+        )
 
     for attempt in range(retries):
         try:

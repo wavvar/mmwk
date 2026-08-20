@@ -1,5 +1,9 @@
 # Wavvar MMWK
 
+<p align="center">
+  <img src="./assets/mmwk.svg" alt="Wavvar MMWK logo" width="160">
+</p>
+
 English version: [English docs](./README.md)
 
 Wavvar MMWK（mmWave Kit）是一个面向产品化的毫米波雷达传感器平台。本目录包含运行和管理 MMWK 设备所需的预编译固件、文档和 CLI 工具。

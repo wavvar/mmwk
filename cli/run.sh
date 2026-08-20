@@ -201,19 +201,22 @@ COMMANDS:
 
 TRANSPORT OPTIONS:
     -p, --port PORT        Serial port
-    -t, --transport TYPE   uart (default) or mqtt
+    -t, --transport TYPE   uart (default), usb (WDR USB CDC), or mqtt
     --broker HOST          MQTT broker address
     --did DID              DID for MQTT route fallback
     --prod PROD            Product route segment (default: mmwk)
     --oid OID              Organization route segment (default: mmwk)
     --cid CID              Claimed route id; takes precedence over --did
-    --baudrate RATE        Baudrate (default: 115200)
-    --reset                DTR/RTS reset before connecting
-    --uart-proxy auto|off  Reuse a persistent local UART proxy for short commands
+    --baudrate RATE        UART baudrate (USB CDC is fixed at 115200)
+    --usb-wait-ms N        Host USB CDC enumeration budget; default 0 (WDR USB only)
+    --reset                DTR/RTS reset before connecting (UART only)
+    --uart-proxy auto|off  Reuse a persistent local UART proxy (UART only)
     -v, --verbose          Debug logging
 
 EXAMPLES:
     ./run.sh node info -p /dev/cu.usbserial-0001
+    ./run.sh node info --transport usb --usb-wait-ms 8000
+    ./run.sh radar status --transport usb --port /dev/ttyACM0 --did DEVICE_ID
     ./run.sh node ota --fw mmwk_sensor_bridge_full.bin -p /dev/cu.usbserial-0001
     ./run.sh node ota --target esp --transport mqtt --ota-transport mqtt --fw app.bin --broker mqtt://127.0.0.1:1883 --did DEVICE_ID
     ./run.sh collect --duration 10 --data-output ./data_resp.sraw --resp-output ./cmd_resp.log -p /dev/cu.usbserial-0001
