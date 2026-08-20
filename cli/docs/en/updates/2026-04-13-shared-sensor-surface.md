@@ -18,7 +18,7 @@ Current public surfaces:
 - `radar`
 - `radar.config`
 - `radar.fw`
-- `radar.raw`
+- unified `radar` raw/record actions
 - `scene` as a hub-only surface
 
 Current meanings:
@@ -42,10 +42,10 @@ Removed from public help/discovery:
 | `adapter list` | `proto list` |
 | `adapter status <protocol>` | `proto status <protocol>` |
 | `adapter manifest <protocol>` | `proto manifest <protocol>` |
-| `raw record status` | `radar raw status` |
-| `raw record start --uri ...` | `radar raw start --uri ...` |
-| `raw record trigger --event ... --duration ...` | `radar raw trigger --event ... --duration-s ...` |
-| `policy show` / `policy set` | no public 1:1 replacement; use `endpoint config get|set <id>` and `radar raw config get|set` |
+| `raw record status` | `radar record status` |
+| `raw record start --uri ...` | `radar record start --uri ...` |
+| `raw record trigger --event ... --duration ...` | `radar record trigger --event ... --duration-s ...` |
+| `policy show` / `policy set` | no public 1:1 replacement; use `endpoint config get|set <id>` and `radar record config get|set` |
 
 ## Publish Note
 

@@ -176,11 +176,15 @@ COMMANDS:
     radar status          Query radar state
     radar config apply    Reconfigure runtime radar contract
     radar config read     Read current radar cfg text
-    radar raw status      Show radar raw recorder status
-    radar raw config      Get or update radar raw config
-    radar raw start       Arm the raw recorder
-    radar raw stop        Stop the raw recorder
-    radar raw trigger     Trigger a raw recording window
+    radar raw status      Query raw route state
+    radar raw runtime     Open a raw route (wire, MQTT, or both)
+    radar raw reconnect   Arm one-shot MQTT DATA after reconnect
+    radar raw off         Close the selected raw route
+    radar record status   Query recorder state
+    radar record config   Get or update recorder config
+    radar record start    Start recorder
+    radar record stop     Stop recorder
+    radar record trigger Trigger a recording window
     radar diag            Manage/query radar diagnostics
     endpoint list         List active endpoint ids
     endpoint describe     Describe an endpoint
@@ -190,7 +194,7 @@ COMMANDS:
     scene set             Update scene config
     scene apply           Apply current scene
     scene wait            Wait until radar is ready after scene apply
-    collect               Subscribe MQTT raw_data/raw_resp and save raw data plus trimmed cmd_resp text
+    collect               Collect radar data through local host UART/USB, MQTT, or split routes
     network wifi          Set Wi-Fi credentials
     network 4g            Get/Set 4G configuration
     network priority      Get/Set preferred network: wifi or 4g
@@ -219,7 +223,8 @@ EXAMPLES:
     ./run.sh radar status --transport usb --port /dev/ttyACM0 --did DEVICE_ID
     ./run.sh node ota --fw mmwk_sensor_bridge_full.bin -p /dev/cu.usbserial-0001
     ./run.sh node ota --target esp --transport mqtt --ota-transport mqtt --fw app.bin --broker mqtt://127.0.0.1:1883 --did DEVICE_ID
-    ./run.sh collect --duration 10 --data-output ./data_resp.sraw --resp-output ./cmd_resp.log -p /dev/cu.usbserial-0001
+    ./run.sh collect --transport uart --port /dev/cu.usbserial-0001 --duration 10 \
+        --data-output ./data_resp.sraw --resp-output ./cmd_resp.log
     ./run.sh radar fw ota --fw firmware.bin --raw-resp-output ./ota_cmd_resp.log -p /dev/cu.usbserial-0001
     ./run.sh radar fw ota --transport mqtt --ota-transport mqtt --fw firmware.bin --cfg radar.cfg --broker mqtt://127.0.0.1:1883 --did DEVICE_ID
     ./run.sh radar fw flash --fw fw.bin --cfg config.cfg -p /dev/cu.usbserial-0001

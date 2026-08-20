@@ -17,6 +17,7 @@ from mmwk.commands.collect import (
     _build_raw_restore_args,
     _create_mqtt_client,
     _parse_broker_endpoint,
+    _unwrap_tool_data,
 )
 from mmwk.mqtt_topics import build_mqtt_topics
 from mmwk.protocol_client import create_protocol_client
@@ -182,6 +183,8 @@ class _LiveCollectController:
         resp_topic: str | None = None,
         timeout: float = 10.0,
         reboot: bool = False,
+        mode: str = "host",
+        attach: bool = False,
     ):
         self.did = did
         self.prod = prod or "mmwk"
@@ -195,6 +198,12 @@ class _LiveCollectController:
         self.resp_topic = resp_topic
         self.timeout = float(timeout)
         self.reboot = bool(reboot)
+        self.mode = mode
+        self.attach = bool(attach)
+        if self.mode == "auto" and not self.attach:
+            raise ValueError("auto live collection requires --attach")
+        if self.mode == "auto" and self.reboot:
+            raise ValueError("auto live collection is DATA-only and cannot restart the radar")
 
         output_stem = f"{self.output_prefix}raw_data"
         self.data_output = os.path.join(self.output_dir, f"{output_stem}.sraw")
@@ -220,28 +229,31 @@ class _LiveCollectController:
         self.data_fout = open(self.data_output, "wb")
         self.resp_fout = open(self.resp_output, "wb")
 
-        transport_args = SimpleNamespace(
-            transport="mqtt",
-            broker=self.broker,
-            mqtt_port=self.mqtt_port,
-            did=self.did,
-            prod=self.prod,
-            oid=self.oid,
-            cid=self.cid,
-            cmd_topic=None,
-            resp_topic=None,
-            mqtt_qos=1,
-            mqtt_delay=0.05,
-        )
-        self.transport = create_transport(transport_args)
-        self.mcp = create_protocol_client("cli", self.transport)
-        self.mcp.initialize(timeout=self.timeout)
-        self._control_ready = True
+        hi = {}
+        raw_state = {}
+        if not (self.mode == "auto" and self.attach):
+            transport_args = SimpleNamespace(
+                transport="mqtt",
+                broker=self.broker,
+                mqtt_port=self.mqtt_port,
+                did=self.did,
+                prod=self.prod,
+                oid=self.oid,
+                cid=self.cid,
+                cmd_topic=None,
+                resp_topic=None,
+                mqtt_qos=1,
+                mqtt_delay=0.05,
+            )
+            self.transport = create_transport(transport_args)
+            self.mcp = create_protocol_client("cli", self.transport)
+            self.mcp.initialize(timeout=self.timeout)
+            self._control_ready = True
 
-        self.collector = CollectCommand(self.mcp)
-        hi = self.collector._hydrate_hi(self.collector._load_hi(timeout=self.timeout), timeout=self.timeout)
-        raw_state = self.collector._tool_json("radar.raw", {"action": "config_get"}, timeout=self.timeout)
-        self.restore_raw_args = _build_raw_restore_args(raw_state)
+            self.collector = CollectCommand(self.mcp)
+            hi = self.collector._hydrate_hi(self.collector._load_hi(timeout=self.timeout), timeout=self.timeout)
+            raw_state = self.collector._tool_json("radar", {"action": "raw"}, timeout=self.timeout)
+            self.restore_raw_args = _build_raw_restore_args(raw_state)
 
         default_topics = build_mqtt_topics(
             did=self.did,
@@ -250,7 +262,7 @@ class _LiveCollectController:
             cid=self.cid,
             include_raw_cmd=True,
         )
-        raw_cfg = raw_state.get("config", raw_state) if isinstance(raw_state, dict) else {}
+        raw_cfg = _unwrap_tool_data(raw_state)
         self.data_topic = (
             self.data_topic
             or raw_cfg.get("raw_data")
@@ -258,10 +270,12 @@ class _LiveCollectController:
             or default_topics["raw_data"]
         )
         self.resp_topic = (
+            "" if self.mode == "auto" else (
             self.resp_topic
             or raw_cfg.get("raw_resp")
             or hi.get("raw_resp")
             or default_topics["raw_resp"]
+            )
         )
 
         host, port = _parse_broker_endpoint(self.broker, self.mqtt_port)
@@ -302,13 +316,14 @@ class _LiveCollectController:
         if not self.capture_session.subscribed.is_set():
             raise TimeoutError("Timed out waiting for MQTT subscribe-ready state")
 
-        self.mcp.call_tool(
-            "radar.raw",
-            {"action": "config_set", "config": {"enabled": True}},
-            timeout=self.timeout,
-        )
-        self._raw_forwarding_enabled = True
-        if self.reboot:
+        if not (self.mode == "auto" and self.attach):
+            self.mcp.call_tool(
+                "radar",
+                {"action": "raw", "mode": "runtime", "channel": "mqtt"},
+                timeout=self.timeout,
+            )
+            self._raw_forwarding_enabled = True
+        if self.reboot and self.mode != "auto":
             self.mcp.call_tool(
                 "radar",
                 {"action": "start"},
@@ -349,7 +364,7 @@ class _LiveCollectController:
 
         if self.mcp is not None and self.restore_raw_args is not None:
             try:
-                self.mcp.call_tool("radar.raw", self.restore_raw_args, timeout=self.timeout)
+                self.mcp.call_tool("radar", self.restore_raw_args, timeout=self.timeout)
             except Exception:
                 pass
 
@@ -413,6 +428,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-dir", required=True, help="Output directory for raw_data.sraw/raw_data.log")
     parser.add_argument("--output-prefix", default="", help="Optional prefix for output file names")
     parser.add_argument("--timeout", type=float, default=10.0, help="Control/MQTT timeout in seconds")
+    parser.add_argument("--mode", choices=["host", "auto"], default="host", help="Radar ownership mode")
+    parser.add_argument("--attach", action="store_true", help="Observe an existing auto MQTT DATA route")
     parser.add_argument("--data-topic", help="Raw data topic override")
     parser.add_argument("--resp-topic", help="Raw resp topic override")
     parser.add_argument(
@@ -448,6 +465,8 @@ def main(argv: list[str] | None = None) -> int:
         resp_topic=args.resp_topic,
         timeout=args.timeout,
         reboot=args.reboot,
+        mode=args.mode,
+        attach=args.attach,
     )
 
     try:

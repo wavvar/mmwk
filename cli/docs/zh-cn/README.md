@@ -6,11 +6,12 @@ CLI 现在默认使用标准 CLI JSON 协议。大多数 MMWK 固件版本也默
 
 ## 原始语义契约
 
-- `raw_resp = startup-trimmed command-port output from on_cmd_data`
-- `raw_data = raw data-port bytes from on_radar_data`
-- `on_cmd_resp is an application-layer command response`，且它与 raw capture 不同。
-- `on_radar_frame is an application-layer frame callback`，且它与 raw capture 不同。
-- 雷达驱动会在对外发布命令口输出前，先裁掉启动阶段第一个 printable ASCII 字节之前的脏数据。
+Raw 转发和录制都是同一个 `radar` 工具的并列 action。请先阅读[雷达数据采集指南](./radar-data-collection.md)。
+
+- `radar raw` 控制 `mode=off|runtime|reconnect` 和 `channel=wire|mqtt|both`。
+- `radar record` 控制录制状态、配置和生命周期。
+- `auto` 只输出 MQTT DATA；`host` 才允许主机控制命令、响应和 DATA。
+- 同一个物理通道在 raw 打开后与 parsed 互斥；另一条路由仍可保持 parsed。
 
 ---
 
@@ -23,6 +24,7 @@ CLI 现在默认使用标准 CLI JSON 协议。大多数 MMWK 固件版本也默
 - [通信层](#通信层)
   - [USB CDC（WDR 本地）](#usb-cdcwdr-本地)
 - [命令参考](#命令参考)
+- [雷达数据采集](./radar-data-collection.md)
 - [项目文档](#项目文档)
 - [硬件交互](#硬件交互)
 - [固件刷写流程](#固件刷写流程)
@@ -89,7 +91,7 @@ PowerShell 下参数与 POSIX 示例保持一致，主要差异是 wrapper 名�
 - `bridge` 和 `hub` 现在共享一套 sensor runtime core，但二者仍然是编译期 profile。
 - hub 唯一新增的公开面是 `scene`，以及那些只有在 requested sensor set 通过 support check 后才会暴露出来的额外 sensor endpoint/event。
 - 能力发现统一收敛到 `endpoint list` 和 `proto list|status|manifest`。
-- 原始录制/配置统一收敛到 `radar raw status`、`radar raw config get|set --json ...`、`radar raw start|stop|trigger`。
+- Raw 路由和录制统一收敛到 `radar raw ...` 与 `radar record ...`；旧的开机 agent 开关和独立 raw 工具已移除。
 - `node claim` 是 UART/USB-local 的设备身份 claim 流程，用来获取 `cid`/`oid` 和可选 MQTT 凭据；`network prov` 仍然只是 Wi-Fi 配网。
 - `scene` 仅 hub 支持；bridge 上直接调用 `scene` 会返回 unknown tool。
 
@@ -133,7 +135,7 @@ PowerShell 下参数与 POSIX 示例保持一致，主要差异是 wrapper 名�
 1. 验证 UART 控制路径
 2. 刷写雷达固件与配置
 3. 确认雷达已运行
-4. 采集启动 trim 后的命令口文本与数据口原始字节
+4. 通过 host UART/USB 在本机采集原始雷达字节；设备不在本机时使用 MQTT
 
 ### 1. 验证 UART 控制路径
 
@@ -164,7 +166,10 @@ PowerShell 下参数与 POSIX 示例保持一致，主要差异是 wrapper 名�
 
 对 `radar fw flash`、`radar fw ota`、`radar config apply`，以及 factory / baseline 恢复路径后的第一次上电，都要持续轮询 `radar status`，直到返回 `running`。不要用固定 sleep 替代这个 gate。
 
-### 4. 配置 Wi-Fi 与 MQTT
+### 4. 为远程采集配置 Wi-Fi 与 MQTT
+
+雷达直接连接本机时不需要 Wi-Fi 或 MQTT，按[雷达数据采集指南](./radar-data-collection.md)
+使用 host UART 或原生 USB。只有远程 host 或应用层 auto 数据流才需要下面的网络配置。
 
 ```bash
 ./run.sh network wifi --ssid YOUR_SSID --pass YOUR_PASSWORD -p /dev/cu.usbserial-0001
@@ -191,24 +196,30 @@ SDK 硬件验收同样保持显式选择：PRO 设备或带 4G 的 WDR 设备测
 
 自救 portal 用于 MQTT 服务器配置和诊断，不是 Wi-Fi 配网。出厂配置完成后 portal 仍可见，但是否允许修改 MQTT 由固件策略决定。CLI bridge 固件可以开放 MQTT recovery 编辑；HUB care/rmaker sidecar 只显示状态。只读状态页只暴露 MQTT 状态、最近阶段/错误码、剩余窗口秒数，以及首选 4G 离线时的 4G 诊断；不暴露 MQTT URI、用户名或密码。
 
-对于 fresh bridge，先配置 Wi-Fi，再执行 `network mqtt`、重启，并通过 `node info` 或 `network status` 验证。应把 `state=connected && ready=true` 视为网络 ready 契约，把 `mqtt_state=connected` 视为 MQTT ready 契约。`node info` 仍适合看身份和已发布元数据，但不应作为主要运行时就绪信号。缺失 bridge agent key 时，默认值就是 `mqtt=1`、`raw_auto=1`，这就是正常 fresh-bridge bring-up 路径。
+对于 fresh bridge，先配置 Wi-Fi，再执行 `network mqtt`、重启，并通过 `node info` 或 `network status` 验证。应把 `state=connected && ready=true` 视为网络 ready 契约，把 `mqtt_state=connected` 视为 MQTT ready 契约。`node info` 仍适合看身份和已发布元数据，但不应作为主要运行时就绪信号。Raw 必须通过 `radar raw` 显式打开，不再有开机 raw agent 开关。
 
-只有在手动 override 或排障时，才需要执行 `node agent --mqtt 1 --raw-auto 1`。
+只有在手动 override 或排障时，才需要重新执行 `radar raw runtime --channel mqtt`；应用层 auto 模式只输出 DATA。
 
 ### 5. 采集并验证数据
 
 ```bash
-./run.sh collect --duration 12 \
+./run.sh collect --transport uart --port /dev/cu.usbserial-0001 --duration 12 \
   --data-output ./data_resp.sraw \
-  --resp-output ./cmd_resp.log \
-  -p /dev/cu.usbserial-0001
+  --resp-output ./cmd_resp.log
 ```
 
-当传入 `-p/--port` 时，`collect` 会先通过 UART 做自动发现，并等待设备重新拿到非零运行时 IP 后再 arm MQTT raw capture。这样可以降低设备刚重启或雷达刚 restart 时，因为 Wi-Fi / MQTT 仍在重连而丢掉启动阶段 `raw_resp` 的概率。
+本机 host 模式下，`data_resp.sraw` 是合并后的原始线流（命令响应和 DATA 块），
+`cmd_resp.log` 保存 parsed 的启动/关闭确认。WDR 原生 CDC 使用
+`--transport usb`；如果希望本地线只发命令、MQTT 承载高速 DATA，使用
+`--ctrl-transport uart --data-transport mqtt`。
 
-对 `radar fw flash`、`radar fw ota`、`radar config apply`，以及 factory / baseline 恢复路径后的第一次上电，先把 `radar status = running` 当成显式 ready gate，再去做纯 MQTT 的 late-attach 采集。如果你把 `collect -p` 当成这段恢复窗口的启动证明路径，就要要求 `cmd_resp.log` 非空。
+远程 host 采集使用 `--transport mqtt --broker ... --did ...`；应用层已经打开
+MQTT raw 时，使用 `--transport mqtt --mode auto --attach`，此时只订阅 DATA，
+不会发送雷达命令。
 
-默认这条带 `-p/--port` 的 `collect` 路径应视为严格的启动期采集路径。如果你的采集窗口就是从 reboot、OTA 恢复或其他 fresh startup/welcome 阶段开始，`raw_resp` 就必须是必需项，`cmd_resp.log` 也应非空。
+在 `radar fw flash`、`radar fw ota`、`radar config apply` 或 factory/baseline
+恢复后的第一次上电后，先等待 `radar status = running`，再做远程 MQTT late-attach。
+具体的模式选择、成功标准和清理状态见独立采集指南。
 
 如果你要拿到 OTA/config 阶段本身的 welcome、cfg 逐行回应和后续命令口输出，不要等 OTA 结束后再跑 `collect`，而是直接在 `radar fw ota` 时开启 raw capture：
 
@@ -269,10 +280,12 @@ canonical topic 示例：
 
 - `network mqtt` 只配置 broker / 鉴权；路由身份由 `node claim` 单独配置
 - 内置控制面订阅 `{prod}/{oid}/{cid-or-did}/device/cmd`，并发布到 `{prod}/{oid}/{cid-or-did}/device/resp`
-- MQTT raw 透传平面发布到 `{prod}/{oid}/{cid-or-did}/raw/data` 和 `{prod}/{oid}/{cid-or-did}/raw/resp`；host 模式下会额外派生 `{prod}/{oid}/{cid-or-did}/raw/cmd`
-- 公开的 `radar raw` 命令族只负责录制器状态/配置和录制触发；`collect` / `collect.sh --trigger` 负责订阅 MQTT raw topic
-- `raw_resp` 对应 `on_cmd_data` 的启动 trim 后命令口输出，`raw_data` 对应 `on_radar_data` 的数据口原始字节
-- bridge/auto 模式下 MQTT raw 平面是只出不进的，只对外发布 `raw_data` 和 `raw_resp`；host 模式下才会额外开放 `raw_cmd`
+- auto 模式只发布 `{prod}/{oid}/{cid-or-did}/raw/data`；host 模式按路由选择发布 `raw/data`、`raw/resp`，并可接收 `raw/cmd`
+- 公开的 `radar raw` 命令族负责透传路由，`radar record` 负责录制器状态/配置和录制触发；`collect` / `collect.sh --trigger` 负责订阅 MQTT raw topic
+- MQTT `raw/data` 只有 DATA。由于本机 host 物理线没有命令/数据分帧，`.sraw`
+  是合并线流；`data=mqtt` 双通道和 auto MQTT 才是纯 DATA 文件。
+- `raw/cmd` 是 host 模式可选的雷达命令入口，与 CLI JSON 的
+  `{prod}/{oid}/{cid-or-did}/device/cmd` 不同。
 - `on_cmd_resp`、`on_radar_frame` 属于应用层回调，与 raw capture 不同
 - 推荐真实应用通过 MQTT 集成，UART 主要用于刷写、bring-up、调试和兜底
 
@@ -287,7 +300,7 @@ canonical topic 示例：
 - 不带 `--mode` 的 `radar start` 会按已保存的 `mode` 启动。
 - `radar stop` 只停止当前雷达服务，不会改写 `mode`。
 - `radar status` 现在是只读查询，不再接受 `--set`。
-- `raw_auto` 只控制 raw 平面的自动启动，不决定由谁负责雷达启动。
+- raw 路由不会改变雷达启动所有权；应用层 auto 由固件自行声明并只开放 MQTT DATA。
 - 在 bridge `host` 下，ESP 仍然暴露 raw 传输面，但不会在启动期自动下发雷达配置。
 
 ### 网络与配网
@@ -327,9 +340,9 @@ flowchart LR
 ```
 
 - **UART**：本地工厂配置、刷写、bring-up、调试
-- **USB CDC**：WDR 原生 Type-C 的本地命令控制路径，只承载文本控制，不用于固件更新或 raw 数据
+- **USB CDC**：WDR 原生 Type-C 的本地命令和 raw DATA 路径；host raw 打开后同一物理通道不再输出 parsed 文本
 - **MQTT CLI JSON**：默认内置控制通道，通过 `network mqtt` 暴露设备控制与状态读取
-- **MQTT RAW**：雷达原始数据透传。bridge/auto 模式下只负责输出 `raw_data` / `raw_resp`；host 模式下可额外启用 `raw_cmd`
+- **MQTT RAW**：显式打开的雷达原始透传。auto 模式只有 `raw_data`；host 模式可使用 `raw_cmd`、`raw_resp` 和 `raw_data`
 - **MCPv1**：兼容/参考层，仅在 MCP 客户端明确需要该协议形态时使用
 
 ### UART（本地）
@@ -358,7 +371,9 @@ WDR 为 5000 ms）；显式保存 `0` 会关闭 USB 自动接管并保持 UART�
 公开读写入口；`node info` 和 `network diag` 不提供该字段。非 WDR 查询省略该
 字段，写入返回 `not.supported`。
 
-USB CDC 仅承载 CLI/MCP 控制，不提供雷达原始数据 USB 透传。
+USB CDC 承载 CLI/MCP 控制；WDR 打开 host raw 路由后还可承载原生雷达
+DATA。raw 接管该物理通道后不再混入 parsed 文本；如需继续发 parsed 命令，
+请使用另一条路由。
 
 ### USB CDC（WDR 本地）
 ### USB CDC（WDR 本地）
@@ -393,7 +408,8 @@ VID/PID `303A:4001`，再执行 `node info` 并要求 `board=WDR`。Windows 通�
 和 `--uart-proxy` 只能用于 UART。
 
 二进制更新入口（`node ota`、`radar fw flash`、`radar fw ota`、`radar fw
-download`）仍使用 UART/MQTT；`collect` 仍是 MQTT raw capture 流程。
+download`）仍使用 UART/MQTT；`collect` 支持 UART/USB 本机 host、远程 MQTT，
+以及 `ctrl=wire,data=mqtt` 双通道采集。
 
 ### MQTT（远程）
 
@@ -405,7 +421,7 @@ download`）仍使用 UART/MQTT；`collect` 仍是 MQTT raw capture 流程。
 
 ## 兼容 facade
 
-- 公开标准入口固定为 `node`、`proto`、`endpoint`、`scene`、`radar.fw`、`radar.diag`、`radar.raw`，以及下文的 `network` / `collect` 流程。
+- 公开标准入口固定为 `node`、`proto`、`endpoint`、`scene`、`radar`、`radar.fw`、`radar.diag`，以及下文的 `network` / `collect` 流程。
 - `entity` 仅用于兼容。`device.catalog` 仅用于兼容。`device.proto` 仅用于兼容。它们只保留在显式兼容 shim 中，不属于公开 help/discovery。
 - 对多传感器设备，子 endpoint 拥有测量真值、事件真值和状态真值。组合 endpoint 只做聚合或编排，例如 `area`、`safety`、`vitals`、`maintenance` 和 hub 专属的 `scene`。
 - `scene` 是 hub 专属的组合 facade，用来表达拓扑、能力选择和编排；它不会替代 endpoint 的真值归属，也不会变成第二语义中心。
@@ -435,12 +451,11 @@ download`）仍使用 UART/MQTT；`collect` 仍是 MQTT raw capture 流程。
 | `radar config read` | 回读雷达 cfg 文本（默认 file cfg，可选 hub `--gen`） |
 | `radar status` | 只读查询雷达状态、`mode` 与 `modes` |
 | `radar fw version` | 查询雷达固件版本 |
-| `radar raw status` | 查看 radar raw 录制器状态 |
-| `radar raw config get/set --json` | 读取或修改 radar raw 录制器配置 |
-| `radar raw start/stop/trigger` | 控制 radar raw 录制器生命周期 |
+| `radar raw status/runtime/reconnect/off` | 查询或切换 raw 透传路由 |
+| `radar record status/config/start/stop/trigger` | 管理录制器状态、配置和生命周期 |
 | `radar diag` | 查看或设置雷达诊断信息 |
 | `radar fw list/set/switch/del/download` | 管理设备上的固件分区 |
-| `collect` | 采集 `raw_data` / `raw_resp` 并保存到主机 |
+| `collect` | 按 host/auto 模式从 UART、USB 或 MQTT 采集 raw 数据并保存到主机 |
 | `endpoint list/describe/read/config get/config set` | 查看面向 Matter 的 endpoint 目录与运行时状态（`endpoint list --json` / `endpoint describe` 会暴露 `endpoint_key`、`parent_endpoint_key`、`parts`、`truth_source` 等语义字段） |
 | `scene read/set/apply/wait` | hub 专属的 scene 编排与配置接口 |
 | `network wifi/4g/priority/mqtt/prov/status/ntp` | 网络配置，其中 `network status` 用于查询 `state` / `active_ip` / `pref` / `curr` / `ready` / `mqtt_state` |
@@ -458,7 +473,7 @@ download`）仍使用 UART/MQTT；`collect` 仍是 MQTT raw capture 流程。
 ./run.sh node key set --new-key YOUR_KEY -p /dev/cu.usbserial-0001
 ./run.sh node key clear --key YOUR_KEY -p /dev/cu.usbserial-0001
 ./run.sh node reboot -p /dev/cu.usbserial-0001
-./run.sh node agent --mqtt 1 --raw-auto 1 --led 1 -p /dev/cu.usbserial-0001
+./run.sh node agent --mqtt 1 --led 1 -p /dev/cu.usbserial-0001
 
 # --- Radar ---
 ./run.sh radar status -p /dev/cu.usbserial-0001
@@ -469,8 +484,8 @@ download`）仍使用 UART/MQTT；`collect` 仍是 MQTT raw capture 流程。
 ./run.sh radar config apply --welcome --no-verify -p /dev/cu.usbserial-0001
 ./run.sh radar config read -p /dev/cu.usbserial-0001
 ./run.sh radar raw status -p /dev/cu.usbserial-0001
-./run.sh radar raw config set --json '{"auto_upload": true, "max_duration_sec": 30}' -p /dev/cu.usbserial-0001
-./run.sh radar raw trigger --event factory_test --duration-s 15 -p /dev/cu.usbserial-0001
+./run.sh radar raw runtime --channel wire --baud 1000000 --escape +++ -p /dev/cu.usbserial-0001
+./run.sh radar raw off --channel wire -p /dev/cu.usbserial-0001
 
 # --- 固件目录 ---
 ./run.sh radar fw list -p /dev/cu.usbserial-0001
@@ -479,9 +494,9 @@ download`）仍使用 UART/MQTT；`collect` 仍是 MQTT raw capture 流程。
 ./run.sh radar fw download --source http://example.com/fw.bin --name oob --fw-version 1.0.0 --size 524288 -p /dev/cu.usbserial-0001
 
 # --- 录制 ---
-./run.sh radar raw start --uri http://192.168.1.100:8080/upload -p /dev/cu.usbserial-0001
-./run.sh radar raw stop -p /dev/cu.usbserial-0001
-./run.sh radar raw trigger --event MANUAL --duration-s 10 -p /dev/cu.usbserial-0001
+./run.sh radar record start --uri http://192.168.1.100:8080/upload -p /dev/cu.usbserial-0001
+./run.sh radar record stop -p /dev/cu.usbserial-0001
+./run.sh radar record trigger --event MANUAL --duration-s 10 -p /dev/cu.usbserial-0001
 ./run.sh collect --duration 12 --data-output ./data_resp.sraw --resp-output ./cmd_resp.log -p /dev/cu.usbserial-0001
 
 # --- Endpoints ---
@@ -489,8 +504,8 @@ download`）仍使用 UART/MQTT；`collect` 仍是 MQTT raw capture 流程。
 ./run.sh endpoint list --json -p /dev/cu.usbserial-0001
 ./run.sh endpoint describe mgmt.device -p /dev/cu.usbserial-0001
 ./run.sh endpoint read mgmt.device -p /dev/cu.usbserial-0001
-./run.sh endpoint config get radar.raw -p /dev/cu.usbserial-0001
-./run.sh endpoint config set radar.raw --config-json '{"auto_upload": true}' -p /dev/cu.usbserial-0001
+./run.sh endpoint config get radar.record -p /dev/cu.usbserial-0001
+./run.sh endpoint config set radar.record --config-json '{"auto_upload": true}' -p /dev/cu.usbserial-0001
 ./run.sh scene read -p /dev/cu.usbserial-0001   # 仅 hub
 
 # --- Network ---
@@ -692,7 +707,7 @@ ERC 是一种二进制 whole-OTA 格式：前缀为 32-byte v1 或 256-byte v2 �
 相关启动模式行为：
 - BRIDGE 会在雷达相关状态面暴露 `modes: ["auto", "host"]`，设备面不再暴露启动模式配置。
 - BRIDGE 支持 `["auto", "host"]`；HUB 支持 `["auto"]`。
-- 在 bridge `host` 且 `raw_auto=1` 时，会自动启动 `{prod}/{oid}/{cid-or-did}/raw/data`、`{prod}/{oid}/{cid-or-did}/raw/resp` 和 `{prod}/{oid}/{cid-or-did}/raw/cmd`。
+- 在 bridge `host` 下只有显式执行 `radar raw runtime` 才会启动 raw 路由；`auto` 模式仅发布 DATA。
 
 ### 方法 D：回读当前雷达 CFG
 
@@ -725,34 +740,29 @@ ERC 是一种二进制 whole-OTA 格式：前缀为 32-byte v1 或 256-byte v2 �
 
 ### 方法 A：`collect`
 
-`collect` 会自动：
-
-1. 通过 `node info` 发现 MQTT 信息
-2. 当 Wi-Fi / MQTT 仍在恢复时，等待设备重新拿到可用运行时 IP
-3. 查询补充字段
-4. 通过 bridge raw bootstrap 路径确保 MQTT raw 透传已就绪
-5. 订阅 `raw_data` 和 `raw_resp`
-6. 把 payload 写入输出文件，其中 `cmd_resp.log` 保留从第一个 printable ASCII 字节开始的命令口文本
+`collect` 先按参数选择采集路径：本机 host 使用 UART/USB，远程 host 使用
+MQTT，应用层 auto 使用 `--mode auto --attach` 订阅 MQTT DATA。不要把本机
+host 的线流文件当成已经分帧的 DATA 文件；需要纯 DATA 时使用 auto MQTT 或
+`ctrl=wire,data=mqtt`。
 
 ```bash
-./run.sh collect --duration 12 \
+./run.sh collect --transport uart --port /dev/cu.usbserial-0001 --duration 12 \
   --data-output ./data_resp.sraw \
-  --resp-output ./cmd_resp.log \
-  -p /dev/cu.usbserial-0001
+  --resp-output ./cmd_resp.log
 ```
 
-当采集窗口发生在 reboot、OTA 恢复、`radar config apply` 恢复，或 factory / baseline 恢复路径后的第一次启动期时，请把这条带 `-p` 的路径视为严格启动期采集，并要求 `cmd_resp.log` / `raw_resp` 非空。纯 MQTT 的 late-attach 采集只应在 `radar status` 已经返回 `running` 之后使用。
+清理阶段应确认 raw 路由已关闭并恢复 parsed 控制；对远程 MQTT late-attach，
+还应先确认 `radar status` 已返回 `running`。
 
 ### 方法 B：手工订阅 MQTT
 
 ```bash
 ./run.sh network wifi --ssid YOUR_SSID --pass YOUR_PASSWORD -p /dev/cu.usbserial-0001
 ./run.sh network mqtt --uri mqtt://192.168.1.100:1883 -p /dev/cu.usbserial-0001
-./run.sh node agent --raw-auto 1 -p /dev/cu.usbserial-0001
 ./run.sh node reboot -p /dev/cu.usbserial-0001
 ```
 
-对于 fresh bridge，上述流程就足以建立 MQTT 控制；只有在手动 override 或排障时，才需要执行 `node agent --mqtt 1 --raw-auto 1`。
+对于 fresh bridge，上述流程就足以建立 MQTT 控制。采集期间显式打开 `radar raw` 路由即可；它是运行期状态，不是持久化 agent 开关。
 
 ```bash
 mosquitto_sub -h 192.168.1.100 -t 'mmwk/#' -v
@@ -761,18 +771,18 @@ mosquitto_sub -h 192.168.1.100 -t 'mmwk/#' -v
 ### 方法 C：设备侧录制
 
 ```bash
-./run.sh radar raw start --uri http://192.168.1.100:8080/upload -p /dev/cu.usbserial-0001
-./run.sh radar raw trigger --event MANUAL --duration-s 10 -p /dev/cu.usbserial-0001
-./run.sh radar raw stop -p /dev/cu.usbserial-0001
+./run.sh radar record start --uri http://192.168.1.100:8080/upload -p /dev/cu.usbserial-0001
+./run.sh radar record trigger --event MANUAL --duration-s 10 -p /dev/cu.usbserial-0001
+./run.sh radar record stop -p /dev/cu.usbserial-0001
 ```
 
 ### Radar Raw 录制器
 
 ```bash
-./run.sh radar raw status -p /dev/cu.usbserial-0001
-./run.sh radar raw config get -p /dev/cu.usbserial-0001
-./run.sh radar raw config set --json '{"auto_upload": true, "max_duration_sec": 30}' -p /dev/cu.usbserial-0001
-./run.sh radar raw trigger --event MANUAL --duration-s 10 -p /dev/cu.usbserial-0001
+./run.sh radar record status -p /dev/cu.usbserial-0001
+./run.sh radar record config get -p /dev/cu.usbserial-0001
+./run.sh radar record config set --json '{"auto_upload": true, "max_duration_sec": 30}' -p /dev/cu.usbserial-0001
+./run.sh radar record trigger --event MANUAL --duration-s 10 -p /dev/cu.usbserial-0001
 ```
 
 ---
@@ -795,8 +805,8 @@ mosquitto_sub -h 192.168.1.100 -t 'mmwk/#' -v
 
 - 检查设备和主机是否都能访问同一个 broker
 - 确认 `network mqtt` 已配置
-- 如果设备携带的是旧持久化值，再检查 `node agent --mqtt 1 --raw-auto 1`
-- 优先使用 `collect -p` 做启动期托管采集；如果要恢复 bridge raw 自启动，重新执行 `node agent --raw-auto 1` 并重启
+- 查询 `radar raw status`，确认运行期 raw 路由已经打开
+- 优先使用 `collect -p` 做启动期托管采集；如果要观察应用自有的 auto DATA 路由，使用 `collect --mode auto --attach`
 
 ### 串口权限问题
 

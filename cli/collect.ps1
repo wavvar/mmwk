@@ -101,12 +101,22 @@ function Extract-EnvValue {
 }
 
 $directMode = $false
+$localEngineMode = $false
 $hasBroker = $false
 $serverStateDir = ""
 for ($i = 0; $i -lt $Args.Length; $i++) {
     $arg = $Args[$i]
     if ($arg -eq "--trigger" -or $arg.StartsWith("--trigger=")) {
         $directMode = $true
+        continue
+    }
+
+    if ($arg -eq "--transport" -or $arg.StartsWith("--transport=") -or
+        $arg -eq "--port" -or $arg.StartsWith("--port=") -or
+        $arg -eq "--raw-baud" -or $arg.StartsWith("--raw-baud=") -or
+        $arg -eq "--ctrl-transport" -or $arg.StartsWith("--ctrl-transport=") -or
+        $arg -eq "--data-transport" -or $arg.StartsWith("--data-transport=")) {
+        $localEngineMode = $true
         continue
     }
 
@@ -124,6 +134,17 @@ for ($i = 0; $i -lt $Args.Length; $i++) {
         $i++
         continue
     }
+}
+
+if ($localEngineMode) {
+    $python = Resolve-Python
+    if ($null -eq $python) {
+        Write-Error 'Python 3.10+ not found.'
+        exit 1
+    }
+    Set-Location $scriptDir
+    & $python -m mmwk.cli collect @Args
+    exit $LASTEXITCODE
 }
 
 if ($directMode) {
@@ -161,8 +182,11 @@ if ($null -ne $bash) {
 if (($Args -contains "-h") -or ($Args -contains "--help")) {
     Write-Host "collect.ps1 -- registry-backed raw collection helper"
     Write-Host "Usage:"
+    Write-Host "  ./collect.ps1 --transport uart|usb --port PORT [local host options]"
+    Write-Host "  ./collect.ps1 --transport mqtt --did DID [remote options]"
     Write-Host "  ./collect.ps1 --did DID [--duration SEC] [--working DIR] [--reboot]"
     Write-Host "  ./collect.ps1 --trigger none|radar-restart|device-reboot [forward-options]"
+    Write-Host "Local host UART/USB collection does not require Wi-Fi, MQTT, or device.yml."
     Write-Host "Install Git Bash for full collect.sh compatibility or run with --trigger for pure-MQTT mode."
     exit 0
 }
@@ -172,6 +196,8 @@ $did = ""
 $duration = ""
 $working = ""
 $reboot = $false
+$mode = "host"
+$attach = $false
 for ($i = 0; $i -lt $Args.Length; $i++) {
     switch ($Args[$i]) {
         "--did" {
@@ -200,6 +226,17 @@ for ($i = 0; $i -lt $Args.Length; $i++) {
         }
         "--reboot" {
             $reboot = $true
+        }
+        "--mode" {
+            if ($i + 1 -ge $Args.Length) {
+                Write-Error "Missing value for --mode"
+                exit 1
+            }
+            $mode = $Args[$i + 1]
+            $i++
+        }
+        "--attach" {
+            $attach = $true
         }
         default {
             Write-Error "Unsupported argument in non-bash fallback mode: $($Args[$i])"
@@ -274,6 +311,12 @@ if (-not [string]::IsNullOrWhiteSpace($duration)) {
 }
 if ($reboot) {
     $liveArgs += @("--reboot")
+}
+if ($mode -ne "host") {
+    $liveArgs += @("--mode", $mode)
+}
+if ($attach) {
+    $liveArgs += @("--attach")
 }
 
 & $python -m mmwk.tools.collect_live @liveArgs

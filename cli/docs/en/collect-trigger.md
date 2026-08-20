@@ -79,4 +79,4 @@ If `--broker` is absent and `MMWK_SERVER_MQTT_URI` is unset, `collect.sh --trigg
 
 - `trigger=none`: late-attach steady-state collection; `--resp-optional` is valid only here.
 - `trigger=radar-restart`: subscribe first, then restart the radar over MQTT using the derived `cmd` / `resp` control topics.
-- `trigger=device-reboot`: subscribe first, then send `node reboot` over MQTT. This requires working MQTT control and `raw_auto=1`.
+- `trigger=device-reboot`: subscribe first, arm `radar raw mode=reconnect`, then send `node reboot` over MQTT. This requires working MQTT control.

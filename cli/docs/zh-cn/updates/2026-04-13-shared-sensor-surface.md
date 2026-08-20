@@ -18,7 +18,7 @@
 - `radar`
 - `radar.config`
 - `radar.fw`
-- `radar.raw`
+- 统一 `radar` raw/record action
 - `scene`（仅 hub）
 
 当前含义：
@@ -42,10 +42,10 @@
 | `adapter list` | `proto list` |
 | `adapter status <protocol>` | `proto status <protocol>` |
 | `adapter manifest <protocol>` | `proto manifest <protocol>` |
-| `raw record status` | `radar raw status` |
-| `raw record start --uri ...` | `radar raw start --uri ...` |
-| `raw record trigger --event ... --duration ...` | `radar raw trigger --event ... --duration-s ...` |
-| `policy show` / `policy set` | 没有公开的一对一替代；改用 `endpoint config get|set <id>` 和 `radar raw config get|set` |
+| `raw record status` | `radar record status` |
+| `raw record start --uri ...` | `radar record start --uri ...` |
+| `raw record trigger --event ... --duration ...` | `radar record trigger --event ... --duration-s ...` |
+| `policy show` / `policy set` | 没有公开的一对一替代；改用 `endpoint config get|set <id>` 和 `radar record config get|set` |
 
 ## 发布说明
 

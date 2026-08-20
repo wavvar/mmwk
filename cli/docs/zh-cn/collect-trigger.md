@@ -77,4 +77,4 @@ cd ./cli
 
 - `trigger=none`：中途 late-attach 的稳态采集；只有这里允许 `--resp-optional`
 - `trigger=radar-restart`：先订阅，再通过派生出的 `cmd` / `resp` 控制 topic 重启雷达
-- `trigger=device-reboot`：先订阅，再通过 MQTT 发送 `node reboot`；要求 MQTT 控制链路已经可用，而且 `raw_auto=1`
+- `trigger=device-reboot`：先订阅，执行 `radar raw mode=reconnect`，再通过 MQTT 发送 `node reboot`；要求 MQTT 控制链路已经可用

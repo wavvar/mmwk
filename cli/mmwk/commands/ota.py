@@ -57,6 +57,9 @@ def _create_mqtt_client(client_id: str) -> mqtt.Client:
 
 def _unwrap_tool_data(payload: dict | list) -> dict:
     if isinstance(payload, dict):
+        status = payload.get("status")
+        if isinstance(status, dict) and isinstance(status.get("raw"), dict):
+            return status["raw"]
         for key in ("data", "config", "state"):
             nested = payload.get(key)
             if isinstance(nested, dict):
@@ -91,12 +94,12 @@ def _route_defaults(payload: dict) -> dict[str, str]:
 
 def _build_raw_restore_args(payload: dict | list) -> dict:
     raw = _unwrap_tool_data(payload)
-    restore = {
-        "action": "config_set",
-        "config": {
-            "enabled": bool(raw.get("enabled", False)),
-        },
-    }
+    mode = raw.get("mode") if raw.get("mode") in {"off", "runtime", "reconnect"} else "off"
+    restore = {"action": "raw", "mode": mode}
+    if mode != "off":
+        for key in ("ctrl", "data", "baud", "escape"):
+            if key in raw:
+                restore[key] = raw[key]
     return restore
 
 
@@ -126,7 +129,7 @@ class _OtaRawRespCaptureSession:
         if rc != 0:
             self._connect_rc = rc
             return
-        result, _ = client.subscribe(self.resp_topic, qos=0)
+        result, _ = client.subscribe(self.resp_topic, qos=1)
         if result != mqtt.MQTT_ERR_SUCCESS:
             self._subscribe_error = f"subscribe failed for {self.resp_topic}: rc={result}"
 
@@ -625,8 +628,12 @@ class OtaCommand:
 
         try:
             if raw_resp_output:
-                raw_state = self._tool_json("radar.raw", {"action": "config_get"}, timeout=min(timeout, 10.0))
+                raw_state = self._tool_json("radar", {"action": "raw"}, timeout=min(timeout, 10.0))
                 restore_raw_args = _build_raw_restore_args(raw_state)
+                raw_status = raw_state.get("status", {}) if isinstance(raw_state, dict) else {}
+                if isinstance(raw_status, dict) and raw_status.get("radar") != "host":
+                    logger.error("--raw-resp-output requires radar host mode; auto mode is DATA-only")
+                    return False
                 raw_cfg = _unwrap_tool_data(raw_state)
                 hi_cfg = self._tool_json("node", {"action": "info"}, timeout=min(timeout, 10.0))
                 hi_data = _unwrap_tool_data(hi_cfg)
@@ -655,9 +662,14 @@ class OtaCommand:
                 )
                 capture_session.start()
 
-                raw_enable_args = {"action": "config_set", "config": {"enabled": True}}
+                raw_enable_args = {
+                    "action": "raw",
+                    "mode": "runtime",
+                    "ctrl": "mqtt",
+                    "data": "mqtt",
+                }
 
-                self.mcp.call_tool("radar.raw", raw_enable_args, timeout=min(timeout, 10.0))
+                self.mcp.call_tool("radar", raw_enable_args, timeout=min(timeout, 10.0))
                 logger.info(
                     "OTA raw_resp capture armed: broker=%s:%s topic=%s output=%s",
                     host,
@@ -1041,9 +1053,9 @@ class OtaCommand:
                 )
             if restore_raw_args:
                 try:
-                    self.mcp.call_tool("radar.raw", restore_raw_args, timeout=min(timeout, 10.0))
+                    self.mcp.call_tool("radar", restore_raw_args, timeout=min(timeout, 10.0))
                 except Exception as restore_err:
-                    logger.warning(f"Failed to restore radar raw config after OTA capture: {restore_err}")
+                    logger.warning(f"Failed to restore radar raw route after OTA capture: {restore_err}")
             if server:
                 time.sleep(3)  # brief buffer for any trailing requests
                 server.stop()

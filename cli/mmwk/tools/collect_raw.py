@@ -353,10 +353,10 @@ def _execute_trigger_radar_restart(
 
     try:
         raw_state = _unwrap_tool_data(
-            collector._required_tool_json("radar.raw", {"action": "config_get"}, timeout=config.timeout)
+            collector._required_tool_json("radar", {"action": "raw"}, timeout=config.timeout)
         )
     except Exception as exc:
-        logger.error(f"Failed to query radar raw config for trigger=radar-restart: {exc}")
+        logger.error(f"Failed to query radar raw route for trigger=radar-restart: {exc}")
         return False
 
     hi = collector._load_hi(timeout=config.timeout)
@@ -381,13 +381,13 @@ def _execute_trigger_radar_restart(
         host,
         port,
         data_topic,
-        resp_topic,
+        "",
         config.duration,
         config.data_output,
         config.resp_output,
     )
 
-    raw_args = {"action": "config_set", "config": {"enabled": True}}
+    raw_args = {"action": "raw", "mode": "runtime", "channel": "mqtt"}
 
     result_ok = False
     client = None
@@ -398,7 +398,7 @@ def _execute_trigger_radar_restart(
     with open(config.data_output, "wb") as data_fout, open(config.resp_output, "wb") as resp_fout:
         capture_session = _MqttRawCaptureSession(
             data_topic,
-            resp_topic,
+            "",
             data_fout,
             resp_fout,
         )
@@ -409,7 +409,7 @@ def _execute_trigger_radar_restart(
                 logger.error("MQTT connect timeout while waiting for subscribe-ready state")
             else:
                 try:
-                    raw_result = mcp.call_tool("radar.raw", raw_args, timeout=config.timeout)
+                    raw_result = mcp.call_tool("radar", raw_args, timeout=config.timeout)
                     raw_payload = mcp.extract_text(raw_result)
                     if raw_payload and raw_payload.strip():
                         logger.info("Radar raw forwarding armed: %s", raw_payload)
@@ -443,8 +443,8 @@ def _execute_trigger_radar_restart(
                             logger.info("Collection interrupted by user")
 
                         collector._print_summary(capture_session.stats, config.data_output, config.resp_output)
-                        if capture_session.stats["resp_messages"] <= 0:
-                            logger.error("No raw command-port payload captured on resp topic after radar restart")
+                        if capture_session.stats["data_messages"] <= 0:
+                            logger.error("No raw DATA payload captured after radar restart")
                         else:
                             result_ok = True
         finally:
@@ -458,9 +458,9 @@ def _execute_trigger_radar_restart(
                 except Exception:
                     pass
             try:
-                mcp.call_tool("radar.raw", restore_raw_args, timeout=config.timeout)
+                mcp.call_tool("radar", restore_raw_args, timeout=config.timeout)
             except Exception as exc:
-                logger.error(f"Failed to restore radar raw config after collect: {exc}")
+                logger.error(f"Failed to restore radar raw route after collect: {exc}")
                 result_ok = False
 
     return result_ok and raw_enable_ok and status_stop_ok and status_start_ok
@@ -476,10 +476,10 @@ def _execute_trigger_device_reboot(
 
     try:
         raw_state = _unwrap_tool_data(
-            collector._required_tool_json("radar.raw", {"action": "config_get"}, timeout=config.timeout)
+            collector._required_tool_json("radar", {"action": "raw"}, timeout=config.timeout)
         )
     except Exception as exc:
-        logger.error(f"Failed to query radar raw config for trigger=device-reboot: {exc}")
+        logger.error(f"Failed to query radar raw route for trigger=device-reboot: {exc}")
         return False
 
     try:
@@ -525,18 +525,6 @@ def _execute_trigger_device_reboot(
         )
         return False
 
-    try:
-        agent_state = _unwrap_tool_data(
-            collector._required_tool_json("node", {"action": "agent"}, timeout=config.timeout)
-        )
-    except Exception as exc:
-        logger.error(f"Failed to query node agent state for trigger=device-reboot: {exc}")
-        return False
-
-    if not bool(agent_state.get("raw_auto")):
-        logger.error("device-reboot requires raw_auto=1")
-        return False
-
     data_topic, resp_topic = _resolve_startup_trigger_topics(
         argv=argv,
         environ=environ,
@@ -557,13 +545,13 @@ def _execute_trigger_device_reboot(
         host,
         port,
         data_topic,
-        resp_topic,
+        "",
         config.duration,
         config.data_output,
         config.resp_output,
     )
 
-    raw_args = {"action": "config_set", "config": {"enabled": True}}
+    raw_args = {"action": "raw", "mode": "reconnect", "channel": "mqtt"}
 
     result_ok = False
     client = None
@@ -574,7 +562,7 @@ def _execute_trigger_device_reboot(
     with open(config.data_output, "wb") as data_fout, open(config.resp_output, "wb") as resp_fout:
         capture_session = _MqttRawCaptureSession(
             data_topic,
-            resp_topic,
+            "",
             data_fout,
             resp_fout,
         )
@@ -585,7 +573,7 @@ def _execute_trigger_device_reboot(
                 logger.error("MQTT connect timeout while waiting for subscribe-ready state")
             else:
                 try:
-                    raw_result = mcp.call_tool("radar.raw", raw_args, timeout=config.timeout)
+                    raw_result = mcp.call_tool("radar", raw_args, timeout=config.timeout)
                     raw_payload = mcp.extract_text(raw_result)
                     if raw_payload and raw_payload.strip():
                         logger.info("Radar raw forwarding armed for reboot capture: %s", raw_payload)
@@ -595,7 +583,6 @@ def _execute_trigger_device_reboot(
 
                 if raw_enable_ok:
                     baseline_messages = int(capture_session.stats["messages"])
-                    baseline_resp_messages = int(capture_session.stats["resp_messages"])
                     try:
                         reboot_result = mcp.call_tool("node", {"action": "reboot"}, timeout=max(config.timeout, 15.0))
                         reboot_payload = mcp.extract_text(reboot_result)
@@ -620,8 +607,8 @@ def _execute_trigger_device_reboot(
                                 logger.info("Collection interrupted by user")
 
                             collector._print_summary(capture_session.stats, config.data_output, config.resp_output)
-                            if capture_session.stats["resp_messages"] <= baseline_resp_messages:
-                                logger.error("No raw command-port payload captured on resp topic after device reboot")
+                            if capture_session.stats["data_messages"] <= 0:
+                                logger.error("No raw DATA payload captured on the reconnected route")
                             else:
                                 result_ok = True
         finally:

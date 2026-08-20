@@ -1,5 +1,5 @@
 #!/bin/bash
-# collect.sh — registry-backed late-attach MQTT raw collection helper
+# collect.sh — local/remote radar raw collection helper
 set -euo pipefail
 
 INVOKE_PWD="$(pwd)"
@@ -17,10 +17,12 @@ usage() {
 collect.sh -- Collect radar raw data using device.yml
 
 USAGE:
-  ./collect.sh --did DID [options]
+  ./collect.sh --transport uart|usb --port PORT [local-options]
+  ./collect.sh --transport mqtt --did DID [remote-options]
+  ./collect.sh --did DID [registry-backed MQTT options]
   ./collect.sh --trigger none|radar-restart|device-reboot [direct-options]
 
-REQUIRED:
+REGISTRY-BACKED MQTT:
   --did DID             DID stored in `<working>/device.yml`
 
 OPTIONAL:
@@ -32,6 +34,10 @@ OPTIONAL:
   -h, --help            Show this help
 
 NOTES:
+  - The recommended local path is `--transport uart|usb --port PORT`; it uses
+    host mode and does not require Wi-Fi, MQTT, or a device registry.
+  - External UART raw DATA is capped at 1000000 baud; use native USB for WDR.
+  - `--mode auto --attach` is MQTT DATA-only and never takes ownership.
   - `collect.sh` reads MQTT connection info from `<working>/device.yml`.
   - Output files are written under `<working>/data/<did>/`.
   - Data and log outputs now share the same basename: `*_raw_data.sraw` and `*_raw_data.log`.
@@ -40,6 +46,22 @@ NOTES:
     `python -m mmwk.tools.collect_raw`.
 EOF_USAGE
 }
+
+local_engine_mode=false
+for arg in "$@"; do
+    case "$arg" in
+        --transport|--transport=*|--port|--port=*|--raw-baud|--raw-baud=*|--ctrl-transport|--ctrl-transport=*|--data-transport|--data-transport=*)
+            local_engine_mode=true
+            break
+            ;;
+    esac
+done
+
+if [ "$local_engine_mode" = true ]; then
+    setup_project_env
+    cd "$INVOKE_PWD"
+    exec "$MMWK_CLI" collect "$@"
+fi
 
 cmd_direct() {
     local server_state_dir=""
@@ -111,6 +133,8 @@ did=""
 duration=""
 reboot=false
 working_dir=""
+mode="host"
+attach=false
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -124,6 +148,14 @@ while [ $# -gt 0 ]; do
             ;;
         --reboot)
             reboot=true
+            shift
+            ;;
+        --mode)
+            mode="${2:?missing value for --mode}"
+            shift 2
+            ;;
+        --attach)
+            attach=true
             shift
             ;;
         --working)
@@ -175,6 +207,12 @@ if [ -n "$duration" ]; then
 fi
 if [ "$reboot" = true ]; then
     py_args+=(--reboot)
+fi
+if [ "$mode" != "host" ]; then
+    py_args+=(--mode "$mode")
+fi
+if [ "$attach" = true ]; then
+    py_args+=(--attach)
 fi
 
 log_info "Working dir: $working_dir"

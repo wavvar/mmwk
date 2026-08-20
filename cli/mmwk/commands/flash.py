@@ -151,7 +151,6 @@ class FlashCommand:
             out = {}
             for key, aliases in (
                 ("mqtt", ("mqtt", "mqtt_en")),
-                ("raw_auto", ("raw_auto",)),
                 ("uart", ("uart", "uart_en")),
             ):
                 val = None
@@ -193,8 +192,6 @@ class FlashCommand:
         desired = {}
         if original.get("mqtt") == 1:
             desired["mqtt"] = 0
-        if original.get("raw_auto") == 1:
-            desired["raw_auto"] = 0
         if not desired:
             return original
         if self._set_agent_state(**desired):
@@ -205,7 +202,7 @@ class FlashCommand:
         if not original:
             return
         restore = {}
-        for key in ("mqtt", "raw_auto", "uart"):
+        for key in ("mqtt", "uart"):
             if key in original:
                 restore[key] = original[key]
         if restore and self._set_agent_state(**restore):

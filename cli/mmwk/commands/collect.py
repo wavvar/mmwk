@@ -45,6 +45,13 @@ def _derive_cfg_name(path: str) -> str:
 
 def _unwrap_tool_data(payload: dict | list) -> dict:
     if isinstance(payload, dict):
+        status = payload.get("status")
+        if isinstance(status, dict):
+            raw = status.get("raw")
+            if isinstance(raw, dict):
+                return raw
+        if all(key in payload for key in ("mode", "ctrl", "data")):
+            return payload
         for key in ("data", "config", "state"):
             nested = payload.get(key)
             if isinstance(nested, dict):
@@ -56,12 +63,12 @@ def _unwrap_tool_data(payload: dict | list) -> dict:
 
 def _build_raw_restore_args(payload: dict | list) -> dict:
     raw = _unwrap_tool_data(payload)
-    restore = {
-        "action": "config_set",
-        "config": {
-            "enabled": bool(raw.get("enabled", False)),
-        },
-    }
+    mode = raw.get("mode") if raw.get("mode") in {"off", "runtime", "reconnect"} else "off"
+    restore = {"action": "raw", "mode": mode}
+    if mode != "off":
+        for key in ("ctrl", "data", "baud", "escape"):
+            if key in raw:
+                restore[key] = raw[key]
     return restore
 
 
@@ -71,7 +78,7 @@ def _build_raw_restore_args_for_trigger_none(payload: dict | list) -> dict:
 
 def _raw_forwarding_is_enabled(payload: dict | list) -> bool:
     raw = _unwrap_tool_data(payload)
-    return bool(raw.get("enabled", False))
+    return raw.get("data", "off") != "off"
 
 
 def _first_text(*values) -> str:
@@ -149,13 +156,16 @@ def _append_binary_payload(fout, payload: bytes, stats: dict, prefix: str):
 class _MqttRawCaptureSession:
     """MQTT subscription and payload routing for host-side raw capture."""
 
-    def __init__(self, data_topic: str, resp_topic: str, data_fout, resp_fout):
+    def __init__(self, data_topic: str, resp_topic: str, data_fout, resp_fout, *, data_qos: int = 0, resp_qos: int = 1):
         self.data_topic = data_topic
         self.resp_topic = resp_topic
-        self.same_topic = data_topic == resp_topic
-        self.expected_subscriptions = 1 if self.same_topic else 2
+        self.data_only = not bool(resp_topic)
+        self.same_topic = bool(resp_topic) and data_topic == resp_topic
+        self.expected_subscriptions = 1 if self.same_topic or self.data_only else 2
         self.data_fout = data_fout
         self.resp_fout = resp_fout
+        self.data_qos = int(data_qos)
+        self.resp_qos = int(resp_qos)
         self.subscribed = threading.Event()
         self.connect_error = {"rc": None}
         self.subscribe_error = {"message": None}
@@ -174,8 +184,8 @@ class _MqttRawCaptureSession:
         client.on_subscribe = self.on_subscribe
         client.on_message = self.on_message
 
-    def _subscribe_topic(self, client, topic: str, label: str) -> bool:
-        result, _ = client.subscribe(topic, qos=0)
+    def _subscribe_topic(self, client, topic: str, label: str, qos: int) -> bool:
+        result, _ = client.subscribe(topic, qos=qos)
         if result != mqtt.MQTT_ERR_SUCCESS:
             self.subscribe_error["message"] = f"subscribe failed for {label} topic {topic}: rc={result}"
             return False
@@ -189,10 +199,10 @@ class _MqttRawCaptureSession:
         self.subscribe_state["acks"] = 0
         self.subscribe_error["message"] = None
 
-        if not self._subscribe_topic(client, self.data_topic, "data"):
+        if not self._subscribe_topic(client, self.data_topic, "data", self.data_qos):
             return
 
-        if not self.same_topic and not self._subscribe_topic(client, self.resp_topic, "resp"):
+        if not self.same_topic and not self.data_only and not self._subscribe_topic(client, self.resp_topic, "resp", self.resp_qos):
             return
 
     def on_subscribe(self, client, userdata, mid, granted_qos):
@@ -210,7 +220,7 @@ class _MqttRawCaptureSession:
                 _append_binary_payload(self.resp_fout, msg.payload, self.stats, "resp")
             return
 
-        if msg.topic == self.resp_topic:
+        if not self.data_only and msg.topic == self.resp_topic:
             _append_binary_payload(self.resp_fout, msg.payload, self.stats, "resp")
 
 
@@ -347,7 +357,6 @@ class CollectCommand:
             for key, aliases in (
                 ("mqtt", ("mqtt", "mqtt_en")),
                 ("uart", ("uart", "uart_en")),
-                ("raw_auto", ("raw_auto",)),
             ):
                 if key in data:
                     continue
@@ -469,7 +478,7 @@ class CollectCommand:
             return
 
         try:
-            result = self.mcp.call_tool("radar.raw", {"action": "config_get"}, timeout=timeout)
+            result = self.mcp.call_tool("radar", {"action": "raw"}, timeout=timeout)
             payload = self.mcp.extract_text(result)
         except Exception as e:
             logger.warning("Failed to query radar raw forwarding snapshot (%s): %s", label, e)
@@ -486,10 +495,10 @@ class CollectCommand:
             # WDR single-UART capture can inherit a previous raw session whose
             # MQTT outbox is already backed up. Stop that session before we arm
             # a new collect window so startup bytes do not get hidden behind
-            # stale queued traffic from raw_auto or an earlier collect run.
+            # stale queued traffic from an earlier collect run.
             self.mcp.call_tool(
-                "radar.raw",
-                {"action": "config_set", "config": {"enabled": False}},
+                "radar",
+                {"action": "raw", "mode": "off"},
                 timeout=timeout,
             )
             logger.info("Temporarily disabled pre-existing radar raw forwarding before collect bootstrap")
@@ -501,19 +510,19 @@ class CollectCommand:
 
         for attempt in range(1, 4):
             try:
-                self.mcp.call_tool("radar.raw", restore_raw_args, timeout=timeout)
+                self.mcp.call_tool("radar", restore_raw_args, timeout=timeout)
                 return True
             except Exception as e:
                 last_error = e
                 if attempt < 3:
                     logger.warning(
-                        "Failed to restore radar raw config after collect (attempt %s/3): %s",
+                        "Failed to restore radar raw route after collect (attempt %s/3): %s",
                         attempt,
                         e,
                     )
                     time.sleep(1.0)
 
-        logger.error(f"Failed to restore radar raw config after collect: {last_error}")
+        logger.error(f"Failed to restore radar raw route after collect: {last_error}")
         return False
 
     def execute(
@@ -530,6 +539,8 @@ class CollectCommand:
         data_topic: str = "",
         resp_topic: str = "",
         resp_optional: bool = False,
+        mode: str = "host",
+        attach: bool = False,
         timeout: float = 10.0,
     ) -> bool:
         output_paths = {
@@ -540,8 +551,17 @@ class CollectCommand:
             logger.error("data-output and resp-output must be different files")
             return False
 
-        hi = self._hydrate_hi(self._load_hi(timeout=timeout), timeout=timeout)
-        if self.mcp:
+        if mode not in {"host", "auto"}:
+            logger.error("collection mode must be host or auto")
+            return False
+        if mode == "auto" and not attach:
+            logger.error("auto collection requires --attach; it only observes an existing MQTT DATA route")
+            return False
+
+        hi = {}
+        if not (mode == "auto" and attach):
+            hi = self._hydrate_hi(self._load_hi(timeout=timeout), timeout=timeout)
+        if self.mcp and not (mode == "auto" and attach):
             self._wait_for_device_network_ready(timeout=timeout)
 
         resolved_broker = broker or hi.get("uri") or hi.get("mqtt_uri") or "localhost"
@@ -556,7 +576,7 @@ class CollectCommand:
         )
         default_topics = _default_topics(route)
         resolved_data_topic = data_topic or _topic_value(hi, "raw_data") or default_topics["raw_data"]
-        resolved_resp_topic = resp_topic or _topic_value(hi, "raw_resp") or default_topics["raw_resp"]
+        resolved_resp_topic = "" if mode == "auto" else (resp_topic or _topic_value(hi, "raw_resp") or default_topics["raw_resp"])
 
         for out_path in (data_output, resp_output):
             out_dir = os.path.dirname(os.path.abspath(out_path))
@@ -578,12 +598,12 @@ class CollectCommand:
         restore_raw_args = None
         raw_args = None
         raw_state = {}
-        if self.mcp:
-            raw_state = self._tool_json("radar.raw", {"action": "config_get"}, timeout=timeout)
+        if self.mcp and not (mode == "auto" and attach):
+            raw_state = self._tool_json("radar", {"action": "raw"}, timeout=timeout)
             restore_raw_args = _build_raw_restore_args(raw_state)
             # Bootstrap raw forwarding after MQTT subscriptions are live so the
             # first raw_resp frames are not lost during collect startup.
-            raw_args = {"action": "config_set", "config": {"enabled": True}}
+            raw_args = {"action": "raw", "mode": "runtime", "channel": "mqtt"}
 
         result_ok = False
         client = None
@@ -591,7 +611,8 @@ class CollectCommand:
 
         with open(data_output, "wb") as data_fout, open(resp_output, "wb") as resp_fout:
             try:
-                self._disable_preexisting_raw_forwarding(raw_state, timeout=timeout)
+                if not (mode == "auto" and attach):
+                    self._disable_preexisting_raw_forwarding(raw_state, timeout=timeout)
                 capture_session = _MqttRawCaptureSession(
                     resolved_data_topic,
                     resolved_resp_topic,
@@ -665,7 +686,7 @@ class CollectCommand:
                 else:
                     if self.mcp and raw_args:
                         try:
-                            raw_result = self.mcp.call_tool("radar.raw", raw_args, timeout=timeout)
+                            raw_result = self.mcp.call_tool("radar", raw_args, timeout=timeout)
                             bootstrap_resp_payload = self.mcp.extract_text(raw_result)
                             if bootstrap_resp_payload and bootstrap_resp_payload.strip():
                                 logger.info(
@@ -679,7 +700,7 @@ class CollectCommand:
                             capture_session.stats,
                             wait_sec=min(2.0, max(1.0, float(timeout))),
                         )
-                        if capture_session.stats["resp_messages"] <= 0:
+                        if mode != "auto" and capture_session.stats["resp_messages"] <= 0:
                             if resp_optional:
                                 logger.info(
                                     "No raw_resp traffic observed after bootstrap; skipping radar restart because "
@@ -709,7 +730,11 @@ class CollectCommand:
                     self._print_summary(capture_session.stats, data_output, resp_output)
                     self._log_raw_forwarding_snapshot("final snapshot before restore", timeout=timeout)
 
-                    if capture_session.stats["resp_messages"] <= 0:
+                    if mode == "auto":
+                        result_ok = capture_session.stats["data_messages"] > 0
+                        if not result_ok:
+                            logger.error("No MQTT DATA payload captured on the attached auto route")
+                    elif capture_session.stats["resp_messages"] <= 0:
                         if resp_optional:
                             logger.warning(
                                 "No raw command-port payload captured on resp topic; continuing because "
@@ -766,10 +791,10 @@ class CollectCommand:
 
         try:
             raw_state = _unwrap_tool_data(
-                self._required_tool_json("radar.raw", {"action": "config_get"}, timeout=timeout)
+                self._required_tool_json("radar", {"action": "raw"}, timeout=timeout)
             )
         except Exception as e:
-            logger.error(f"Failed to query radar raw config for trigger=none: {e}")
+            logger.error(f"Failed to query radar raw route for trigger=none: {e}")
             return False
         restore_raw_args = _build_raw_restore_args_for_trigger_none(raw_state)
         hi = self._hydrate_hi(self._load_hi(timeout=timeout), timeout=timeout)
@@ -804,7 +829,7 @@ class CollectCommand:
             resp_output,
         )
 
-        raw_args = {"action": "config_set", "config": {"enabled": True}}
+        raw_args = {"action": "raw", "mode": "runtime", "channel": "mqtt"}
 
         result_ok = False
         client = None
@@ -887,7 +912,7 @@ class CollectCommand:
                     result_ok = False
                 else:
                     try:
-                        raw_result = self.mcp.call_tool("radar.raw", raw_args, timeout=timeout)
+                        raw_result = self.mcp.call_tool("radar", raw_args, timeout=timeout)
                         raw_payload = self.mcp.extract_text(raw_result)
                         if raw_payload and raw_payload.strip():
                             logger.info("Radar raw forwarding armed: %s", raw_payload)
