@@ -336,22 +336,60 @@ class LocalWireSession:
     def _read_line(self, timeout: float) -> dict[str, Any]:
         serial = self._require_serial()
         deadline = time.monotonic() + max(timeout, 0.1)
-        buf = bytearray()
+        last_line = b""
         while time.monotonic() < deadline:
-            chunk = serial.read(1)
-            if chunk:
-                buf.extend(chunk)
-                if chunk == b"\n":
+            buf = bytearray()
+            while time.monotonic() < deadline:
+                chunk = serial.read(1)
+                if chunk:
+                    buf.extend(chunk)
+                    if chunk == b"\n":
+                        break
+            if not buf:
+                continue
+
+            last_line = bytes(buf)
+            try:
+                text = last_line.decode("utf-8", errors="strict")
+            except UnicodeDecodeError:
+                # Raw/log bytes can remain in the adapter after an escape.  They
+                # are not a parsed response; keep waiting until the deadline.
+                continue
+
+            decoder = json.JSONDecoder()
+            cursor = 0
+            while cursor < len(text):
+                start = text.find("{", cursor)
+                if start < 0:
                     break
-        if not buf:
-            raise TimeoutError("timed out waiting for parsed control response")
-        try:
-            payload = json.loads(bytes(buf).decode("utf-8", errors="strict").strip())
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise RuntimeError(f"invalid parsed control response: {bytes(buf)!r}") from exc
-        if not isinstance(payload, dict):
-            raise RuntimeError("parsed control response must be an object")
-        return payload
+                try:
+                    candidate, consumed = decoder.raw_decode(text[start:])
+                except json.JSONDecodeError:
+                    cursor = start + 1
+                    continue
+                cursor = start + consumed
+                if not isinstance(candidate, dict):
+                    continue
+
+                # ESP console logging commonly prefixes the echoed request with
+                # text such as ``I (...) ...``.  A request-looking JSON object
+                # is not the response to the command we just sent; skip it and
+                # continue scanning the same line/stream.
+                if candidate.get("type") == "req":
+                    continue
+                if candidate.get("service") and candidate.get("action") and \
+                        "ok" not in candidate and "result" not in candidate:
+                    continue
+                if (
+                    candidate.get("type") in {"res", "event"}
+                    or any(key in candidate for key in ("ok", "result", "error", "status"))
+                ):
+                    return candidate
+
+        detail = f"; last line={last_line!r}" if last_line else ""
+        raise TimeoutError(
+            f"timed out waiting for parsed control response{detail}"
+        )
 
     def _next_seq(self) -> int:
         seq = self._seq
