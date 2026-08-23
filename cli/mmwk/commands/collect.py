@@ -80,9 +80,11 @@ def _build_raw_restore_args(payload: dict | list) -> dict:
             restore["channel"] = data
         else:
             restore["channel"] = "both"
-        for key in ("baud", "escape"):
-            if key in raw and raw[key] not in (None, ""):
-                restore[key] = raw[key]
+        baud = raw.get("baud", raw.get("current_baud"))
+        if baud not in (None, "") and data in {"wire", "both"}:
+            restore["baud"] = baud
+        if raw.get("escape") not in (None, ""):
+            restore["escape"] = raw["escape"]
     return restore
 
 
