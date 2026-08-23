@@ -22,6 +22,7 @@ MAX_EXTERNAL_UART_BAUD = 1_000_000
 DEFAULT_PARSED_BAUD = 115_200
 DEFAULT_RAW_BAUD = 1_000_000
 RAW_SWITCH_SETTLE_SECONDS = 0.15
+RAW_ESCAPE_GUARD_SECONDS = 1.25
 
 
 @dataclass(frozen=True)
@@ -307,6 +308,41 @@ class LocalWireSession:
             import serial
         except ImportError as exc:  # pragma: no cover - dependency guard
             raise RuntimeError("pyserial is required for local radar collection") from exc
+        if os.name == "posix":
+            # Opening a CP210x-backed ESP32 UART with pyserial's default
+            # DTR/RTS transition can reset the device.  A local raw session
+            # must preserve the parsed-to-wire state across its own open and
+            # close, so use the POSIX backend without modem-line updates and
+            # keep HUPCL disabled just like the normal UART transport.
+            import serial.serialposix as serialposix
+            import termios
+
+            class _NoResetSerial(serialposix.Serial):
+                def open(self):
+                    update_dtr = self._update_dtr_state
+                    update_rts = self._update_rts_state
+                    try:
+                        self._update_dtr_state = lambda: None
+                        self._update_rts_state = lambda: None
+                        return super().open()
+                    finally:
+                        self._update_dtr_state = update_dtr
+                        self._update_rts_state = update_rts
+
+            serial_obj = _NoResetSerial()
+            serial_obj.port = self.plan.port
+            serial_obj.baudrate = self.plan.baudrate
+            serial_obj.timeout = 0.1
+            serial_obj.dtr = False
+            serial_obj.rts = False
+            serial_obj.open()
+            try:
+                attrs = termios.tcgetattr(serial_obj.fileno())
+                attrs[2] = (attrs[2] | termios.CLOCAL) & ~termios.HUPCL
+                termios.tcsetattr(serial_obj.fileno(), termios.TCSANOW, attrs)
+            except (OSError, termios.error):
+                pass
+            return serial_obj
         return serial.Serial(
             self.plan.port,
             baudrate=self.plan.baudrate,
@@ -506,9 +542,12 @@ class LocalWireSession:
         if not self.raw_open:
             return None
         serial = self._require_serial()
-        time.sleep(1.0)
+        # The firmware only accepts the escape sequence after a full guard
+        # interval without radar output.  sensorStop's final response can
+        # refresh that interval, so leave a small margin before sending +++.
+        time.sleep(RAW_ESCAPE_GUARD_SECONDS)
         self.write_radar_bytes(escape if escape is not None else self.plan.escape.encode("ascii"))
-        time.sleep(1.0)
+        time.sleep(RAW_ESCAPE_GUARD_SECONDS)
         if self.plan.raw_baud is not None:
             self._set_baud(self.plan.baudrate)
         self.raw_open = False
