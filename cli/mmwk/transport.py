@@ -854,6 +854,7 @@ class MqttTransport(RadarTransport):
     def __init__(self, broker: str, port: int = 1883,
                  did: str = None, prod: str = "mmwk", oid: str = "mmwk", cid: str = None,
                  username: str = None, password: str = None,
+                 ca_certs: str = None,
                  qos: int = 1, inter_chunk_delay: float = 0.05):
         super().__init__()
         import paho.mqtt.client as mqtt
@@ -877,12 +878,19 @@ class MqttTransport(RadarTransport):
         self.qos = qos
         self.inter_chunk_delay = inter_chunk_delay
         broker_host, broker_port, use_tls = self._resolve_broker_endpoint(broker, port)
+        parsed_broker = urlparse(str(broker or "")) if "://" in str(broker or "") else None
+        if parsed_broker is not None:
+            username = username or parsed_broker.username
+            password = password or parsed_broker.password
 
         self.client = mqtt.Client()
         if username:
             self.client.username_pw_set(username, password)
         if use_tls:
-            self.client.tls_set()
+            if ca_certs:
+                self.client.tls_set(ca_certs=ca_certs)
+            else:
+                self.client.tls_set()
         self.client.on_connect = self._on_connect
         self.client.on_message = self._on_message
         self.client.on_subscribe = self._on_subscribe
@@ -1030,6 +1038,9 @@ def create_transport(
                     prod=getattr(args, 'prod', 'mmwk'),
                     oid=getattr(args, 'oid', 'mmwk'),
                     cid=cid,
+                    username=getattr(args, 'mqtt_user', None),
+                    password=getattr(args, 'mqtt_password', None),
+                    ca_certs=getattr(args, 'mqtt_ca', None),
                     qos=getattr(args, 'mqtt_qos', 1),
                     inter_chunk_delay=getattr(args, 'mqtt_delay', 0.05),
                 )

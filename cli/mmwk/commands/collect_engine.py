@@ -1,9 +1,9 @@
 """Shared host/remote radar raw collection primitives.
 
 The engine deliberately keeps transport mechanics separate from the public CLI
-argument surface.  Local wire sessions are byte-oriented after the raw route is
-opened; MQTT sessions remain chunk-oriented and are implemented by the existing
-MQTT collector entrypoints.
+argument surface. Local wire sessions are byte-oriented after the raw route is
+opened; MQTT sessions preserve broker chunks while sharing the same lifecycle,
+output, and cleanup model.
 """
 
 from __future__ import annotations
@@ -12,11 +12,13 @@ import json
 import os
 import sys
 import tempfile
+import threading
 import time
 from contextlib import ExitStack
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, BinaryIO, Iterable, Mapping
+from urllib.parse import unquote, urlparse
 
 
 MAX_EXTERNAL_UART_BAUD = 1_000_000
@@ -26,6 +28,56 @@ RAW_SWITCH_SETTLE_SECONDS = 0.15
 RAW_ESCAPE_GUARD_SECONDS = 1.25
 RADAR_DATA_MAGIC = bytes.fromhex("0201040306050807")
 MAX_DATA_READY_PREFIX = 1024 * 1024
+
+
+@dataclass(frozen=True)
+class MqttEndpoint:
+    """Resolved broker endpoint whose representation never exposes credentials."""
+
+    host: str
+    port: int
+    tls: bool = False
+    username: str = field(default="", repr=False)
+    password: str = field(default="", repr=False)
+
+
+def resolve_mqtt_endpoint(
+    broker: str,
+    default_port: int = 1883,
+    *,
+    username: str = "",
+    password: str = "",
+) -> MqttEndpoint:
+    raw = str(broker or "").strip()
+    if "://" not in raw:
+        if raw.count(":") == 1:
+            host, maybe_port = raw.rsplit(":", 1)
+            if maybe_port.isdigit():
+                return MqttEndpoint(
+                    host=host or "localhost",
+                    port=int(maybe_port),
+                    username=username or "",
+                    password=password or "",
+                )
+        return MqttEndpoint(
+            host=raw or "localhost",
+            port=int(default_port),
+            username=username or "",
+            password=password or "",
+        )
+
+    parsed = urlparse(raw)
+    scheme = (parsed.scheme or "mqtt").lower()
+    if scheme not in {"mqtt", "mqtts"}:
+        raise ValueError("MQTT broker URI scheme must be mqtt or mqtts")
+    use_tls = scheme == "mqtts"
+    return MqttEndpoint(
+        host=parsed.hostname or "localhost",
+        port=int(parsed.port or (8883 if use_tls else default_port)),
+        tls=use_tls,
+        username=username or unquote(parsed.username or ""),
+        password=password or unquote(parsed.password or ""),
+    )
 
 
 @dataclass(frozen=True)
@@ -291,6 +343,42 @@ def _result_payload(response: Mapping[str, Any] | None) -> dict[str, Any]:
     if isinstance(payload, Mapping) and isinstance(payload.get("data"), Mapping):
         payload = payload["data"]
     return dict(payload) if isinstance(payload, Mapping) else {}
+
+
+def _control_tool_json(
+    control,
+    name: str,
+    arguments: Mapping[str, Any],
+    timeout: float,
+) -> dict[str, Any] | list[Any]:
+    if control is None:
+        raise RuntimeError("collection requires a parsed control transport")
+    result = control.call_tool(name, dict(arguments), timeout=timeout)
+    if hasattr(control, "extract_text"):
+        payload: Any = control.extract_text(result)
+    elif isinstance(result, Mapping) and "text" in result:
+        payload = result["text"]
+    else:
+        payload = result
+    if isinstance(payload, (bytes, bytearray)):
+        payload = bytes(payload).decode("utf-8")
+    if isinstance(payload, str):
+        payload = json.loads(payload)
+    if not isinstance(payload, (dict, list)):
+        raise ValueError(f"{name} returned a non-object response")
+    return payload
+
+
+def _control_payload(
+    control,
+    name: str,
+    arguments: Mapping[str, Any],
+    timeout: float,
+) -> dict[str, Any]:
+    payload = _control_tool_json(control, name, arguments, timeout)
+    if not isinstance(payload, Mapping):
+        raise ValueError(f"{name} returned a non-object response")
+    return _result_payload(payload)
 
 
 def _route_contains(route: str, requested: str) -> bool:
@@ -812,6 +900,291 @@ class MqttRawSession:
         return {"action": "raw", "mode": "runtime", "channel": "mqtt"}
 
 
+class MqttCaptureSession:
+    """Thread-safe MQTT DATA/RESP sink with protocol-phase wait primitives."""
+
+    def __init__(
+        self,
+        data_topic: str,
+        resp_topic: str,
+        data_fout: BinaryIO,
+        resp_fout: BinaryIO,
+        *,
+        data_qos: int = 0,
+        resp_qos: int = 1,
+        require_data_magic: bool = False,
+        capture_enabled: bool = True,
+        wire_fout: BinaryIO | None = None,
+    ) -> None:
+        self.data_topic = data_topic
+        self.resp_topic = resp_topic
+        self.data_only = not bool(resp_topic)
+        self.same_topic = bool(resp_topic) and data_topic == resp_topic
+        self.expected_subscriptions = 1 if self.same_topic or self.data_only else 2
+        self.data_fout = data_fout
+        self.resp_fout = resp_fout
+        self.wire_fout = wire_fout
+        self.data_qos = int(data_qos)
+        self.resp_qos = int(resp_qos)
+        self.require_data_magic = bool(require_data_magic)
+        self.capture_enabled = bool(capture_enabled)
+        self.store_data = bool(capture_enabled)
+        self.subscribed = threading.Event()
+        self.data_ready = threading.Event()
+        self.data_ready_monotonic: float | None = None
+        self.connect_error: dict[str, Any] = {"rc": None}
+        self.subscribe_error: dict[str, Any] = {"message": None}
+        self.subscribe_state = {"acks": 0}
+        self.connection_generation = 0
+        self.client = None
+        self._condition = threading.Condition()
+        self._response_chunks: list[tuple[bytes, bool]] = []
+        self._data_prefix = bytearray()
+        self.stats = {
+            "messages": 0,
+            "total_bytes": 0,
+            "data_messages": 0,
+            "data_bytes": 0,
+            "resp_messages": 0,
+            "resp_bytes": 0,
+            "duplicate_resp_messages": 0,
+            "ignored_retained_messages": 0,
+            "pre_ready_bytes": 0,
+            "wire_bytes": 0,
+        }
+
+    def bind_client(self, client) -> None:
+        self.client = client
+        client.on_connect = self.on_connect
+        client.on_subscribe = self.on_subscribe
+        client.on_message = self.on_message
+        if hasattr(client, "on_disconnect"):
+            client.on_disconnect = self.on_disconnect
+
+    def _subscribe_topic(self, client, topic: str, label: str, qos: int) -> bool:
+        result, _ = client.subscribe(topic, qos=qos)
+        if result != 0:
+            self.subscribe_error["message"] = (
+                f"subscribe failed for {label} topic {topic}: rc={result}"
+            )
+            return False
+        return True
+
+    def on_connect(self, client, userdata, flags, rc, *extra) -> None:
+        if rc != 0:
+            self.connect_error["rc"] = rc
+            return
+        with self._condition:
+            self.connection_generation += 1
+            self.subscribe_state["acks"] = 0
+            self.subscribe_error["message"] = None
+            self.subscribed.clear()
+        if not self._subscribe_topic(client, self.data_topic, "data", self.data_qos):
+            return
+        if (
+            not self.same_topic
+            and not self.data_only
+            and not self._subscribe_topic(client, self.resp_topic, "resp", self.resp_qos)
+        ):
+            return
+
+    def on_disconnect(self, client, userdata, rc, *extra) -> None:
+        self.subscribed.clear()
+
+    def on_subscribe(self, client, userdata, mid, granted_qos, *extra) -> None:
+        with self._condition:
+            self.subscribe_state["acks"] += 1
+            if self.subscribe_state["acks"] >= self.expected_subscriptions:
+                self.subscribed.set()
+                self._condition.notify_all()
+
+    def _append_data(self, payload: bytes) -> None:
+        if not self.store_data:
+            return
+        self.data_fout.write(payload)
+        self.data_fout.flush()
+        self.stats["data_messages"] += 1
+        self.stats["data_bytes"] += len(payload)
+
+    def _append_wire_unlocked(self, payload: bytes) -> None:
+        """Append one observed raw-transport payload to the merged audit."""
+        if self.wire_fout is not None:
+            self.wire_fout.write(payload)
+            self.wire_fout.flush()
+        self.stats["wire_bytes"] += len(payload)
+
+    def audit_wire(self, payload: bytes) -> None:
+        """Record outgoing or non-MQTT bytes in the same serialized audit."""
+        with self._condition:
+            self._append_wire_unlocked(bytes(payload))
+
+    def _handle_data(self, payload: bytes) -> None:
+        if not self.capture_enabled:
+            return
+        if self.data_ready.is_set():
+            self._append_data(payload)
+            return
+        if not self.require_data_magic:
+            self._append_data(payload)
+            self.data_ready_monotonic = time.monotonic()
+            self.data_ready.set()
+            return
+
+        self._data_prefix.extend(payload)
+        magic_at = self._data_prefix.find(RADAR_DATA_MAGIC)
+        if magic_at < 0:
+            if len(self._data_prefix) > MAX_DATA_READY_PREFIX:
+                self.subscribe_error["message"] = (
+                    "MQTT DATA-ready prefix exceeded safety limit without radar magic"
+                )
+                self._data_prefix.clear()
+            return
+        self.stats["pre_ready_bytes"] += magic_at
+        framed = bytes(self._data_prefix[magic_at:])
+        self._data_prefix.clear()
+        self._append_data(framed)
+        self.data_ready_monotonic = time.monotonic()
+        self.data_ready.set()
+
+    def on_message(self, client, userdata, msg) -> None:
+        payload = bytes(msg.payload)
+        retained = bool(getattr(msg, "retain", False))
+        with self._condition:
+            if retained:
+                self.stats["ignored_retained_messages"] += 1
+                return
+            self._append_wire_unlocked(payload)
+            self.stats["messages"] += 1
+            self.stats["total_bytes"] += len(payload)
+            if msg.topic == self.data_topic:
+                self._handle_data(payload)
+                if self.same_topic:
+                    self.resp_fout.write(payload)
+                    self.resp_fout.flush()
+                    self.stats["resp_messages"] += 1
+                    self.stats["resp_bytes"] += len(payload)
+                    self._response_chunks.append(
+                        (payload, bool(getattr(msg, "dup", False)))
+                    )
+            elif not self.data_only and msg.topic == self.resp_topic:
+                self.resp_fout.write(payload)
+                self.resp_fout.flush()
+                duplicated = bool(getattr(msg, "dup", False))
+                self.stats["resp_messages"] += 1
+                self.stats["resp_bytes"] += len(payload)
+                if duplicated:
+                    self.stats["duplicate_resp_messages"] += 1
+                self._response_chunks.append((payload, duplicated))
+            self._condition.notify_all()
+
+    def start_capture(self) -> None:
+        with self._condition:
+            self.capture_enabled = True
+            self.store_data = True
+            self.data_ready.clear()
+            self.data_ready_monotonic = None
+            self._data_prefix.clear()
+
+    def start_probe(self) -> None:
+        with self._condition:
+            self.capture_enabled = True
+            self.store_data = False
+            self.data_ready.clear()
+            self.data_ready_monotonic = None
+            self._data_prefix.clear()
+
+    def stop_capture(self) -> None:
+        with self._condition:
+            self.capture_enabled = False
+            self.store_data = False
+            self._data_prefix.clear()
+
+    def response_checkpoint(self) -> int:
+        with self._condition:
+            return len(self._response_chunks)
+
+    def wait_for_command_done(self, checkpoint: int, timeout: float) -> bool:
+        deadline = time.monotonic() + max(0.0, timeout)
+        assembled = bytearray()
+        cursor = max(0, int(checkpoint))
+        with self._condition:
+            while True:
+                while cursor < len(self._response_chunks):
+                    payload, duplicated = self._response_chunks[cursor]
+                    cursor += 1
+                    if duplicated:
+                        continue
+                    assembled.extend(payload)
+                    lowered = bytes(assembled).lower()
+                    if any(token in lowered for token in (b"error", b"failed", b"not recognized")):
+                        return False
+                    if b"done" in lowered:
+                        return True
+                    if len(assembled) > MAX_DATA_READY_PREFIX:
+                        return False
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return False
+                self._condition.wait(remaining)
+
+    def wait_for_data_ready(self, timeout: float) -> bool:
+        return self.data_ready.wait(max(0.0, timeout))
+
+
+def _new_mqtt_client(client_id: str):
+    import paho.mqtt.client as mqtt
+
+    callback_api_version = getattr(mqtt, "CallbackAPIVersion", None)
+    if callback_api_version is not None:
+        try:
+            return mqtt.Client(
+                callback_api_version=callback_api_version.VERSION1,
+                client_id=client_id,
+            )
+        except TypeError:
+            pass
+    return mqtt.Client(client_id=client_id)
+
+
+def _configure_mqtt_client(client, endpoint: MqttEndpoint, ca_cert: str | None) -> None:
+    if endpoint.username:
+        client.username_pw_set(endpoint.username, endpoint.password or None)
+    if endpoint.tls:
+        if ca_cert:
+            client.tls_set(ca_certs=ca_cert)
+        else:
+            client.tls_set()
+
+
+def _publish_mqtt_command(
+    client,
+    capture: MqttCaptureSession,
+    topic: str,
+    payload: bytes,
+    *,
+    label: str,
+    timeout: float,
+    published_callback=None,
+) -> None:
+    checkpoint = capture.response_checkpoint()
+    capture.audit_wire(payload)
+    info = client.publish(topic, bytes(payload), qos=1, retain=False)
+    result_code = getattr(info, "rc", None)
+    if result_code is None and isinstance(info, tuple) and info:
+        result_code = info[0]
+    if result_code not in (None, 0):
+        raise RuntimeError(f"MQTT publish failed for {label}: rc={result_code}")
+    wait_for_publish = getattr(info, "wait_for_publish", None)
+    if callable(wait_for_publish):
+        published = wait_for_publish(timeout=max(timeout, 0.1))
+        if published is False:
+            raise TimeoutError(f"timed out publishing MQTT command for {label}")
+    if published_callback is not None:
+        published_callback()
+    if not capture.wait_for_command_done(checkpoint, timeout):
+        raise TimeoutError(f"timed out waiting for MQTT raw response to {label}")
+
+
 class SplitSession:
     """Route command/control and DATA through independent session backends."""
 
@@ -850,6 +1223,850 @@ def _mqtt_topics_for_identity(
     )["raw_data"]
 
 
+def _mqtt_topic_set(
+    identity: LiveIdentity,
+    node_info: Mapping[str, Any],
+    *,
+    data_topic: str | None,
+    resp_topic: str | None,
+    cmd_topic: str | None,
+    prod: str,
+    oid: str,
+    cid: str,
+) -> dict[str, str]:
+    from mmwk.mqtt_topics import build_mqtt_topics
+
+    resolved_prod = str(node_info.get("prod") or prod or "mmwk")
+    resolved_oid = str(node_info.get("oid") or oid or "mmwk")
+    resolved_cid = str(node_info.get("cid") or cid or "")
+    defaults = build_mqtt_topics(
+        did=identity.did,
+        prod=resolved_prod,
+        oid=resolved_oid,
+        cid=resolved_cid,
+        include_raw_cmd=True,
+    )
+    return {
+        "data": str(data_topic or node_info.get("raw_data") or defaults["raw_data"]),
+        "resp": str(resp_topic or node_info.get("raw_resp") or defaults["raw_resp"]),
+        "cmd": str(cmd_topic or node_info.get("raw_cmd") or defaults["raw_cmd"]),
+    }
+
+
+def _require_mqtt_topic_identity(
+    topic: str,
+    identity: LiveIdentity,
+    node_info: Mapping[str, Any],
+    *,
+    cid: str = "",
+) -> None:
+    """Reject a topic routed to neither the live DID nor its claimed id."""
+    segments = {
+        segment.strip().lower()
+        for segment in str(topic).split("/")
+        if segment.strip()
+    }
+    accepted = {identity.did}
+    for value in (node_info.get("cid"), cid):
+        if isinstance(value, str) and value.strip():
+            accepted.add(value.strip().lower())
+    if segments.isdisjoint(accepted):
+        raise ValueError(
+            "MQTT raw topic identity does not agree with the live device DID or claimed id"
+        )
+
+
+def collect_mqtt(
+    plan: CollectionPlan,
+    *,
+    control,
+    broker: str = "",
+    mqtt_port: int = 1883,
+    expected_did: str | None = None,
+    data_topic: str | None = None,
+    resp_topic: str | None = None,
+    cmd_topic: str | None = None,
+    prod: str = "mmwk",
+    oid: str = "mmwk",
+    cid: str = "",
+    mqtt_username: str = "",
+    mqtt_password: str = "",
+    mqtt_ca: str | None = None,
+    client_factory=None,
+    stop_event: threading.Event | None = None,
+    progress_callback=None,
+) -> CollectionSummary:
+    """Collect host or borrowed DATA over MQTT with snapshot-driven cleanup."""
+
+    plan.validate()
+    if plan.transport != "mqtt" or plan.ctrl_transport is not None:
+        raise ValueError("collect_mqtt requires a non-split MQTT plan")
+    if control is None:
+        raise ValueError("MQTT collection requires parsed control for identity and route safety")
+    if plan.mode == "auto" and not plan.attach:
+        raise ValueError("auto collection requires --attach to an existing MQTT DATA route")
+
+    explicit_cfg: bytes | None = None
+    explicit_source = ""
+    if plan.cfg_path:
+        cfg_path = Path(plan.cfg_path).expanduser()
+        explicit_source = str(cfg_path)
+        explicit_cfg = _prepare_config(cfg_path.read_bytes(), explicit_source)
+
+    summary = CollectionSummary(transport="mqtt", borrowed_route=plan.attach)
+    ledger = MutationLedger()
+    primary_error: BaseException | None = None
+    cleanup_errors: list[str] = []
+    capture_elapsed = 0.0
+    client = None
+    capture: MqttCaptureSession | None = None
+
+    node_info = _control_payload(
+        control, "node", {"action": "info"}, plan.control_timeout
+    )
+    summary.identity = LiveIdentity.from_payload(node_info)
+    summary.identity.require_match(expected_did)
+    raw_payload = _control_payload(
+        control, "radar", {"action": "raw"}, plan.control_timeout
+    )
+    raw_before = RawRouteSnapshot.from_payload(raw_payload)
+    radar_payload = _control_payload(
+        control, "radar", {"action": "status"}, plan.control_timeout
+    )
+    radar_before = RadarSnapshot(
+        state=str(radar_payload.get("state") or "unknown").strip().lower(),
+        mode=str(radar_payload.get("mode") or raw_before.radar).strip().lower(),
+    )
+    if radar_before.mode not in {"auto", "host"}:
+        raise ValueError(f"invalid radar ownership snapshot: {radar_before.mode}")
+    if radar_before.mode != raw_before.radar:
+        raise ValueError(
+            "incomplete ownership snapshot: radar status and raw status disagree "
+            f"({radar_before.mode} != {raw_before.radar})"
+        )
+
+    if plan.attach:
+        if not raw_before.live or not raw_before.data_uses("mqtt"):
+            raise ValueError(
+                "--attach requires an already-active MQTT DATA route; it will not create one"
+            )
+        if plan.mode != raw_before.radar:
+            raise ValueError(
+                f"--attach ownership mismatch: requested {plan.mode}, active {raw_before.radar}"
+            )
+        prior_cfg = None
+        collection_cfg = None
+        summary.config_source = "borrowed:unchanged"
+    else:
+        if raw_before.live:
+            raise ValueError(
+                "a host raw route is already active; close it first or use --attach "
+                "for a borrowed MQTT DATA route"
+            )
+        cfg_payload = _control_payload(
+            control, "radar.config", {"action": "read"}, plan.control_timeout
+        )
+        cfg_text = cfg_payload.get("cfg")
+        if not isinstance(cfg_text, str):
+            if explicit_cfg is None or (raw_before.radar == "host" and radar_before.running):
+                raise ValueError(
+                    "a complete restorable radar config snapshot is unavailable; "
+                    "provide --cfg or use --attach"
+                )
+            prior_cfg = None
+        else:
+            prior_cfg = _prepare_config(
+                cfg_text.encode("utf-8"), "device:radar.config"
+            )
+        collection_cfg = explicit_cfg if explicit_cfg is not None else prior_cfg
+        summary.config_source = (
+            explicit_source if explicit_cfg is not None else "device:radar.config"
+        )
+        if collection_cfg is None:
+            raise ValueError("no validated radar cfg is available for host MQTT collection")
+
+    network_info: dict[str, Any] = {}
+    try:
+        network_info = _control_payload(
+            control, "network", {"action": "mqtt"}, plan.control_timeout
+        )
+    except Exception:
+        network_info = {}
+    broker_value = str(
+        broker
+        or network_info.get("uri")
+        or network_info.get("mqtt_uri")
+        or node_info.get("uri")
+        or "localhost"
+    )
+    endpoint = resolve_mqtt_endpoint(
+        broker_value,
+        mqtt_port,
+        username=mqtt_username or str(network_info.get("user") or ""),
+        password=mqtt_password or str(network_info.get("pass") or ""),
+    )
+    topics = _mqtt_topic_set(
+        summary.identity,
+        node_info,
+        data_topic=data_topic,
+        resp_topic=resp_topic,
+        cmd_topic=cmd_topic,
+        prod=prod,
+        oid=oid,
+        cid=cid,
+    )
+    _require_mqtt_topic_identity(topics["data"], summary.identity, node_info, cid=cid)
+    if plan.mode != "auto":
+        _require_mqtt_topic_identity(topics["resp"], summary.identity, node_info, cid=cid)
+        _require_mqtt_topic_identity(topics["cmd"], summary.identity, node_info, cid=cid)
+    outputs_set = resolve_output_set(plan, summary.identity)
+    summary.outputs = {
+        "data": str(outputs_set.data),
+        "response": str(outputs_set.response),
+        **({"wire": str(outputs_set.wire)} if outputs_set.wire is not None else {}),
+        **({"summary": str(outputs_set.summary)} if outputs_set.summary is not None else {}),
+        **({"events": str(outputs_set.events)} if outputs_set.events is not None else {}),
+    }
+
+    raw_closed = True
+    sensor_stopped = True
+    parsed_restored = True
+    baud_restored = True
+    config_restored = True
+    lifecycle_restored = True
+    ownership_restored = True
+    route_restored = True
+
+    with reserve_output_files(outputs_set.paths(), overwrite=plan.overwrite) as output_stack:
+        data_file = output_stack.handles[outputs_set.data.expanduser().resolve()]
+        resp_file = output_stack.handles[outputs_set.response.expanduser().resolve()]
+        wire_file = (
+            output_stack.handles[outputs_set.wire.expanduser().resolve()]
+            if outputs_set.wire is not None
+            else None
+        )
+        summary_file = (
+            output_stack.handles[outputs_set.summary.expanduser().resolve()]
+            if outputs_set.summary is not None
+            else None
+        )
+        events_file = (
+            output_stack.handles[outputs_set.events.expanduser().resolve()]
+            if outputs_set.events is not None
+            else None
+        )
+        event_lock = threading.Lock()
+
+        def record_event(phase: str, **details: Any) -> None:
+            if progress_callback is not None:
+                progress_callback(phase, dict(details))
+            if events_file is None:
+                return
+            payload = {"ts": time.time(), "phase": phase, **details}
+            encoded = (json.dumps(payload, separators=(",", ":")) + "\n").encode("utf-8")
+            with event_lock:
+                events_file.write(encoded)
+                events_file.flush()
+
+        def control_call(name: str, arguments: Mapping[str, Any]) -> dict[str, Any]:
+            result = _control_payload(control, name, arguments, plan.control_timeout)
+            record_event("control", service=name, action=arguments.get("action", ""))
+            return result
+
+        def cleanup_action(label: str, action) -> bool:
+            try:
+                action()
+                record_event("cleanup", item=label, ok=True)
+                return True
+            except Exception as exc:
+                cleanup_errors.append(f"{label}: {exc}")
+                record_event("cleanup", item=label, ok=False, error=str(exc))
+                return False
+
+        def wait_control_running() -> None:
+            deadline = time.monotonic() + plan.control_timeout
+            last_state = "unknown"
+            while time.monotonic() < deadline:
+                payload = control_call("radar", {"action": "status"})
+                last_state = str(payload.get("state") or "unknown").strip().lower()
+                if last_state == "running":
+                    return
+                if last_state == "error":
+                    raise RuntimeError("radar entered error state while starting")
+                time.sleep(0.1)
+            raise TimeoutError(
+                f"timed out waiting for radar status=running (last={last_state})"
+            )
+
+        def send_command(command: bytes, label: str, *, published_callback=None) -> None:
+            if capture is None or client is None:
+                raise RuntimeError("MQTT raw command route is unavailable")
+            payload = command if command.endswith(b"\n") else command + b"\n"
+            _publish_mqtt_command(
+                client,
+                capture,
+                topics["cmd"],
+                payload,
+                label=label,
+                timeout=plan.control_timeout,
+                published_callback=published_callback,
+            )
+            record_event("raw_cmd", label=label, bytes=len(payload), qos=1)
+
+        def send_config(config: bytes, label: str) -> None:
+            for raw_line in config.splitlines():
+                line = raw_line.strip()
+                if not line or line.startswith((b"%", b"#")):
+                    continue
+                send_command(line + b"\n", label)
+
+        try:
+            factory = client_factory or _new_mqtt_client
+            client_id = f"mmwk_collect_{summary.identity.did}_{int(time.time())}"
+            try:
+                client = factory(client_id)
+            except TypeError:
+                client = factory()
+            _configure_mqtt_client(client, endpoint, mqtt_ca)
+            capture = MqttCaptureSession(
+                topics["data"],
+                "" if plan.mode == "auto" else topics["resp"],
+                data_file,
+                resp_file,
+                data_qos=0,
+                resp_qos=1,
+                require_data_magic=True,
+                capture_enabled=False,
+                wire_fout=wire_file,
+            )
+            capture.bind_client(client)
+            client.connect(endpoint.host, endpoint.port, 60)
+            client.loop_start()
+            if not capture.subscribed.wait(max(plan.control_timeout, 0.1)):
+                message = capture.subscribe_error.get("message")
+                if message:
+                    raise RuntimeError(str(message))
+                rc = capture.connect_error.get("rc")
+                if rc is not None:
+                    raise ConnectionError(f"MQTT connect failed: rc={rc}")
+                raise TimeoutError("timed out waiting for MQTT subscription acknowledgement")
+            record_event(
+                "mqtt_ready",
+                generation=capture.connection_generation,
+                data_qos=0,
+                resp_qos=None if plan.mode == "auto" else 1,
+            )
+
+            if plan.attach:
+                capture.start_capture()
+                if not capture.wait_for_data_ready(plan.data_ready_timeout):
+                    raise TimeoutError("timed out waiting for attached MQTT DATA-ready frame magic")
+                capture_started = capture.data_ready_monotonic or time.monotonic()
+                record_event("data_ready", borrowed=True)
+                deadline = capture_started + plan.duration
+                while time.monotonic() < deadline and not (
+                    stop_event is not None and stop_event.is_set()
+                ):
+                    time.sleep(min(0.1, max(0.0, deadline - time.monotonic())))
+                capture_elapsed = max(0.0, time.monotonic() - capture_started)
+                capture.stop_capture()
+            else:
+                if raw_before.mode == "reconnect":
+                    control_call(
+                        "radar", {"action": "raw", "mode": "off", "channel": "mqtt"}
+                    )
+                    ledger.record("route_displaced")
+                    route_restored = False
+
+                if raw_before.radar != "host" or not radar_before.running:
+                    control_call("radar", {"action": "start", "mode": "host"})
+                    ledger.record("radar_started")
+                    lifecycle_restored = False
+                    if raw_before.radar != "host":
+                        ledger.record("ownership_changed")
+                        ownership_restored = False
+                    wait_control_running()
+
+                control_call(
+                    "radar", {"action": "raw", "mode": "runtime", "channel": "mqtt"}
+                )
+                ledger.record("raw_open")
+                raw_closed = False
+
+                send_command(b"sensorStop\n", "collection sensorStop")
+                ledger.record("sensor_stopped_for_collection")
+                if radar_before.running:
+                    lifecycle_restored = False
+                if raw_before.radar == "host" and radar_before.running:
+                    ledger.record("config_displaced")
+                    config_restored = False
+                send_config(collection_cfg, "collection cfg")
+                capture.start_capture()
+
+                def mark_sensor_started() -> None:
+                    nonlocal sensor_stopped
+                    ledger.record("sensor_started")
+                    sensor_stopped = False
+
+                send_command(
+                    b"sensorStart\n",
+                    "collection sensorStart",
+                    published_callback=mark_sensor_started,
+                )
+                if not capture.wait_for_data_ready(plan.data_ready_timeout):
+                    raise TimeoutError("timed out waiting for MQTT DATA-ready frame magic")
+                capture_started = capture.data_ready_monotonic or time.monotonic()
+                record_event("data_ready", borrowed=False)
+                deadline = capture_started + plan.duration
+                while time.monotonic() < deadline and not (
+                    stop_event is not None and stop_event.is_set()
+                ):
+                    time.sleep(min(0.1, max(0.0, deadline - time.monotonic())))
+                capture_elapsed = max(0.0, time.monotonic() - capture_started)
+                capture.stop_capture()
+        except KeyboardInterrupt as exc:
+            summary.interrupted = True
+            primary_error = exc
+            if capture is not None:
+                capture.stop_capture()
+            record_event("interrupt", count=1)
+        except BaseException as exc:
+            primary_error = exc
+            if capture is not None:
+                capture.stop_capture()
+            summary.warnings.append(f"collection failed: {type(exc).__name__}: {exc}")
+            record_event("failure", error_type=type(exc).__name__, error=str(exc))
+        finally:
+            if not plan.attach and capture is not None and client is not None:
+                if ledger.owns("sensor_started"):
+                    sensor_stopped = cleanup_action(
+                        "sensorStop", lambda: send_command(b"sensorStop\n", "cleanup sensorStop")
+                    )
+
+                if ledger.owns("config_displaced"):
+                    def restore_config() -> None:
+                        if prior_cfg is None:
+                            raise RuntimeError("prior config snapshot is missing")
+                        send_config(prior_cfg, "restore cfg")
+
+                    config_restored = cleanup_action("config restore", restore_config)
+                    if config_restored:
+                        def restore_running() -> None:
+                            capture.start_probe()
+                            send_command(b"sensorStart\n", "restore sensorStart")
+                            if not capture.wait_for_data_ready(plan.data_ready_timeout):
+                                raise TimeoutError(
+                                    "timed out proving restored MQTT radar lifecycle"
+                                )
+                            capture.stop_capture()
+
+                        lifecycle_restored = cleanup_action(
+                            "running lifecycle restore", restore_running
+                        )
+
+                if ledger.owns("raw_open"):
+                    raw_closed = cleanup_action(
+                        "raw close",
+                        lambda: control_call(
+                            "radar",
+                            {"action": "raw", "mode": "off", "channel": "mqtt"},
+                        ),
+                    )
+
+                if raw_closed:
+                    def verify_raw_closed() -> None:
+                        payload = control_call("radar", {"action": "raw"})
+                        snapshot = RawRouteSnapshot.from_payload(payload)
+                        if snapshot.live:
+                            raise RuntimeError("collector-owned MQTT raw route is still active")
+                        _apply_raw_metrics(summary, payload)
+
+                    verified_closed = cleanup_action(
+                        "raw close verification", verify_raw_closed
+                    )
+                    raw_closed = raw_closed and verified_closed
+
+                if ledger.owns("radar_started"):
+                    if raw_before.radar != "host":
+                        def restore_ownership() -> None:
+                            control_call(
+                                "radar", {"action": "start", "mode": raw_before.radar}
+                            )
+                            wait_control_running()
+
+                        ownership_restored = cleanup_action(
+                            "ownership restore", restore_ownership
+                        )
+                        if ownership_restored and radar_before.running:
+                            lifecycle_restored = True
+                    if not radar_before.running and ownership_restored:
+                        lifecycle_restored = cleanup_action(
+                            "stopped lifecycle restore",
+                            lambda: control_call("radar", {"action": "stop"}),
+                        )
+
+                if ledger.owns("route_displaced"):
+                    restore = raw_before.restore_command()
+                    restore.pop("cmd", None)
+                    route_restored = cleanup_action(
+                        "raw route restore",
+                        lambda: control_call("radar", restore),
+                    )
+            elif plan.attach:
+                try:
+                    final_raw = _control_payload(
+                        control, "radar", {"action": "raw"}, plan.control_timeout
+                    )
+                    _apply_raw_metrics(summary, final_raw)
+                    if not RawRouteSnapshot.from_payload(final_raw).data_uses("mqtt"):
+                        route_restored = False
+                        cleanup_errors.append("borrowed MQTT DATA route disappeared during capture")
+                except Exception as exc:
+                    route_restored = False
+                    cleanup_errors.append(f"borrowed route verification: {exc}")
+
+            if client is not None:
+                try:
+                    client.loop_stop()
+                except Exception:
+                    pass
+                try:
+                    client.disconnect()
+                except Exception:
+                    pass
+
+            if capture is not None:
+                summary.data_bytes = int(capture.stats["data_bytes"])
+                summary.response_bytes = int(capture.stats["resp_bytes"])
+                summary.wire_bytes = int(capture.stats["wire_bytes"])
+                summary.destination_bytes = summary.destination_bytes or summary.data_bytes
+                summary.source_bytes = summary.source_bytes or summary.data_bytes
+                if capture.stats["duplicate_resp_messages"]:
+                    summary.warnings.append(
+                        "duplicate QoS 1 response chunks were preserved without advancing phases"
+                    )
+            summary.duration_s = capture_elapsed
+            state_restored = all((
+                raw_closed,
+                parsed_restored,
+                baud_restored,
+                config_restored,
+                lifecycle_restored,
+                ownership_restored,
+                route_restored,
+                sensor_stopped,
+            ))
+            summary.cleanup = CleanupReport(
+                raw_closed=raw_closed,
+                radar_stopped=sensor_stopped,
+                state_restored=state_restored,
+                parsed_restored=parsed_restored,
+                baud_restored=baud_restored,
+                config_restored=config_restored,
+                lifecycle_restored=lifecycle_restored,
+                ownership_restored=ownership_restored,
+                route_restored=route_restored,
+                sensor_stopped=sensor_stopped,
+                errors=tuple(cleanup_errors),
+            )
+            record_event(
+                "complete" if primary_error is None else "cleanup_complete",
+                cleanup=summary.as_dict()["cleanup"],
+            )
+            if summary_file is not None:
+                summary_file.write(
+                    (json.dumps(summary.as_dict(), indent=2) + "\n").encode("utf-8")
+                )
+                summary_file.flush()
+
+    if primary_error is not None:
+        raise primary_error
+    return summary
+
+
+def collect_reconnect_mqtt(
+    plan: CollectionPlan,
+    *,
+    control,
+    broker: str = "",
+    mqtt_port: int = 1883,
+    expected_did: str | None = None,
+    data_topic: str | None = None,
+    prod: str = "mmwk",
+    oid: str = "mmwk",
+    cid: str = "",
+    mqtt_username: str = "",
+    mqtt_password: str = "",
+    mqtt_ca: str | None = None,
+    client_factory=None,
+    stop_event: threading.Event | None = None,
+    progress_callback=None,
+) -> CollectionSummary:
+    """Arm one reconnect generation, reboot, and capture its MQTT DATA session."""
+
+    plan.validate()
+    if plan.transport != "mqtt" or plan.mode != "auto" or plan.attach:
+        raise ValueError("reconnect collection requires a non-attach auto MQTT plan")
+    if control is None:
+        raise ValueError("reconnect collection requires parsed MQTT control")
+
+    node_before = _control_payload(
+        control, "node", {"action": "info"}, plan.control_timeout
+    )
+    identity = LiveIdentity.from_payload(node_before)
+    identity.require_match(expected_did)
+    raw_before_payload = _control_payload(
+        control, "radar", {"action": "raw"}, plan.control_timeout
+    )
+    raw_before = RawRouteSnapshot.from_payload(raw_before_payload)
+    if raw_before.radar != "auto":
+        raise ValueError("reconnect collection requires auto radar ownership")
+    if raw_before.live or raw_before.mode == "reconnect":
+        raise ValueError("reconnect collection requires raw mode=off before arming")
+
+    network_info: dict[str, Any] = {}
+    try:
+        network_info = _control_payload(
+            control, "network", {"action": "mqtt"}, plan.control_timeout
+        )
+    except Exception:
+        network_info = {}
+    endpoint = resolve_mqtt_endpoint(
+        str(
+            broker
+            or network_info.get("uri")
+            or network_info.get("mqtt_uri")
+            or node_before.get("uri")
+            or "localhost"
+        ),
+        mqtt_port,
+        username=mqtt_username or str(network_info.get("user") or ""),
+        password=mqtt_password or str(network_info.get("pass") or ""),
+    )
+    topics = _mqtt_topic_set(
+        identity,
+        node_before,
+        data_topic=data_topic,
+        resp_topic=None,
+        cmd_topic=None,
+        prod=prod,
+        oid=oid,
+        cid=cid,
+    )
+    _require_mqtt_topic_identity(topics["data"], identity, node_before, cid=cid)
+    outputs_set = resolve_output_set(plan, identity)
+    summary = CollectionSummary(
+        identity=identity,
+        transport="mqtt-reconnect",
+        config_source="reconnect:auto",
+        outputs={
+            "data": str(outputs_set.data),
+            "response": str(outputs_set.response),
+            **({"wire": str(outputs_set.wire)} if outputs_set.wire is not None else {}),
+            **({"summary": str(outputs_set.summary)} if outputs_set.summary is not None else {}),
+            **({"events": str(outputs_set.events)} if outputs_set.events is not None else {}),
+        },
+    )
+    client = None
+    capture: MqttCaptureSession | None = None
+    armed = False
+    primary_error: BaseException | None = None
+    cleanup_errors: list[str] = []
+    capture_elapsed = 0.0
+    raw_closed = True
+
+    with reserve_output_files(outputs_set.paths(), overwrite=plan.overwrite) as output_stack:
+        data_file = output_stack.handles[outputs_set.data.expanduser().resolve()]
+        resp_file = output_stack.handles[outputs_set.response.expanduser().resolve()]
+        wire_file = (
+            output_stack.handles[outputs_set.wire.expanduser().resolve()]
+            if outputs_set.wire is not None
+            else None
+        )
+        summary_file = (
+            output_stack.handles[outputs_set.summary.expanduser().resolve()]
+            if outputs_set.summary is not None
+            else None
+        )
+        events_file = (
+            output_stack.handles[outputs_set.events.expanduser().resolve()]
+            if outputs_set.events is not None
+            else None
+        )
+
+        def record_event(phase: str, **details: Any) -> None:
+            if progress_callback is not None:
+                progress_callback(phase, dict(details))
+            if events_file is None:
+                return
+            events_file.write(
+                (json.dumps({"ts": time.time(), "phase": phase, **details}, separators=(",", ":")) + "\n").encode("utf-8")
+            )
+            events_file.flush()
+
+        try:
+            factory = client_factory or _new_mqtt_client
+            try:
+                client = factory(f"mmwk_reconnect_{identity.did}_{int(time.time())}")
+            except TypeError:
+                client = factory()
+            _configure_mqtt_client(client, endpoint, mqtt_ca)
+            capture = MqttCaptureSession(
+                topics["data"],
+                "",
+                data_file,
+                resp_file,
+                data_qos=0,
+                require_data_magic=True,
+                capture_enabled=False,
+                wire_fout=wire_file,
+            )
+            capture.bind_client(client)
+            client.connect(endpoint.host, endpoint.port, 60)
+            client.loop_start()
+            if not capture.subscribed.wait(plan.control_timeout):
+                raise TimeoutError("timed out waiting for reconnect MQTT DATA subscription")
+            subscribed_generation = capture.connection_generation
+            record_event("mqtt_ready", generation=subscribed_generation, data_qos=0)
+
+            capture.start_capture()
+            arm_payload = _control_payload(
+                control,
+                "radar",
+                {"action": "raw", "mode": "reconnect", "channel": "mqtt"},
+                plan.control_timeout,
+            )
+            armed_snapshot = RawRouteSnapshot.from_payload(arm_payload)
+            if armed_snapshot.mode != "reconnect" or not armed_snapshot.data_uses("mqtt"):
+                raise RuntimeError("device did not acknowledge the MQTT reconnect arm")
+            armed = True
+            raw_closed = False
+            record_event("reconnect_armed")
+
+            _control_payload(
+                control, "node", {"action": "reboot"}, max(plan.control_timeout, 15.0)
+            )
+            record_event("reboot_acknowledged")
+
+            baseline_uptime = node_before.get("uptime_sec")
+            generation_seen = False
+            deadline = time.monotonic() + max(plan.control_timeout, plan.data_ready_timeout)
+            last_mode = "unknown"
+            while time.monotonic() < deadline:
+                try:
+                    node_after = _control_payload(
+                        control, "node", {"action": "info"}, plan.control_timeout
+                    )
+                    LiveIdentity.from_payload(node_after).require_match(identity.did)
+                    after_uptime = node_after.get("uptime_sec")
+                    if baseline_uptime is None or after_uptime != baseline_uptime:
+                        generation_seen = True
+                    raw_after_payload = _control_payload(
+                        control, "radar", {"action": "raw"}, plan.control_timeout
+                    )
+                    raw_after = RawRouteSnapshot.from_payload(raw_after_payload)
+                    last_mode = raw_after.mode
+                    if raw_after.mode == "runtime" and raw_after.data_uses("mqtt"):
+                        generation_seen = True
+                        _apply_raw_metrics(summary, raw_after_payload)
+                        break
+                except Exception:
+                    pass
+                time.sleep(0.1)
+            if not generation_seen or last_mode != "runtime":
+                raise TimeoutError(
+                    "reconnect arm was not consumed by a new MQTT generation "
+                    f"(last mode={last_mode})"
+                )
+            record_event("reconnect_consumed", mode=last_mode)
+
+            if not capture.wait_for_data_ready(plan.data_ready_timeout):
+                raise TimeoutError("timed out waiting for post-reboot MQTT DATA-ready frame magic")
+            capture_started = capture.data_ready_monotonic or time.monotonic()
+            record_event("data_ready", generation=capture.connection_generation)
+            capture_deadline = capture_started + plan.duration
+            while time.monotonic() < capture_deadline and not (
+                stop_event is not None and stop_event.is_set()
+            ):
+                time.sleep(min(0.1, max(0.0, capture_deadline - time.monotonic())))
+            capture_elapsed = max(0.0, time.monotonic() - capture_started)
+            capture.stop_capture()
+        except KeyboardInterrupt as exc:
+            summary.interrupted = True
+            primary_error = exc
+            if capture is not None:
+                capture.stop_capture()
+        except BaseException as exc:
+            primary_error = exc
+            if capture is not None:
+                capture.stop_capture()
+            summary.warnings.append(f"collection failed: {type(exc).__name__}: {exc}")
+            record_event("failure", error_type=type(exc).__name__, error=str(exc))
+        finally:
+            if armed:
+                try:
+                    _control_payload(
+                        control,
+                        "radar",
+                        {"action": "raw", "mode": "off", "channel": "mqtt"},
+                        plan.control_timeout,
+                    )
+                    final_raw = _control_payload(
+                        control, "radar", {"action": "raw"}, plan.control_timeout
+                    )
+                    final_snapshot = RawRouteSnapshot.from_payload(final_raw)
+                    raw_closed = not final_snapshot.live and final_snapshot.mode == "off"
+                    _apply_raw_metrics(summary, final_raw)
+                    if not raw_closed:
+                        raise RuntimeError("reconnect-owned MQTT DATA route is still active")
+                    record_event("cleanup", item="raw close", ok=True)
+                except Exception as exc:
+                    raw_closed = False
+                    cleanup_errors.append(f"raw close: {exc}")
+                    record_event("cleanup", item="raw close", ok=False, error=str(exc))
+            if client is not None:
+                try:
+                    client.loop_stop()
+                except Exception:
+                    pass
+                try:
+                    client.disconnect()
+                except Exception:
+                    pass
+            if capture is not None:
+                summary.data_bytes = int(capture.stats["data_bytes"])
+                summary.wire_bytes = int(capture.stats["wire_bytes"])
+            summary.source_bytes = summary.source_bytes or summary.data_bytes
+            summary.destination_bytes = summary.destination_bytes or summary.data_bytes
+            summary.duration_s = capture_elapsed
+            summary.cleanup = CleanupReport(
+                raw_closed=raw_closed,
+                radar_stopped=True,
+                state_restored=raw_closed,
+                parsed_restored=True,
+                baud_restored=True,
+                config_restored=True,
+                lifecycle_restored=True,
+                ownership_restored=True,
+                route_restored=raw_closed,
+                sensor_stopped=True,
+                errors=tuple(cleanup_errors),
+            )
+            record_event(
+                "complete" if primary_error is None else "cleanup_complete",
+                cleanup=summary.as_dict()["cleanup"],
+            )
+            if summary_file is not None:
+                summary_file.write(
+                    (json.dumps(summary.as_dict(), indent=2) + "\n").encode("utf-8")
+                )
+                summary_file.flush()
+
+    if primary_error is not None:
+        raise primary_error
+    return summary
+
+
 def collect_split_wire_mqtt(
     plan: CollectionPlan,
     *,
@@ -861,62 +2078,99 @@ def collect_split_wire_mqtt(
     oid: str = "mmwk",
     cid: str = "",
     serial_factory=None,
+    mqtt_username: str = "",
+    mqtt_password: str = "",
+    mqtt_ca: str | None = None,
+    client_factory=None,
 ) -> CollectionSummary:
-    """Collect a hybrid host route: parsed/raw control on local wire, DATA on MQTT.
-
-    The local channel remains the command/response plane, while MQTT is subscribed
-    before the raw route is opened so the first DATA chunk is not lost.  This is
-    the recommended split route for a bandwidth-limited external UART.
-    """
+    """Collect with CMD/RESP on a local wire and DATA on MQTT."""
     plan.validate()
     if plan.ctrl_transport not in {"uart", "usb"} or plan.data_transport != "mqtt":
         raise ValueError("split collection currently supports local wire control with MQTT DATA")
-    if not broker:
-        raise ValueError("split wire/MQTT collection requires --broker")
 
-    from mmwk.commands.collect import _MqttRawCaptureSession, _create_mqtt_client, _parse_broker_endpoint
+    explicit_cfg: bytes | None = None
+    explicit_source = ""
+    if plan.cfg_path:
+        cfg_path = Path(plan.cfg_path).expanduser()
+        explicit_source = str(cfg_path)
+        explicit_cfg = _prepare_config(cfg_path.read_bytes(), explicit_source)
 
-    summary = CollectionSummary()
-    summary.transport = "split"
-    session = LocalWireSession(plan, serial_factory=serial_factory).open()
-    start = time.monotonic()
-    raw_open = False
-    radar_started = False
-    radar_stopped = False
-    parsed_restored = False
+    summary = CollectionSummary(transport="split")
+    session = LocalWireSession(plan, serial_factory=serial_factory)
+    ledger = MutationLedger()
+    primary_error: BaseException | None = None
     cleanup_errors: list[str] = []
-    wire_file = None
-    data_file = None
-    resp_file = None
+    capture_elapsed = 0.0
     client = None
-    capture = None
-    output_stack = None
+    capture: MqttCaptureSession | None = None
+    raw_before = RawRouteSnapshot()
+    radar_before = RadarSnapshot()
+    prior_cfg: bytes | None = None
+    collection_cfg: bytes | None = None
 
-    def record_response(response: Mapping[str, Any] | None) -> None:
-        if not response or resp_file is None:
-            return
-        line = (json.dumps(dict(response), separators=(",", ":")) + "\n").encode("utf-8")
-        resp_file.write(line)
-        resp_file.flush()
-        summary.response_bytes += len(line)
+    raw_closed = True
+    sensor_stopped = True
+    parsed_restored = True
+    baud_restored = True
+    config_restored = True
+    lifecycle_restored = True
+    ownership_restored = True
+    route_restored = True
 
+    session.open()
     try:
-        summary.identity = session.identify(expected_did)
+        summary.identity = session.identify(expected_did, timeout=plan.control_timeout)
+        node_info = _result_payload(session.last_response)
         if summary.identity.board == "wdr" and plan.raw_baud is not None:
             raise ValueError("WDR split DATA uses MQTT; omit --raw-baud")
+        raw_before, _ = session.query_raw()
+        radar_before, _ = session.query_radar()
+        if radar_before.mode != raw_before.radar:
+            raise ValueError(
+                "incomplete ownership snapshot: radar status and raw status disagree "
+                f"({radar_before.mode} != {raw_before.radar})"
+            )
+        if raw_before.live:
+            raise ValueError(
+                "a host raw route is already active; close it first or use MQTT --attach"
+            )
+        try:
+            prior_cfg_raw, _ = session.read_config()
+            prior_cfg = _prepare_config(prior_cfg_raw, "device:radar.config")
+        except Exception:
+            if explicit_cfg is None or (raw_before.radar == "host" and radar_before.running):
+                raise ValueError(
+                    "a complete restorable radar config snapshot is unavailable; "
+                    "provide --cfg or use --attach"
+                )
+        collection_cfg = explicit_cfg if explicit_cfg is not None else prior_cfg
+        if collection_cfg is None:
+            raise ValueError("no validated radar cfg is available for split collection")
+        summary.config_source = (
+            explicit_source if explicit_cfg is not None else "device:radar.config"
+        )
 
-        output_paths = [Path(plan.data_output), Path(plan.resp_output)]
-        if plan.wire_output:
-            output_paths.append(Path(plan.wire_output))
-        output_stack = reserve_output_files(output_paths, overwrite=plan.overwrite)
-        data_file = output_stack.handles[Path(plan.data_output).expanduser().resolve()]
-        resp_file = output_stack.handles[Path(plan.resp_output).expanduser().resolve()]
-        if plan.wire_output:
-            wire_file = output_stack.handles[Path(plan.wire_output).expanduser().resolve()]
-        record_response(session.last_response)
-        record_response(session.send_control({"cmd": "radar", "action": "start", "mode": "host"}))
-        radar_started = True
-
+        network_info: dict[str, Any] = {}
+        try:
+            response = session.send_control({"cmd": "network", "action": "mqtt"})
+            network_info = _result_payload(response)
+        except Exception:
+            network_info = {}
+        broker_value = str(
+            broker
+            or network_info.get("uri")
+            or network_info.get("mqtt_uri")
+            or node_info.get("uri")
+            or ""
+        )
+        if not broker_value:
+            raise ValueError("split wire/MQTT collection requires --broker or a device MQTT URI")
+        endpoint = resolve_mqtt_endpoint(
+            broker_value,
+            mqtt_port,
+            username=mqtt_username or str(network_info.get("user") or ""),
+            password=mqtt_password or str(network_info.get("pass") or ""),
+        )
         topic = _mqtt_topics_for_identity(
             summary.identity,
             plan,
@@ -925,96 +2179,326 @@ def collect_split_wire_mqtt(
             oid=oid,
             cid=cid,
         )
-        capture = _MqttRawCaptureSession(topic, "", data_file, resp_file, data_qos=0)
-        host, port = _parse_broker_endpoint(broker, mqtt_port)
-        client = _create_mqtt_client(client_id=f"mmwk_split_{int(time.time())}")
-        capture.bind_client(client)
-        client.connect(host, port, 60)
-        client.loop_start()
-        deadline = time.time() + max(5.0, float(plan.duration) + 5.0)
-        while not capture.subscribed.is_set() and time.time() < deadline:
-            if capture.connect_error["rc"] is not None or capture.subscribe_error["message"] is not None:
-                raise RuntimeError(capture.subscribe_error["message"] or "MQTT connect failed")
-            time.sleep(0.05)
-        if not capture.subscribed.is_set():
-            raise TimeoutError("timed out waiting for MQTT DATA subscription")
+        _require_mqtt_topic_identity(topic, summary.identity, node_info, cid=cid)
+        outputs_set = resolve_output_set(plan, summary.identity)
+        summary.outputs = {
+            "data": str(outputs_set.data),
+            "response": str(outputs_set.response),
+            **({"wire": str(outputs_set.wire)} if outputs_set.wire is not None else {}),
+            **({"summary": str(outputs_set.summary)} if outputs_set.summary is not None else {}),
+            **({"events": str(outputs_set.events)} if outputs_set.events is not None else {}),
+        }
 
-        raw_response = session.open_raw(ctrl="wire", data="mqtt", escape=plan.escape)
-        record_response(raw_response)
-        raw_open = True
-        cfg_payload = Path(plan.cfg_path).read_bytes() if plan.cfg_path else None
-        summary.config_source = str(Path(plan.cfg_path).expanduser()) if plan.cfg_path else "none"
-        if cfg_payload:
-            session.write_radar_bytes(cfg_payload)
-            if not cfg_payload.endswith(b"\n"):
-                session.write_radar_bytes(b"\n")
-        session.write_radar_bytes(b"sensorStart\n")
+        with reserve_output_files(outputs_set.paths(), overwrite=plan.overwrite) as output_stack:
+            data_file = output_stack.handles[outputs_set.data.expanduser().resolve()]
+            resp_file = output_stack.handles[outputs_set.response.expanduser().resolve()]
+            wire_file = (
+                output_stack.handles[outputs_set.wire.expanduser().resolve()]
+                if outputs_set.wire is not None
+                else None
+            )
+            summary_file = (
+                output_stack.handles[outputs_set.summary.expanduser().resolve()]
+                if outputs_set.summary is not None
+                else None
+            )
+            events_file = (
+                output_stack.handles[outputs_set.events.expanduser().resolve()]
+                if outputs_set.events is not None
+                else None
+            )
+            recorded_responses = 0
 
-        # Split DATA timing is driven by the first MQTT DATA message. Local
-        # wire command responses do not belong to the high-rate DATA window.
-        capture_started = None
-        capture_deadline = time.monotonic() + plan.duration + 10
-        while time.monotonic() < capture_deadline:
-            payload = session.read_raw()
-            if payload:
+            def record_event(phase: str, **details: Any) -> None:
+                if events_file is None:
+                    return
+                events_file.write(
+                    (json.dumps({"ts": time.time(), "phase": phase, **details}, separators=(",", ":")) + "\n").encode("utf-8")
+                )
+                events_file.flush()
+
+            def flush_responses() -> None:
+                nonlocal recorded_responses
+                while recorded_responses < len(session.response_history):
+                    response = session.response_history[recorded_responses]
+                    line = (json.dumps(response, separators=(",", ":")) + "\n").encode("utf-8")
+                    resp_file.write(line)
+                    resp_file.flush()
+                    summary.response_bytes += len(line)
+                    recorded_responses += 1
+
+            def audit(direction: str, payload: bytes) -> None:
+                if capture is None:
+                    raise RuntimeError("split raw audit started before MQTT capture setup")
+                capture.audit_wire(payload)
+                record_event("wire", direction=direction, bytes=len(payload))
+
+            def read_command_response(label: str) -> bytes:
+                response = bytearray()
+                deadline = time.monotonic() + plan.control_timeout
+                quiet_deadline: float | None = None
+                while time.monotonic() < deadline:
+                    payload = session.read_raw()
+                    now = time.monotonic()
+                    if payload:
+                        response.extend(payload)
+                        quiet_deadline = now + 0.15
+                        if len(response) > MAX_DATA_READY_PREFIX:
+                            raise RuntimeError(f"{label} response exceeded safety limit")
+                        continue
+                    if response and quiet_deadline is not None and now >= quiet_deadline:
+                        break
+                if not response:
+                    raise TimeoutError(f"timed out waiting for radar response to {label}")
+                payload = bytes(response)
                 resp_file.write(payload)
                 resp_file.flush()
                 summary.response_bytes += len(payload)
-                summary.wire_bytes += len(payload)
-                if wire_file is not None:
-                    wire_file.write(payload)
-                    wire_file.flush()
-                if capture_started is not None and time.monotonic() >= capture_started + plan.duration:
-                    break
-            if capture.stats["data_messages"] > 0 and capture_started is None:
-                capture_started = time.monotonic()
-            if capture_started is not None and time.monotonic() >= capture_started + plan.duration:
-                break
+                lowered = payload.lower()
+                if any(token in lowered for token in (b"error", b"failed", b"not recognized")):
+                    raise RuntimeError(f"radar rejected {label}: {payload[-240:]!r}")
+                if b"done" not in lowered:
+                    raise RuntimeError(f"radar returned an incomplete response to {label}")
+                return payload
 
-        summary.data_bytes = int(capture.stats["data_bytes"])
-        summary.source_bytes = summary.data_bytes
-        summary.destination_bytes = summary.data_bytes
-        if capture.stats["data_messages"] <= 0:
-            summary.warnings.append("no MQTT DATA arrived before the collection deadline")
-        if raw_open:
-            session.write_radar_bytes(b"sensorStop\n")
-            close_response = session.close_raw(escape=plan.escape.encode("ascii"))
-            record_response(close_response)
-            raw_open = False
-            parsed_restored = True
-    except Exception:
-        cleanup_errors.append("split collection failed")
-        raise
+            def send_command(command: bytes, label: str) -> None:
+                payload = command if command.endswith(b"\n") else command + b"\n"
+                session.write_radar_bytes(payload)
+                read_command_response(label)
+
+            def send_config(config: bytes, label: str) -> None:
+                for raw_line in config.splitlines():
+                    line = raw_line.strip()
+                    if not line or line.startswith((b"%", b"#")):
+                        continue
+                    send_command(line + b"\n", label)
+
+            def cleanup_action(label: str, action) -> bool:
+                try:
+                    action()
+                    record_event("cleanup", item=label, ok=True)
+                    return True
+                except Exception as exc:
+                    cleanup_errors.append(f"{label}: {exc}")
+                    record_event("cleanup", item=label, ok=False, error=str(exc))
+                    return False
+
+            flush_responses()
+            session.on_raw_write = lambda payload: audit("host_to_device", payload)
+            session.on_raw_read = lambda payload: audit("device_to_host", payload)
+
+            try:
+                factory = client_factory or _new_mqtt_client
+                try:
+                    client = factory(f"mmwk_split_{summary.identity.did}_{int(time.time())}")
+                except TypeError:
+                    client = factory()
+                _configure_mqtt_client(client, endpoint, mqtt_ca)
+                capture = MqttCaptureSession(
+                    topic,
+                    "",
+                    data_file,
+                    resp_file,
+                    data_qos=0,
+                    require_data_magic=True,
+                    capture_enabled=False,
+                    wire_fout=wire_file,
+                )
+                capture.bind_client(client)
+                client.connect(endpoint.host, endpoint.port, 60)
+                client.loop_start()
+                if not capture.subscribed.wait(plan.control_timeout):
+                    raise TimeoutError("timed out waiting for MQTT DATA subscription")
+                record_event("mqtt_ready", generation=capture.connection_generation, data_qos=0)
+
+                if raw_before.mode == "reconnect":
+                    session.send_control({
+                        "cmd": "radar", "action": "raw", "mode": "off", "channel": "mqtt"
+                    })
+                    ledger.record("route_displaced")
+                    route_restored = False
+                    flush_responses()
+
+                if raw_before.radar != "host" or not radar_before.running:
+                    session.send_control({"cmd": "radar", "action": "start", "mode": "host"})
+                    ledger.record("radar_started")
+                    lifecycle_restored = False
+                    if raw_before.radar != "host":
+                        ledger.record("ownership_changed")
+                        ownership_restored = False
+                    session.wait_until_running()
+                    flush_responses()
+
+                session.open_raw(ctrl="wire", data="mqtt", escape=plan.escape)
+                ledger.record("raw_open")
+                raw_closed = False
+                parsed_restored = False
+                flush_responses()
+
+                send_command(b"sensorStop\n", "collection sensorStop")
+                ledger.record("sensor_stopped_for_collection")
+                if radar_before.running:
+                    lifecycle_restored = False
+                if raw_before.radar == "host" and radar_before.running:
+                    ledger.record("config_displaced")
+                    config_restored = False
+                send_config(collection_cfg, "collection cfg")
+                capture.start_capture()
+                session.write_radar_bytes(b"sensorStart\n")
+                ledger.record("sensor_started")
+                sensor_stopped = False
+                read_command_response("collection sensorStart")
+                if not capture.wait_for_data_ready(plan.data_ready_timeout):
+                    raise TimeoutError("timed out waiting for split MQTT DATA-ready frame magic")
+                capture_started = capture.data_ready_monotonic or time.monotonic()
+                record_event("data_ready")
+                deadline = capture_started + plan.duration
+                while time.monotonic() < deadline:
+                    time.sleep(min(0.1, max(0.0, deadline - time.monotonic())))
+                capture_elapsed = max(0.0, time.monotonic() - capture_started)
+                capture.stop_capture()
+            except KeyboardInterrupt as exc:
+                summary.interrupted = True
+                primary_error = exc
+                if capture is not None:
+                    capture.stop_capture()
+            except BaseException as exc:
+                primary_error = exc
+                if capture is not None:
+                    capture.stop_capture()
+                summary.warnings.append(f"collection failed: {type(exc).__name__}: {exc}")
+                record_event("failure", error_type=type(exc).__name__, error=str(exc))
+            finally:
+                if ledger.owns("sensor_started") and session.raw_open:
+                    sensor_stopped = cleanup_action(
+                        "sensorStop",
+                        lambda: send_command(b"sensorStop\n", "cleanup sensorStop"),
+                    )
+
+                if ledger.owns("config_displaced") and session.raw_open:
+                    def restore_config() -> None:
+                        if prior_cfg is None:
+                            raise RuntimeError("prior config snapshot is missing")
+                        send_config(prior_cfg, "restore cfg")
+
+                    config_restored = cleanup_action("config restore", restore_config)
+                    if config_restored and capture is not None:
+                        def restore_running() -> None:
+                            capture.start_probe()
+                            session.write_radar_bytes(b"sensorStart\n")
+                            read_command_response("restore sensorStart")
+                            if not capture.wait_for_data_ready(plan.data_ready_timeout):
+                                raise TimeoutError("timed out proving restored split lifecycle")
+                            capture.stop_capture()
+
+                        lifecycle_restored = cleanup_action(
+                            "running lifecycle restore", restore_running
+                        )
+
+                if session.raw_open:
+                    raw_closed = cleanup_action(
+                        "wire raw close",
+                        lambda: session.close_raw(escape=plan.escape.encode("ascii")),
+                    )
+                    parsed_restored = raw_closed and session.parsed
+                    baud_restored = plan.ctrl_transport == "usb" or parsed_restored
+                    flush_responses()
+
+                if session.parsed and ledger.owns("raw_open"):
+                    def close_mqtt_data_route() -> None:
+                        snapshot, _ = session.query_raw()
+                        if snapshot.data_uses("mqtt"):
+                            session.send_control({
+                                "cmd": "radar", "action": "raw", "mode": "off", "channel": "mqtt"
+                            })
+                        final_snapshot, response = session.query_raw()
+                        if final_snapshot.live:
+                            raise RuntimeError("collector-owned split raw route is still active")
+                        _apply_raw_metrics(summary, _result_payload(response))
+
+                    raw_closed = cleanup_action("MQTT DATA route close", close_mqtt_data_route)
+                    parsed_restored = raw_closed
+                    flush_responses()
+
+                if ledger.owns("radar_started") and session.parsed:
+                    if raw_before.radar != "host":
+                        def restore_ownership() -> None:
+                            session.send_control({
+                                "cmd": "radar", "action": "start", "mode": raw_before.radar
+                            })
+                            session.wait_until_running()
+
+                        ownership_restored = cleanup_action("ownership restore", restore_ownership)
+                        if ownership_restored and radar_before.running:
+                            lifecycle_restored = True
+                        flush_responses()
+                    if not radar_before.running and ownership_restored:
+                        lifecycle_restored = cleanup_action(
+                            "stopped lifecycle restore",
+                            lambda: session.send_control({"cmd": "radar", "action": "stop"}),
+                        )
+                        flush_responses()
+
+                if ledger.owns("route_displaced") and session.parsed:
+                    restore = raw_before.restore_command()
+                    route_restored = cleanup_action(
+                        "raw route restore", lambda: session.send_control(restore)
+                    )
+                    flush_responses()
+
+                if client is not None:
+                    try:
+                        client.loop_stop()
+                    except Exception:
+                        pass
+                    try:
+                        client.disconnect()
+                    except Exception:
+                        pass
+
+                if capture is not None:
+                    summary.data_bytes = int(capture.stats["data_bytes"])
+                    summary.wire_bytes = int(capture.stats["wire_bytes"])
+                summary.source_bytes = summary.source_bytes or summary.data_bytes
+                summary.destination_bytes = summary.destination_bytes or summary.data_bytes
+                summary.duration_s = capture_elapsed
+                state_restored = all((
+                    raw_closed,
+                    parsed_restored,
+                    baud_restored,
+                    config_restored,
+                    lifecycle_restored,
+                    ownership_restored,
+                    route_restored,
+                    sensor_stopped,
+                ))
+                summary.cleanup = CleanupReport(
+                    raw_closed=raw_closed,
+                    radar_stopped=sensor_stopped,
+                    state_restored=state_restored,
+                    parsed_restored=parsed_restored,
+                    baud_restored=baud_restored,
+                    config_restored=config_restored,
+                    lifecycle_restored=lifecycle_restored,
+                    ownership_restored=ownership_restored,
+                    route_restored=route_restored,
+                    sensor_stopped=sensor_stopped,
+                    errors=tuple(cleanup_errors),
+                )
+                record_event(
+                    "complete" if primary_error is None else "cleanup_complete",
+                    cleanup=summary.as_dict()["cleanup"],
+                )
+                if summary_file is not None:
+                    summary_file.write(
+                        (json.dumps(summary.as_dict(), indent=2) + "\n").encode("utf-8")
+                    )
+                    summary_file.flush()
     finally:
-        if raw_open:
-            try:
-                session.close_raw(escape=plan.escape.encode("ascii"))
-                raw_open = False
-                parsed_restored = True
-            except Exception as exc:
-                cleanup_errors.append(f"raw close: {exc}")
-        if radar_started and session.parsed:
-            try:
-                session.send_control({"cmd": "radar", "action": "stop"})
-                radar_stopped = True
-            except Exception as exc:
-                cleanup_errors.append(f"radar stop: {exc}")
-        if client is not None:
-            try:
-                client.loop_stop()
-                client.disconnect()
-            except Exception as exc:
-                cleanup_errors.append(f"MQTT close: {exc}")
-        if output_stack is not None:
-            output_stack.close()
-        summary.cleanup = CleanupReport(
-            raw_closed=not raw_open,
-            radar_stopped=radar_stopped,
-            state_restored=parsed_restored,
-            errors=tuple(cleanup_errors),
-        )
-        summary.duration_s = max(0.0, time.monotonic() - start)
         session.close()
+
+    if primary_error is not None:
+        raise primary_error
     return summary
 
 
@@ -1305,10 +2789,14 @@ def collect_local(plan: CollectionPlan, expected_did: str | None = None, serial_
             warning = "WDR DATA is 1250000 baud; current 1000000-baud UART adapters are not lossless"
             if not plan.allow_lossy:
                 raise ValueError(warning + "; use native USB CDC, MQTT DATA, or --allow-lossy")
-            summary.warnings.append("lossy WDR UART capture explicitly allowed")
+            summary.warnings.append(
+                "lossy WDR UART capture explicitly allowed; disqualified from "
+                "lossless hardware acceptance"
+            )
         elif summary.identity.board in {"mini", "pro"} and plan.raw_baud == MAX_EXTERNAL_UART_BAUD:
             summary.warnings.append(
-                "MINI/PRO radar DATA at 921600 baud has little margin at 1000000; verify drops on hardware"
+                "MINI/PRO radar DATA at 921600 baud has only an 8.5% adapter margin at "
+                "1000000; drop counters are mandatory for acceptance"
             )
 
         outputs_set = resolve_output_set(plan, summary.identity)

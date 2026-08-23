@@ -6,20 +6,22 @@ import argparse
 import json
 import os
 import sys
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
 
 from mmwk.commands.collect import (
-    CollectCommand,
-    _MqttRawCaptureSession,
-    _build_raw_restore_args,
     _create_mqtt_client,
-    _parse_broker_endpoint,
-    _unwrap_tool_data,
 )
-from mmwk.commands.collect_engine import reserve_output_files
+from mmwk.commands.collect_engine import (
+    CollectionPlan,
+    collect_mqtt,
+    collect_reconnect_mqtt,
+    reserve_output_files,
+    resolve_mqtt_endpoint,
+)
 from mmwk.mqtt_topics import build_mqtt_topics
 from mmwk.protocol_client import create_protocol_client
 from mmwk.transport import create_transport
@@ -214,10 +216,10 @@ class _LiveCollectController:
         self.mode = mode
         self.attach = bool(attach)
         self.overwrite = bool(overwrite)
-        if self.mode == "auto" and not self.attach:
+        if self.reboot and self.attach:
+            raise ValueError("reboot collection cannot borrow an attached raw route")
+        if self.mode == "auto" and not self.attach and not self.reboot:
             raise ValueError("auto live collection requires --attach")
-        if self.mode == "auto" and self.reboot:
-            raise ValueError("auto live collection is DATA-only and cannot restart the radar")
 
         output_stem = f"{self.output_prefix}raw_data"
         self.data_output = os.path.join(self.output_dir, f"{output_stem}.sraw")
@@ -225,65 +227,32 @@ class _LiveCollectController:
 
         self.transport = None
         self.mcp = None
-        self.collector = None
-        self.client = None
-        self.capture_session = None
-        self.data_fout = None
-        self.resp_fout = None
-        self.output_stack = None
-        self.restore_raw_args = None
         self._connected = False
         self._mqtt_connected_seen = False
         self._control_ready = False
         self._raw_forwarding_enabled = False
         self._restart_requested = False
         self._closed = False
+        self._stop_event = threading.Event()
+        self._worker = None
+        self._worker_ready = threading.Event()
+        self._engine_summary = None
+        self._engine_error = None
+        self._progress_phases = set()
 
     def start(self):
+        outputs = [
+            Path(self.data_output).expanduser().resolve(),
+            Path(self.resp_output).expanduser().resolve(),
+        ]
+        if len(set(outputs)) != len(outputs):
+            raise ValueError("live collection outputs must be distinct")
+        if not self.overwrite:
+            collision = next((path for path in outputs if path.exists()), None)
+            if collision is not None:
+                raise FileExistsError(collision)
+
         Path(self.output_dir).mkdir(parents=True, exist_ok=True)
-        # Reserve output files before querying or changing the radar route.
-        # This prevents a host-owned raw session from starting with a
-        # truncated or unavailable destination.
-        self.output_stack = reserve_output_files(
-            (self.data_output, self.resp_output),
-            overwrite=self.overwrite,
-        )
-        self.data_fout = self.output_stack.handles[Path(self.data_output).expanduser().resolve()]
-        self.resp_fout = self.output_stack.handles[Path(self.resp_output).expanduser().resolve()]
-
-        hi = {}
-        raw_state = {}
-        if not (self.mode == "auto" and self.attach):
-            transport_args = SimpleNamespace(
-                transport="mqtt",
-                broker=self.broker,
-                mqtt_port=self.mqtt_port,
-                did=self.did,
-                prod=self.prod,
-                oid=self.oid,
-                cid=self.cid,
-                cmd_topic=None,
-                resp_topic=None,
-                mqtt_qos=1,
-                mqtt_delay=0.05,
-            )
-            self.transport = create_transport(transport_args)
-            self.mcp = create_protocol_client("cli", self.transport)
-            self.mcp.initialize(timeout=self.timeout)
-            self._control_ready = True
-
-            self.collector = CollectCommand(self.mcp)
-            hi = self.collector._hydrate_hi(self.collector._load_hi(timeout=self.timeout), timeout=self.timeout)
-            raw_state = self.collector._tool_json("radar", {"action": "raw"}, timeout=self.timeout)
-            self.restore_raw_args = _build_raw_restore_args(raw_state)
-            raw_cfg = _unwrap_tool_data(raw_state)
-            data_route = raw_cfg.get("data_route", raw_cfg.get("data", "off"))
-            if self.mode != "auto" and raw_cfg.get("radar") == "host" and data_route not in ("off", 0, None):
-                self.restore_raw_args = None
-                raise RuntimeError(
-                    "a host-owned raw route is already active; close it first or use --attach"
-                )
-
         default_topics = build_mqtt_topics(
             did=self.did,
             prod=self.prod,
@@ -291,76 +260,101 @@ class _LiveCollectController:
             cid=self.cid,
             include_raw_cmd=True,
         )
-        raw_cfg = _unwrap_tool_data(raw_state)
-        self.data_topic = (
-            self.data_topic
-            or raw_cfg.get("raw_data")
-            or hi.get("raw_data")
-            or default_topics["raw_data"]
-        )
+        self.data_topic = self.data_topic or default_topics["raw_data"]
         self.resp_topic = (
-            "" if self.mode == "auto" else (
-            self.resp_topic
-            or raw_cfg.get("raw_resp")
-            or hi.get("raw_resp")
-            or default_topics["raw_resp"]
-            )
+            ""
+            if self.mode == "auto" or self.reboot
+            else self.resp_topic or default_topics["raw_resp"]
         )
-
-        host, port = _parse_broker_endpoint(self.broker, self.mqtt_port)
-        self.capture_session = _MqttRawCaptureSession(
-            self.data_topic,
-            self.resp_topic,
-            self.data_fout,
-            self.resp_fout,
+        transport_args = SimpleNamespace(
+            transport="mqtt",
+            broker=self.broker,
+            mqtt_port=self.mqtt_port,
+            did=self.did,
+            prod=self.prod,
+            oid=self.oid,
+            cid=self.cid,
+            cmd_topic=None,
+            resp_topic=None,
+            mqtt_qos=1,
+            mqtt_delay=0.05,
+            mqtt_user=None,
+            mqtt_password=None,
+            mqtt_ca=None,
         )
-        self.client = _create_mqtt_client(client_id=f"mmwk_collect_live_{int(time.time())}")
-        self.capture_session.bind_client(self.client)
+        self.transport = create_transport(transport_args)
+        self.mcp = create_protocol_client("cli", self.transport)
+        self.mcp.initialize(timeout=self.timeout)
+        self._control_ready = True
 
-        original_on_connect = self.client.on_connect
-
-        def on_connect(client, userdata, flags, rc):
-            self._connected = rc == 0
-            if self._connected:
+        def progress(phase: str, details: dict):
+            self._progress_phases.add(phase)
+            if phase == "mqtt_ready":
+                self._connected = True
                 self._mqtt_connected_seen = True
-            if original_on_connect is not None:
-                original_on_connect(client, userdata, flags, rc)
+                self._worker_ready.set()
+            elif phase == "reconnect_armed":
+                self._restart_requested = True
+                self._raw_forwarding_enabled = True
+            elif phase == "control" and details.get("service") == "radar":
+                self._raw_forwarding_enabled = True
 
-        def on_disconnect(client, userdata, rc):
-            self._connected = False
+        def worker():
+            try:
+                plan = CollectionPlan(
+                    transport="mqtt",
+                    mode="auto" if self.reboot else self.mode,
+                    duration=2_147_483_647,
+                    data_output=self.data_output,
+                    resp_output=self.resp_output,
+                    attach=self.attach,
+                    overwrite=self.overwrite,
+                    data_ready_timeout=self.timeout,
+                    control_timeout=self.timeout,
+                )
+                collect_fn = collect_reconnect_mqtt if self.reboot else collect_mqtt
+                collect_kwargs = {
+                    "control": self.mcp,
+                    "broker": self.broker,
+                    "mqtt_port": self.mqtt_port,
+                    "expected_did": self.did,
+                    "data_topic": self.data_topic,
+                    "prod": self.prod,
+                    "oid": self.oid,
+                    "cid": self.cid,
+                    "client_factory": _create_mqtt_client,
+                    "stop_event": self._stop_event,
+                    "progress_callback": progress,
+                }
+                if not self.reboot:
+                    collect_kwargs["resp_topic"] = self.resp_topic
+                self._engine_summary = collect_fn(plan, **collect_kwargs)
+            except BaseException as exc:
+                self._engine_error = exc
+            finally:
+                self._worker_ready.set()
+                if self.transport is not None:
+                    try:
+                        self.transport.close()
+                    except Exception:
+                        pass
 
-        self.client.on_connect = on_connect
-        self.client.on_disconnect = on_disconnect
-        self.client.connect(host, port, 60)
-        self.client.loop_start()
-
-        wait_deadline = time.time() + max(self.timeout, 5.0)
-        while not self.capture_session.subscribed.is_set() and time.time() < wait_deadline:
-            if self.capture_session.connect_error["rc"] is not None:
-                raise RuntimeError(f"MQTT connect failed with rc={self.capture_session.connect_error['rc']}")
-            if self.capture_session.subscribe_error["message"] is not None:
-                raise RuntimeError(self.capture_session.subscribe_error["message"])
-            time.sleep(0.1)
-
-        if not self.capture_session.subscribed.is_set():
-            raise TimeoutError("Timed out waiting for MQTT subscribe-ready state")
-
-        if not (self.mode == "auto" and self.attach):
-            self.mcp.call_tool(
-                "radar",
-                {"action": "raw", "mode": "runtime", "channel": "mqtt"},
-                timeout=self.timeout,
-            )
-            self._raw_forwarding_enabled = True
-        if self.reboot and self.mode != "auto":
-            self.mcp.call_tool(
-                "radar",
-                {"action": "start"},
-                timeout=self.timeout,
-            )
-            self._restart_requested = True
+        self._worker = threading.Thread(
+            target=worker,
+            name=f"mmwk-collect-live-{self.did}",
+            daemon=True,
+        )
+        self._worker.start()
+        self._worker_ready.wait(max(self.timeout, 0.1))
+        if self._engine_error is not None:
+            raise self._engine_error
+        if not self._worker_ready.is_set():
+            self._stop_event.set()
+            raise TimeoutError("live collector did not reach MQTT-ready state")
 
     def poll(self, state_printer: CollectStatePrinter):
+        if self._engine_error is not None:
+            raise self._engine_error
         if self._mqtt_connected_seen:
             state_printer.mark("mqtt connected")
         if self._control_ready:
@@ -369,75 +363,48 @@ class _LiveCollectController:
             state_printer.mark("raw forwarding enabled")
         if self._restart_requested:
             state_printer.mark("radar restart requested")
-        if self.capture_session and self.capture_session.stats["resp_messages"] > 0:
+        if "raw_cmd" in self._progress_phases:
             state_printer.mark("command traffic seen")
-        if self.capture_session and self.capture_session.stats["data_messages"] > 0:
+        if "data_ready" in self._progress_phases:
             state_printer.mark("raw data seen")
         if self._mqtt_connected_seen:
             state_printer.update_device_connected(self._connected)
 
     def stop(self) -> dict:
         if self._closed:
-            return self._summary_dict(interrupted=False, error="")
+            return self._summary_dict(interrupted=False, error=str(self._engine_error or ""))
         self._closed = True
-
-        if self.client is not None:
-            try:
-                self.client.loop_stop()
-            except Exception:
-                pass
-            try:
-                self.client.disconnect()
-            except Exception:
-                pass
-
-        if self.mcp is not None and self.restore_raw_args is not None:
-            try:
-                self.mcp.call_tool("radar", self.restore_raw_args, timeout=self.timeout)
-            except Exception:
-                pass
-
-        if self.transport is not None:
-            try:
-                self.transport.close()
-            except Exception:
-                pass
-
-        if self.data_fout is not None:
-            self.data_fout.close()
-            self.data_fout = None
-        if self.resp_fout is not None:
-            self.resp_fout = None
-        if self.output_stack is not None:
-            self.output_stack.close()
-            self.output_stack = None
-
+        self._stop_event.set()
+        if self._worker is not None:
+            self._worker.join(max(self.timeout + 5.0, 5.0))
+            if self._worker.is_alive():
+                raise TimeoutError("shared live collector did not finish cleanup")
+        if self._engine_error is not None:
+            return self._summary_dict(interrupted=False, error=str(self._engine_error))
         return self._summary_dict(interrupted=False, error="")
 
     def _summary_dict(self, *, interrupted: bool, error: str) -> dict:
-        stats = self.capture_session.stats if self.capture_session is not None else {
-            "data_messages": 0,
-            "data_bytes": 0,
-            "resp_messages": 0,
-            "resp_bytes": 0,
-        }
+        engine = self._engine_summary
+        data_bytes = int(engine.data_bytes) if engine is not None else 0
+        resp_bytes = int(engine.response_bytes) if engine is not None else 0
+        endpoint = resolve_mqtt_endpoint(self.broker, self.mqtt_port)
         summary = CollectSummary(
             did=self.did,
             prod=self.prod,
             oid=self.oid,
             cid=self.cid,
-            broker=self.broker,
-            mqtt_port=self.mqtt_port,
+            broker=f"{'mqtts' if endpoint.tls else 'mqtt'}://{endpoint.host}",
+            mqtt_port=endpoint.port,
             data_topic=self.data_topic or "",
             resp_topic=self.resp_topic or "",
             data_output=self.data_output,
             resp_output=self.resp_output,
-            data_messages=int(stats.get("data_messages", 0)),
-            data_bytes=int(stats.get("data_bytes", 0)),
-            resp_messages=int(stats.get("resp_messages", 0)),
-            resp_bytes=int(stats.get("resp_bytes", 0)),
-            raw_data_seen=bool(stats.get("data_messages", 0) > 0),
-            command_traffic_seen=bool(stats.get("resp_messages", 0) > 0),
+            data_messages=1 if data_bytes else 0,
+            data_bytes=data_bytes,
+            resp_messages=1 if resp_bytes else 0,
+            resp_bytes=resp_bytes,
+            raw_data_seen=bool(data_bytes > 0),
+            command_traffic_seen=bool(resp_bytes > 0),
             interrupted=interrupted,
             error=error,
         )
@@ -467,7 +434,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--reboot",
         action="store_true",
-        help="Restart the radar service after subscribe-ready bootstrap so startup raw_resp is captured",
+        help="Subscribe, arm one-shot reconnect raw, reboot the device, and capture that generation",
     )
     return parser
 

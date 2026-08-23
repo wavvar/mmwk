@@ -18,10 +18,8 @@ from mmwk.commands.device_ota import DeviceOtaCommand
 from mmwk.commands.collect import CollectCommand
 from mmwk.commands.collect_engine import (
     CollectionPlan,
-    LiveIdentity,
     collect_local,
     collect_split_wire_mqtt,
-    resolve_output_set,
 )
 from mmwk.commands.cfg import CfgCommand
 
@@ -1019,6 +1017,9 @@ def cmd_collect(args):
                     prod=args.prod,
                     oid=args.oid,
                     cid=args.cid,
+                    mqtt_username=getattr(args, "mqtt_user", "") or "",
+                    mqtt_password=getattr(args, "mqtt_password", "") or "",
+                    mqtt_ca=getattr(args, "mqtt_ca", None),
                 )
             else:
                 summary = collect_local(plan, expected_did=args.did)
@@ -1032,22 +1033,10 @@ def cmd_collect(args):
     mcp = None
 
     try:
-        if args.data_output is None and args.resp_output is None:
-            fallback_identity = LiveIdentity((args.did or "unresolved").strip().lower())
-            fallback_plan = CollectionPlan(
-                transport="mqtt",
-                mode=mode,
-                duration=args.duration,
-                data_output=None,
-                resp_output=None,
-            )
-            fallback_outputs = resolve_output_set(fallback_plan, fallback_identity)
-            args.data_output = str(fallback_outputs.data)
-            args.resp_output = str(fallback_outputs.response)
-        if args.port:
-            transport = _cli_create_transport(args)
-            mcp = McpClient(transport)
-            mcp.initialize(timeout=args.timeout)
+        args.transport = "mqtt"
+        transport = _cli_create_transport(args)
+        mcp = McpClient(transport)
+        mcp.initialize(timeout=args.timeout)
 
         collector = CollectCommand(mcp)
         ok = collector.execute(
@@ -1067,6 +1056,13 @@ def cmd_collect(args):
             attach=getattr(args, "attach", False),
             overwrite=getattr(args, "overwrite", False),
             timeout=args.timeout,
+            cfg_path=getattr(args, "cfg", None),
+            summary_output=summary_output,
+            events_output=getattr(args, "events_output", None),
+            wire_output=getattr(args, "wire_output", None),
+            mqtt_username=getattr(args, "mqtt_user", "") or "",
+            mqtt_password=getattr(args, "mqtt_password", "") or "",
+            mqtt_ca=getattr(args, "mqtt_ca", None),
         )
         sys.exit(0 if ok else 1)
     finally:
@@ -1697,7 +1693,7 @@ def main():
     collect_parser.add_argument("--allow-lossy", action="store_true",
                                 help="Allow explicitly lossy local UART capture (never claims lossless output)")
     collect_parser.add_argument("--wire-output",
-                                help="Optional complete merged wire audit output")
+                                help="Optional complete merged raw-wire audit output")
     collect_parser.add_argument("--events-output",
                                 help="Optional JSON-lines phase and cleanup event log")
     collect_parser.add_argument("--overwrite", action="store_true",
@@ -1709,8 +1705,7 @@ def main():
     collect_parser.add_argument(
         "--data-output",
         default=None,
-        help=("Output file for raw DATA payloads; local host captures the merged raw wire, "
-              "while auto/split MQTT captures DATA-only payloads "
+        help=("Output file for validated radar DATA bytes; MQTT and split routes are DATA-only "
               "(default: collections/<did>/<timestamp>/radar.sraw)"),
     )
     collect_parser.add_argument(
@@ -1724,14 +1719,20 @@ def main():
         "--resp-optional",
         action="store_true",
         help=(
-            "Allow late-attach collect to succeed when no raw_resp payload is captured during "
-            "this window; do not use for startup/welcome proof"
+            "Compatibility flag accepted only with --attach; borrowed auto DATA never requires "
+            "a raw/resp topic"
         ),
     )
     collect_parser.add_argument("--broker",
                                 help="MQTT broker URI/host for collection (e.g. mqtt://127.0.0.1:1883)")
     collect_parser.add_argument("--mqtt-port", type=int, default=1883,
                                 help="MQTT broker port (default: 1883)")
+    collect_parser.add_argument("--mqtt-user",
+                                help="MQTT username (defaults to broker URI/device profile)")
+    collect_parser.add_argument("--mqtt-password",
+                                help="MQTT password (never written to summaries or event logs)")
+    collect_parser.add_argument("--mqtt-ca",
+                                help="CA certificate path for mqtts:// broker verification")
     collect_parser.add_argument("--did",
                                 help="DID for MQTT route fallback")
     collect_parser.add_argument("--prod", default="mmwk",

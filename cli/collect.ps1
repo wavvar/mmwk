@@ -61,11 +61,29 @@ for ($i = 0; $i -lt $Args.Length; $i++) {
         $directMode = $true
         continue
     }
+    if ($arg -eq "--broker" -or $arg.StartsWith("--broker=")) {
+        $hasBroker = $true
+    }
     if ($arg -eq "--transport" -or $arg.StartsWith("--transport=") -or
         $arg -eq "--port" -or $arg.StartsWith("--port=") -or
         $arg -eq "--raw-baud" -or $arg.StartsWith("--raw-baud=") -or
         $arg -eq "--ctrl-transport" -or $arg.StartsWith("--ctrl-transport=") -or
         $arg -eq "--data-transport" -or $arg.StartsWith("--data-transport=")) {
+        $localEngineMode = $true
+        continue
+    }
+    if ($arg -eq "--broker" -or $arg.StartsWith("--broker=") -or
+        $arg -eq "--mqtt-port" -or $arg.StartsWith("--mqtt-port=") -or
+        $arg -eq "--mqtt-user" -or $arg.StartsWith("--mqtt-user=") -or
+        $arg -eq "--mqtt-password" -or $arg.StartsWith("--mqtt-password=") -or
+        $arg -eq "--mqtt-ca" -or $arg.StartsWith("--mqtt-ca=") -or
+        $arg -eq "--cfg" -or $arg.StartsWith("--cfg=") -or
+        $arg -eq "--data-output" -or $arg.StartsWith("--data-output=") -or
+        $arg -eq "--resp-output" -or $arg.StartsWith("--resp-output=") -or
+        $arg -eq "--wire-output" -or $arg.StartsWith("--wire-output=") -or
+        $arg -eq "--summary-output" -or $arg.StartsWith("--summary-output=") -or
+        $arg -eq "--events-output" -or $arg.StartsWith("--events-output=") -or
+        $arg -eq "--allow-lossy" -or $arg -eq "--overwrite") {
         $localEngineMode = $true
         continue
     }
@@ -108,7 +126,7 @@ if ($directMode) {
 
 if ($localEngineMode -or (($Args -contains "--help") -or ($Args -contains "-h"))) {
     Set-Location $invokePwd
-    & $python -m mmwk @Args
+    & $python -m mmwk collect @Args
     exit $LASTEXITCODE
 }
 
