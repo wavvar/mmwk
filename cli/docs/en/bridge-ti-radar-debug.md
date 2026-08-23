@@ -65,6 +65,7 @@ The engine verifies identity before mutation, reserves outputs, subscribes
 before opening MQTT DATA, and reports route/config/running/ownership cleanup
 separately. A normal run rejects a pre-existing host raw route; `--attach`
 borrows an existing application DATA route and performs no lifecycle mutation.
+The application, not the attach command, must create that auto route first.
 
 For the full QoS, topic ACL, reconnect, output, cleanup, and baud contract see
 [Radar DATA collection](data-collection.md). Build/test output is software

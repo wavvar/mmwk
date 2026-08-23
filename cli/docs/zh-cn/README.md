@@ -200,57 +200,20 @@ SDK 硬件验收同样保持显式选择：PRO 设备或带 4G 的 WDR 设备测
 
 只有在手动 override 或排障时，才需要重新执行 `radar raw runtime --channel mqtt`；应用层 auto 模式只输出 DATA。
 
-### 5. 采集并验证数据
+### 5. 选择数据采集路径
 
-```bash
-./run.sh collect --transport uart --port /dev/cu.usbserial-0001 --duration 12 \
-  --data-output ./data_resp.sraw \
-  --resp-output ./cmd_resp.log
-```
+| 场景 | 命令形状 |
+| --- | --- |
+| MINI/PRO UART | `./run.sh collect --transport uart --port PORT --duration 30` |
+| WDR 原生 USB | `./run.sh collect --transport usb --port PORT --duration 30` |
+| 远程 MQTT | `./run.sh collect --transport mqtt --broker URI --did DID` |
+| wire/MQTT split | `./run.sh collect --ctrl-transport uart --data-transport mqtt --port PORT --broker URI --did DID` |
+| 应用自有 DATA | `./run.sh collect --transport mqtt --mode auto --attach --broker URI --did DID` |
 
-本机 host 模式下，`data_resp.sraw` 是合并后的原始线流（命令响应和 DATA 块），
-`cmd_resp.log` 保存 parsed 的启动/关闭确认。WDR 原生 CDC 使用
-`--transport usb`；如果希望本地线只发命令、MQTT 承载高速 DATA，使用
-`--ctrl-transport uart --data-transport mqtt`。
-
-远程 host 采集使用 `--transport mqtt --broker ... --did ...`；应用层已经打开
-MQTT raw 时，使用 `--transport mqtt --mode auto --attach`，此时只订阅 DATA，
-不会发送雷达命令。
-
-在 `radar fw flash`、`radar fw ota`、`radar config apply` 或 factory/baseline
-恢复后的第一次上电后，先等待 `radar status = running`，再做远程 MQTT late-attach。
-具体的模式选择、成功标准和清理状态见独立采集指南。
-
-如果你要拿到 OTA/config 阶段本身的 welcome、cfg 逐行回应和后续命令口输出，不要等 OTA 结束后再跑 `collect`，而是直接在 `radar fw ota` 时开启 raw capture：
-
-```bash
-./run.sh radar fw ota --fw ./radar.bin --cfg ./radar.cfg \
-  --raw-resp-output ./ota_cmd_resp.log \
-  -p /dev/cu.usbserial-0001
-```
-
-这种模式会在 OTA 命令发送前先订阅 `raw_resp`，因此 welcome、cfg 回显和后续命令口输出都会进入同一轮采集。
-
-如果雷达其实已经稳定运行了一段时间，而你只是想在后面再接入做稳态观察，可以在纯 MQTT 的 `collect` 调用里加上 `--resp-optional`。这种 late-attach 模式不会为了逼出启动文本而重启雷达，所以不能拿来当启动/welcome 证明。
-
-### 外挂工具
-
-`collect` 仍然是官方命令。下面这些 helper 都挂在主 CLI wrapper 之外，工作目录应为 `cli` 目录。POSIX 示例使用 `*.sh`；Windows PowerShell 下使用可用的同名 `*.ps1` wrapper，具体差异见 [主机平台入口](#主机平台入口)。
-
-- [Radar Task Tools](radar-task-tools.md)：当你想直接走任务级工作流时，使用 `./config.sh init|update|list` 与 `./collect.sh` 完成基于注册表的 UART 配置、网络更新和 MQTT raw 采集。
-- [通过 Bridge 开发雷达](bridge-ti-radar-debug.md)：面向 6843 和 6432 的端到端 bridge 开发说明，包含 `config.sh init|update|list` 与 `collect.sh` 的使用顺序。
-- [配置助手](config.md)：当你需要通过 UART 或现有 MQTT 控制链路下发 Wi-Fi / MQTT 设置时，使用 `./config.sh set`；需要通过 mDNS 查找设备 `did` 时，使用 `./config.sh search`。
-- [采集触发助手](collect-trigger.md)：当你明确需要控制面与 raw 采集都只走 pure MQTT 时，使用 `./collect.sh --trigger ...`。
-
-不要把这些 helper 当成严格启动期 `collect -p` 路径的替代品。
-
-最小通过标准：
-
-- `Resp topic frames > 0`
-- `Data topic frames > 0`
-- `data_resp.sraw` 非空
-- `cmd_resp.log` 非空
-- `cmd_resp.log` 从第一个 printable ASCII 字节开始，用户看到的是启动 trim 后的命令口文本
+身份校验、默认输出、DATA magic 成功标准、QoS/ACL、attach 安全、速率限制和清理
+详见独立的[雷达 DATA 采集指南](./data-collection.md)。本机 UART/USB 不需要网络。
+注册表辅助流程见 [Radar Task Tools](radar-task-tools.md)，一次性重连采集见
+[采集触发助手](collect-trigger.md)。
 
 ---
 
@@ -282,8 +245,8 @@ canonical topic 示例：
 - 内置控制面订阅 `{prod}/{oid}/{cid-or-did}/device/cmd`，并发布到 `{prod}/{oid}/{cid-or-did}/device/resp`
 - auto 模式只发布 `{prod}/{oid}/{cid-or-did}/raw/data`；host 模式按路由选择发布 `raw/data`、`raw/resp`，并可接收 `raw/cmd`
 - 公开的 `radar raw` 命令族负责透传路由，`radar record` 负责录制器状态/配置和录制触发；`collect` / `collect.sh --trigger` 负责订阅 MQTT raw topic
-- MQTT `raw/data` 只有 DATA。由于本机 host 物理线没有命令/数据分帧，`.sraw`
-  是合并线流；`data=mqtt` 双通道和 auto MQTT 才是纯 DATA 文件。
+- MQTT `raw/data` 只有 DATA。本机 host 采集按阶段切分，使 `radar.sraw` 从 DATA
+  magic 开始；只有可选 `--wire-output` 是没有分隔符的合并 raw 传输审计。
 - `raw/cmd` 是 host 模式可选的雷达命令入口，与 CLI JSON 的
   `{prod}/{oid}/{cid-or-did}/device/cmd` 不同。
 - `on_cmd_resp`、`on_radar_frame` 属于应用层回调，与 raw capture 不同
@@ -497,7 +460,7 @@ download`）仍使用 UART/MQTT；`collect` 支持 UART/USB 本机 host、远程
 ./run.sh radar record start --uri http://192.168.1.100:8080/upload -p /dev/cu.usbserial-0001
 ./run.sh radar record stop -p /dev/cu.usbserial-0001
 ./run.sh radar record trigger --event MANUAL --duration-s 10 -p /dev/cu.usbserial-0001
-./run.sh collect --duration 12 --data-output ./data_resp.sraw --resp-output ./cmd_resp.log -p /dev/cu.usbserial-0001
+./run.sh collect --transport uart --port /dev/cu.usbserial-0001 --duration 12
 
 # --- Endpoints ---
 ./run.sh endpoint list -p /dev/cu.usbserial-0001
@@ -516,7 +479,7 @@ download`）仍使用 UART/MQTT；`collect` 支持 UART/USB 本机 host、远程
 ./run.sh network mqtt --uri mqtt://broker.local -p /dev/cu.usbserial-0001
 ./run.sh network prov --enable -p /dev/cu.usbserial-0001
 ./run.sh network status -p /dev/cu.usbserial-0001
-./run.sh collect --duration 12 --data-output ./data_resp.sraw --resp-output ./cmd_resp.log -p /dev/cu.usbserial-0001
+./run.sh collect --transport uart --port /dev/cu.usbserial-0001 --duration 12
 ```
 
 ---
@@ -738,52 +701,20 @@ ERC 是一种二进制 whole-OTA 格式：前缀为 32-byte v1 或 256-byte v2 �
 
 ## 数据采集流程
 
-### 方法 A：`collect`
+`collect` 是唯一采集入口。按场景选择后，继续阅读独立的
+[雷达 DATA 采集指南](./data-collection.md)：
 
-`collect` 先按参数选择采集路径：本机 host 使用 UART/USB，远程 host 使用
-MQTT，应用层 auto 使用 `--mode auto --attach` 订阅 MQTT DATA。不要把本机
-host 的线流文件当成已经分帧的 DATA 文件；需要纯 DATA 时使用 auto MQTT 或
-`ctrl=wire,data=mqtt`。
+| 场景 | 命令形状 |
+| --- | --- |
+| MINI/PRO UART | `./run.sh collect --transport uart --port PORT --duration 30` |
+| WDR 原生 USB | `./run.sh collect --transport usb --port PORT --duration 30` |
+| 远程 MQTT | `./run.sh collect --transport mqtt --broker URI --did DID` |
+| wire/MQTT split | `./run.sh collect --ctrl-transport uart --data-transport mqtt --port PORT --broker URI --did DID` |
+| 应用自有 DATA | `./run.sh collect --transport mqtt --mode auto --attach --broker URI --did DID` |
 
-```bash
-./run.sh collect --transport uart --port /dev/cu.usbserial-0001 --duration 12 \
-  --data-output ./data_resp.sraw \
-  --resp-output ./cmd_resp.log
-```
-
-清理阶段应确认 raw 路由已关闭并恢复 parsed 控制；对远程 MQTT late-attach，
-还应先确认 `radar status` 已返回 `running`。
-
-### 方法 B：手工订阅 MQTT
-
-```bash
-./run.sh network wifi --ssid YOUR_SSID --pass YOUR_PASSWORD -p /dev/cu.usbserial-0001
-./run.sh network mqtt --uri mqtt://192.168.1.100:1883 -p /dev/cu.usbserial-0001
-./run.sh node reboot -p /dev/cu.usbserial-0001
-```
-
-对于 fresh bridge，上述流程就足以建立 MQTT 控制。采集期间显式打开 `radar raw` 路由即可；它是运行期状态，不是持久化 agent 开关。
-
-```bash
-mosquitto_sub -h 192.168.1.100 -t 'mmwk/#' -v
-```
-
-### 方法 C：设备侧录制
-
-```bash
-./run.sh radar record start --uri http://192.168.1.100:8080/upload -p /dev/cu.usbserial-0001
-./run.sh radar record trigger --event MANUAL --duration-s 10 -p /dev/cu.usbserial-0001
-./run.sh radar record stop -p /dev/cu.usbserial-0001
-```
-
-### Radar Raw 录制器
-
-```bash
-./run.sh radar record status -p /dev/cu.usbserial-0001
-./run.sh radar record config get -p /dev/cu.usbserial-0001
-./run.sh radar record config set --json '{"auto_upload": true, "max_duration_sec": 30}' -p /dev/cu.usbserial-0001
-./run.sh radar record trigger --event MANUAL --duration-s 10 -p /dev/cu.usbserial-0001
-```
+`run.ps1`、`collect.sh`、`collect.ps1` 转发相同选项。独立指南说明身份、QoS、
+输出、速率、attach 和清理。设备侧 `radar record` 与 raw 采集相互独立；其命令见
+[Radar Task Tools](radar-task-tools.md)。
 
 ---
 

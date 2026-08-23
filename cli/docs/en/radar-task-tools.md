@@ -125,6 +125,9 @@ MQTT window after the device has been registered:
   --duration 10 --data-output ./data.sraw --resp-output ./resp.log
 ```
 
+The application must already own the radar and expose the auto MQTT DATA route;
+attach observes it and does not create it.
+
 For host-owned MQTT collection, omit `--mode auto --attach` and use
 `--transport mqtt`; for attached UART/USB or split collection, see the
 [Radar DATA collection guide](data-collection.md). The shared engine reserves

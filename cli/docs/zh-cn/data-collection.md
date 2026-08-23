@@ -1,169 +1,178 @@
 # 雷达 DATA 采集
 
-这是一份面向用户的雷达字节采集指南。先按雷达所在位置选择路径：
+先按设备位置和雷达所有者选择工作流：
 
-1. **本机 host：** MINI/PRO 用 UART，WDR 用原生 USB CDC；
-2. **远程设备：** MQTT host；
-3. **混合链路：** 本地 UART/USB 发控制，MQTT 承载 DATA；
-4. **应用自有：** attach 到已经存在的 MQTT DATA，不接管所有权。
+| 场景 | 使用路径 |
+| --- | --- |
+| MINI/PRO 直连本机 | host UART；不需要网络 |
+| WDR 直连本机 | host 原生 USB CDC；不需要网络 |
+| 远程设备 | host MQTT |
+| 本地控制、远程 DATA | split `ctrl=wire,data=mqtt` |
+| 应用已经拥有雷达 | MQTT DATA-only `--mode auto --attach` |
 
-四条路径共用同一个 `collect` 引擎。POSIX 入口是 `./run.sh`，Windows
-PowerShell 使用 `./run.ps1`；`collect.sh` 与 `collect.ps1` 转发相同采集参数。
-可选的 `collect.sh --trigger` 是高级纯 MQTT 重连流程。
+所有路径共用同一个采集引擎。POSIX 使用 `./run.sh` 或 `./collect.sh`；
+Windows PowerShell 使用 `./run.ps1` 或 `./collect.ps1`，核心参数相同。
 
-## 本机 host：最短路径
+## 1. MINI/PRO 本机 UART
 
-MINI/PRO 通常先用 115200 的 parsed 控制 UART，再把 raw DATA UART 切到
-1000000：
+这是 MINI/PRO 最简单的工作流。parsed 控制 UART 从 115200 开始，raw DATA
+最高使用 1000000：
 
 ```bash
 ./run.sh collect --transport uart --port /dev/ttyUSB0 \
-  --raw-baud 1000000 --duration 30 \
-  --data-output ./radar.sraw --resp-output ./radar-cmd.log
+  --raw-baud 1000000 --duration 30
 ```
 
-Windows 使用 `./run.ps1` 和实际 `COM` 端口。采集器先读取实时身份（优先
-`did`，旧固件依次回退 `id`、`client_id`），统一转小写，并在改变设备状态前
-校验 `--did`。显式 `--cfg` 会在接管前读取；summary 用 `config_source` 记录来源，
-采集器不会把显式配置持久化。
+Windows 下命令形状相同：
 
-本机流程是 parsed 控制、host start、打开 raw、可选 cfg、`sensorStart`、采集
-DATA、`sensorStop`、转义和恢复。已有 host raw 路由时，普通采集会在修改设备前
-拒绝，不会关闭别的客户端路由；如果要替换运行中的 host 会话，必须先有完整可
-恢复的配置/生命周期快照。清理结果分别报告 raw 关闭、radar stop、parsed/config
-恢复、所有权恢复和路由恢复。第一次 `Ctrl-C` 执行同样清理；第二次中断打印带
-1 秒保护时间的转义恢复序列后退出。
+```powershell
+.\run.ps1 collect --transport uart --port COM5 --raw-baud 1000000 --duration 30
+```
 
-本机物理线是合并字节流，不提供命令/DATA 分帧：`radar.sraw` 可能在 DATA 前后
-包含 parsed 命令响应；命令日志保存 parsed 的启动/关闭确认。要得到纯 DATA 文件，
-请使用 split 或 MQTT DATA。
+本机 UART 采集不会配置或等待 Wi-Fi/MQTT。修改设备前，采集器读取 `node info`，
+优先使用 `did`，旧固件依次回退 `id`、`client_id`，统一转为小写，并校验可选的
+`--did`。身份不一致时，不打开输出，也不修改设备。
 
-## WDR 原生 USB
+采集器会快照 raw 路由、所有权、running 状态和当前雷达 cfg。传 `--cfg FILE`
+可仅为本次采集换用另一份 cfg；它在接管前校验，不会持久化，summary 的
+`config_source` 记录其路径。不传时来源为 `device:radar.config`。
 
-原生 USB CDC 没有物理 raw 波特率，不要传 `--raw-baud`：
+## 2. WDR 本机原生 USB
+
+WDR DATA 是 1250000 baud，因此原生 USB CDC 是本机无损路径：
 
 ```bash
-./run.sh collect --transport usb --port /dev/ttyACM0 --duration 30 \
-  --data-output ./wdr.sraw --resp-output ./wdr-cmd.log
+./run.sh collect --transport usb --port /dev/ttyACM0 --duration 30
 ```
 
-请依据 `node info` 返回的设备身份选择 WDR，不要依据 `/dev/tty*` 名称猜板型。
-只有在本次生成的固件已刷入、实时身份已核对并运行对应套件后，USB 结果才算硬件
-证据。
+原生 USB 没有物理 raw 波特率，不要传 `--raw-baud`。依据实时 `node info`
+身份选择板卡，不要根据 `/dev/tty*` 名称或 USB 描述符猜测板型。
 
-## 远程 MQTT host
+## 3. 远程 MQTT host 采集
 
-设备不在本机时使用 MQTT。host 模式在采集窗口内拥有雷达生命周期：
+设备没有直连本机时使用 MQTT：
 
 ```bash
-./run.sh collect --transport mqtt --broker mqtt://broker.example:1883 \
-  --did DEVICE_ID --duration 30 \
-  --data-output ./remote.sraw --resp-output ./remote-cmd.log
+./run.sh collect --transport mqtt \
+  --broker mqtt://broker.example:1883 --did DEVICE_ID --duration 30
 ```
 
-host MQTT 的命令和 parsed 确认在 `raw/cmd`、`raw/resp` 上使用 QoS 1；高速
-DATA 在 `raw/data` 上使用 QoS 0 且关闭 retain。MQTT 不保证跨 topic 顺序，客户端
-必须按生命周期阶段关联响应，容忍 QoS 1 重复，不能因为某 topic 后发布就假定它
-一定在另一 topic 后到达。协议没有 owner token，多个写入者可以共享服务 FIFO，
-所以每个客户端要自行关联响应。
+使用带鉴权的 TLS 时：
 
-账号、broker 密码、设备 key 和证书内容不会写进 summary 或事件日志。ACL 只授予
-需要的 `raw/cmd`、`raw/resp`、`raw/data` topic。
+```bash
+./run.sh collect --transport mqtt \
+  --broker mqtts://broker.example:8883 --mqtt-user USER \
+  --mqtt-password PASSWORD --mqtt-ca ./broker-ca.pem \
+  --did DEVICE_ID --duration 30
+```
 
-## 混合 split：`ctrl=wire,data=mqtt`
+host MQTT 在 `raw/cmd` 以 QoS 1 发送命令，在 `raw/resp` 以 QoS 1 接收响应，
+高速 DATA 通过 `raw/data` QoS 0。发布一律 retain=false；收到的 retained raw
+消息会被忽略。QoS 0 DATA 不设置离线 outbox。
 
-本地 UART 无法承载雷达 DATA 速率时，把控制留在本地、DATA 发往 MQTT：
+MQTT 不保证不同 topic 之间的顺序。采集器按协议阶段关联响应，保留重复的 QoS 1
+响应字节用于审计，但重复消息不会让同一阶段推进两次。raw 服务没有 owner token，
+多个写入者可共享 FIFO，因此每个客户端都必须串行化自己的命令并关联自己的响应。
+
+Broker ACL 只开放需要的 `raw/cmd`、`raw/resp`、`raw/data` topic。broker 密码、
+MQTT 凭据、设备 key 和证书内容不会写入 summary 或事件日志。
+
+## 4. 有线控制与 MQTT DATA split
+
+本地 UART 便于发命令，但不应承载高速 DATA 时使用 split：
 
 ```bash
 ./run.sh collect --ctrl-transport uart --data-transport mqtt \
   --port /dev/ttyUSB0 --broker mqtt://broker.example:1883 \
-  --did DEVICE_ID --duration 30 \
-  --data-output ./split.sraw --resp-output ./split-cmd.log
+  --did DEVICE_ID --duration 30
 ```
 
-采集器会在修改设备前校验两条链路的 DID，先订阅 MQTT 再打开 raw，并保证 DATA
-不走有线 UART。显式 split 与 `channel=both` 不同；`both` 是向两个物理适配器
-广播，不能解释成 split。
+采集器在修改设备前核对实时 wire 身份和 MQTT topic 身份，并先订阅 DATA，再打开
+raw。命令和响应留在 wire，DATA 不进入该 wire，而是从 MQTT 写入文件。显式 split
+不等于 `channel=both`；`both` 会把所选平面广播到两个适配器。
 
-## 应用自有 DATA 与安全 attach
+raw 与 parsed 只在同一物理通道上互斥。另一条 UART、原生 USB 或 MQTT 控制通道
+仍可保持 parsed，同时让其他通道运行 raw。
 
-应用可以提供只读的 MQTT DATA 路由：
+## 5. 应用自有 DATA 与重连采集
+
+应用自有 auto 模式只有 MQTT DATA。应用固件必须已经拥有雷达并提供活动的 MQTT
+DATA 路由；下面的 host 命令不会创建该路由：
 
 ```bash
-./run.sh radar raw runtime --channel mqtt \
-  --transport mqtt --did DEVICE_ID
 ./run.sh collect --transport mqtt --mode auto --attach \
   --broker mqtt://broker.example:1883 --did DEVICE_ID --duration 30
 ```
 
-`--attach` 要求请求的 DATA 路由已经存在。它会标记路由为 borrowed，不改变所有权，
-不发送 cfg，不 start/stop radar，不关闭其他所有者的路由，也不恢复自己没有修改的
-状态。auto 只接收 DATA，不等待命令或 parsed 响应；路由不存在时会在修改前失败。
+`--attach` 把路由标记为 borrowed。它不改变所有权、不发送 cfg、不 start/stop
+雷达、不关闭路由，也不恢复自己未修改的状态。路由不存在或所有权不匹配时，会在
+修改前失败。高级场景也可用 `--mode host --attach` 观察已有 host MQTT DATA
+路由，仍遵守相同的非所有者规则。
 
-若要在下一次 MQTT 重连后只采集一次：
-
-```bash
-./run.sh radar raw reconnect --channel mqtt \
-  --transport mqtt --did DEVICE_ID
-```
-
-应先订阅，再 arm，并等待结构化确认后再重启。单次 arm 会被下一代 MQTT 连接消费；
-第二次重启不会自动重新开始，除非再次 arm。
-
-## Raw 路由控制
-
-统一 radar 工具有两个并列 action：`raw` 与 `record`。
+跨设备重启只采集一次时，使用 reconnect helper。它先订阅，再 arm
+`mode=reconnect`，要求收到结构化确认，然后重启，并等待该 arm 在新的设备代际中
+变成 runtime 路由：
 
 ```bash
-./run.sh radar raw status -p /dev/ttyUSB0
-./run.sh radar raw runtime --channel wire --baud 1000000 --escape +++ -p /dev/ttyUSB0
-./run.sh radar raw runtime --ctrl wire --data mqtt --escape +++ \
-  --transport uart --port /dev/ttyUSB0 --broker mqtt://broker.example:1883 \
-  --did DEVICE_ID
-./run.sh radar raw off --channel both --transport mqtt --did DEVICE_ID
+./collect.sh --trigger device-reboot \
+  --broker mqtt://broker.example:1883 --did DEVICE_ID --duration 30
 ```
 
-同一物理通道上的 raw 与 parsed 互斥；另一条 parsed 控制链路仍可保持。默认转义
-是 `+++`：先静默 1 秒，发送不带换行的可打印序列，再静默 1 秒。`--escape` 可
-指定 1–16 个可打印字符，保护时间固定为 1 秒。
+PowerShell 使用 `./collect.ps1 --trigger device-reboot` 和相同参数。arm 最多消费
+一次；第二次重启不会再次开始 DATA，除非新的 reconnect arm 已确认。
 
-## 输出、覆盖与恢复
+## 6. 输出与成功标准
 
-默认输出是 `data_resp.sraw` 和 `cmd_resp.log`。可用 `--data-output`、
-`--resp-output`、可选的 `--wire-output`、`--summary-output` 指定文件。完整输出
-集合会在设备状态改变前检查冲突；除非明确传 `--overwrite`，任一冲突都会使整次
-采集失败；路径必须互不相同。summary JSON 包含身份、传输方式、配置来源、源/目标
-字节数、可用时的队列高水位、告警及分项清理结果。
+未指定输出路径时，引擎创建一组按身份隔离的文件：
 
-采集器不会声称能够对合并有线流进行通用命令/DATA 解复用，因为运行期写入可能
-交错。如果清理报告配置、running、路由或所有权恢复失败，应先按报告处理再重新
-连接雷达。硬件线恢复时保持静默，发送配置的转义（默认 `+++`）并各等待 1 秒，
-然后回到 parsed 115200。
-
-## 速率策略
-
-- 外部 UART DATA 上限为 1000000；
-- MINI/PRO DATA 标称 921600，1000000 只有约 8.5% 余量，summary 会提示必须做
-  持续丢包计数测试；
-- WDR DATA 为 1250000，默认外部 UART 会拒绝无损采集，请使用原生 USB、MQTT 或
-  split；`--allow-lossy` 只适合明确接受丢包的诊断，不具备无损验收资格；
-- 不存在默认 2 Mbaud。
-
-构建/测试输出只能证明源码和产物有效。硬件证据必须来自本次产物刷写、实时身份
-核对和对应板型套件；软件测试结果不等同于硬件证明。
-
-## 录制
-
-录制与 raw 转发独立：
-
-```bash
-./run.sh radar record status -p /dev/ttyUSB0
-./run.sh radar record config get -p /dev/ttyUSB0
-./run.sh radar record config set --json '{"auto_upload":true}' -p /dev/ttyUSB0
-./run.sh radar record start --uri file://recording -p /dev/ttyUSB0
-./run.sh radar record trigger --event manual --duration-s 10 -p /dev/ttyUSB0
-./run.sh radar record stop -p /dev/ttyUSB0
+```text
+collections/<did>/<UTC timestamp>/radar.sraw
+collections/<did>/<UTC timestamp>/commands.log
+collections/<did>/<UTC timestamp>/summary.json
+collections/<did>/<UTC timestamp>/events.jsonl
 ```
 
-`config set` 只接受 `config`，不接受 patch 别名。录制不会打开 raw 路由，改变
-raw 路由也不会改变录制配置。
+使用显式输出时，`--data-output` 和 `--resp-output` 必须一起传。还可设置
+`--summary-output`、`--events-output`、`--wire-output`。所有路径必须不同。完整
+集合会在修改设备前一次性预留；任一冲突都会使本次采集失败且不截断文件。
+`--overwrite` 先写同目录临时文件，只在最终完成时原子替换每个目标。
+
+`radar.sraw` 是校验后的 DATA，并从雷达 magic
+`02 01 04 03 06 05 08 07` 开始；`commands.log` 保存采集命令响应。可选 wire
+审计是已观察 raw 传输 payload 的完整合并序列，包括发出的命令以及收到的响应/DATA
+chunk。它没有方向或帧分隔符，因此运行期交错后不能做通用解复用。
+
+一次自有路由采集成功时，应同时满足：
+
+- 看到 DATA magic 后才开始 duration 计时；
+- `data_bytes` 大于零，`duration_s` 不包含 setup 和 cleanup；
+- 固件有报告时，检查源/目标字节、CRC、队列高水位和 drop 计数；
+- `cleanup.state_restored` 为 true，并分别检查 config、lifecycle、route、
+  ownership 的恢复结果。
+
+attach 还应满足 `borrowed_route=true`；这里的成功表示 borrowed 路由仍存在，不表示
+采集器拥有或恢复过它。
+
+## 7. 清理与手工恢复
+
+普通自有采集遇到已打开的 runtime raw 路由会拒绝执行，不会关闭其他客户端会话。
+如果没有完整可恢复的 config 和生命周期快照，也不会替换运行中的 host 会话。每个
+成功 mutation 都会在下一步前登记，清理只逆转本次采集拥有的 mutation。
+
+第一次 `Ctrl-C` 执行正常清理。若清理本身再次被中断，先让 wire 静默 1 秒，发送
+不带换行的可打印 escape，再静默 1 秒，然后以 115200 恢复 parsed 控制。默认
+escape 是 `+++`；`--escape` 接受 1–16 个可打印字符，但前后 1 秒 guard 固定。
+
+如果 summary 显示 config、lifecycle、route、ownership、parsed 或 baud 恢复失败，
+应先明确恢复该项，再开始另一会话。
+
+## 8. UART 限制与证据
+
+- 外部 raw UART 上限为 1000000，不存在默认 2 Mbaud；
+- MINI/PRO DATA 标称 921600，1000000 只有 8.5% adapter margin，因此告警和
+  drop 计数是验收必查证据；
+- WDR DATA 为 1250000，默认拒绝把外部 UART 当作无损路径；请使用原生 USB、
+  MQTT 或 split。`--allow-lossy` 只用于诊断，并明确失去无损验收资格。
+
+代码审查、单元测试和本地构建只属于软件证据。硬件证明必须刷入本次会话构建或选择
+的产物，核对实时 DID/board，并运行对应物理设备套件。

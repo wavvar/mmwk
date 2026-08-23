@@ -47,6 +47,8 @@
   --did 0123456789ab --duration 30
 ```
 
+应用必须已经拥有雷达并提供 auto MQTT DATA 路由；attach 只观察，不会创建路由。
+
 host-owned MQTT 采集去掉 `--mode auto --attach` 并使用 `--transport mqtt`。所有
 输出路径会在设备状态改变前预留；已有文件需显式 `--overwrite` 才会替换。普通
 采集不会接管已存在的 host raw 路由，attach 不发送 cfg、不 start/stop radar，也
