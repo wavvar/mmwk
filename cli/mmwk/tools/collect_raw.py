@@ -132,7 +132,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--resp-optional",
         action="store_true",
-        help="Allow resp capture to be optional for trigger=none only",
+        help=(
+            "Deprecated and rejected; use run.sh collect --mode auto --attach "
+            "for a borrowed DATA-only route"
+        ),
     )
     parser.add_argument(
         "--overwrite",
@@ -199,8 +202,11 @@ def resolve_collect_raw_config(
     if os.path.abspath(data_output) == os.path.abspath(resp_output):
         raise ValueError("data-output and resp-output must be different paths")
 
-    if getattr(args, "resp_optional", False) and getattr(args, "trigger", "") != "none":
-        raise ValueError("--resp-optional is only valid with --trigger none")
+    if getattr(args, "resp_optional", False):
+        raise ValueError(
+            "--resp-optional is not supported by --trigger; use "
+            "run.sh collect --mode auto --attach"
+        )
 
     return CollectRawConfig(
         trigger=args.trigger,
@@ -241,10 +247,12 @@ def resolve_collect_raw_runtime_topics(
 
 
 def _build_transport_args(config: CollectRawConfig) -> SimpleNamespace:
-    host, port = _parse_broker_endpoint(config.broker, 1883)
+    _, port = _parse_broker_endpoint(config.broker, 1883)
     return SimpleNamespace(
         transport="mqtt",
-        broker=host,
+        # Preserve the URI so MqttTransport can reuse mqtts, URI credentials,
+        # and its explicit port for the parsed control connection.
+        broker=config.broker,
         mqtt_port=port,
         did=config.did,
         prod=config.prod,
@@ -341,7 +349,9 @@ def _execute_trigger_device_reboot(
             ),
             control=mcp,
             broker=config.broker,
-            expected_did=config.cid or config.did,
+            # CID selects the MQTT topic route; it is not the hardware DID
+            # returned by node info.
+            expected_did=config.did or None,
             data_topic=data_topic or None,
             prod=config.prod,
             oid=config.oid,
