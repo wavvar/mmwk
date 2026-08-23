@@ -350,6 +350,14 @@ class LocalWireSession:
         )
 
     def open(self):
+        if self.plan.transport == "uart":
+            # Local raw capture must own the physical UART because it changes
+            # baud and switches from parsed lines to an unframed byte stream.
+            # A proxy left by an earlier short-lived CLI command otherwise
+            # keeps a second reader attached to the same adapter.
+            from mmwk.transport import shutdown_uart_proxy
+
+            shutdown_uart_proxy(self.plan.port, self.plan.baudrate)
         self.serial = self._make_serial()
         return self
 

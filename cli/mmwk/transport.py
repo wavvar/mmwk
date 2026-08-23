@@ -354,12 +354,30 @@ def _ensure_uart_proxy(port: str, baudrate: int, timeout: float):
     raise RuntimeError(f"UART proxy did not become ready for {port}; see {log_file}")
 
 
-def _shutdown_uart_proxy(port: str, baudrate: int) -> None:
+def shutdown_uart_proxy(port: str, baudrate: int, timeout: float = 3.0) -> None:
+    """Stop the persistent owner and wait until it releases the UART."""
     state_dir = _uart_proxy_state_dir(port, baudrate)
     env_file = state_dir / "proxy.env"
     endpoints = _read_uart_proxy_env(env_file)
-    if endpoints:
-        _send_uart_proxy_control(endpoints[1], "shutdown", timeout=1.0)
+    if not endpoints:
+        return
+
+    ctrl_endpoint = endpoints[1]
+    if not _send_uart_proxy_control(ctrl_endpoint, "shutdown", timeout=1.0):
+        if _ping_uart_proxy(ctrl_endpoint):
+            raise RuntimeError(f"UART proxy refused to stop for {port}")
+        return
+
+    deadline = time.monotonic() + max(0.1, timeout)
+    while _ping_uart_proxy(ctrl_endpoint):
+        if time.monotonic() >= deadline:
+            raise RuntimeError(f"Timed out waiting for UART proxy to stop for {port}")
+        time.sleep(0.05)
+
+
+def _shutdown_uart_proxy(port: str, baudrate: int) -> None:
+    """Compatibility wrapper for older internal callers."""
+    shutdown_uart_proxy(port, baudrate)
 
 
 class _SocketSerialAdapter:
@@ -456,7 +474,7 @@ class UartTransport(RadarTransport):
             raise ValueError("--uart-proxy must be auto or off")
 
         if proxy_mode == "off":
-            _shutdown_uart_proxy(port, baudrate)
+            shutdown_uart_proxy(port, baudrate)
             self._proxy_data_endpoint = None
             self._proxy_ctrl_endpoint = None
         elif not os.getenv("MMWK_CLI_UART_PROXY_DATA", "").strip():
