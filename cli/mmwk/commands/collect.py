@@ -4,11 +4,13 @@ import json
 import os
 import threading
 import time
+from pathlib import Path
 from urllib.parse import urlparse
 
 import paho.mqtt.client as mqtt
 
 from mmwk._logging import logger
+from mmwk.commands.collect_engine import reserve_output_files
 from mmwk.mqtt_topics import build_mqtt_topics
 from mmwk.network_runtime import network_runtime_ip
 
@@ -65,9 +67,21 @@ def _build_raw_restore_args(payload: dict | list) -> dict:
     raw = _unwrap_tool_data(payload)
     mode = raw.get("mode") if raw.get("mode") in {"off", "runtime", "reconnect"} else "off"
     restore = {"action": "raw", "mode": mode}
-    if mode != "off":
-        for key in ("ctrl", "data", "baud", "escape"):
-            if key in raw:
+    if mode == "off":
+        restore["channel"] = "both"
+    else:
+        ctrl = raw.get("ctrl_route", raw.get("ctrl"))
+        data = raw.get("data_route", raw.get("data"))
+        route_names = {"wire", "mqtt", "both", "off"}
+        if isinstance(ctrl, str) and isinstance(data, str) and ctrl in route_names and data in route_names:
+            restore["ctrl"] = ctrl
+            restore["data"] = data
+        elif isinstance(data, str) and data in route_names:
+            restore["channel"] = data
+        else:
+            restore["channel"] = "both"
+        for key in ("baud", "escape"):
+            if key in raw and raw[key] not in (None, ""):
                 restore[key] = raw[key]
     return restore
 
@@ -78,7 +92,12 @@ def _build_raw_restore_args_for_trigger_none(payload: dict | list) -> dict:
 
 def _raw_forwarding_is_enabled(payload: dict | list) -> bool:
     raw = _unwrap_tool_data(payload)
-    return raw.get("data", "off") != "off"
+    data = raw.get("data_route", raw.get("data", "off"))
+    if isinstance(data, str):
+        return data != "off"
+    if isinstance(data, (int, float)):
+        return int(data) != 0
+    return False
 
 
 def _first_text(*values) -> str:
@@ -489,21 +508,13 @@ class CollectCommand:
 
     def _disable_preexisting_raw_forwarding(self, raw_state: dict | list, timeout: float):
         if not self.mcp or not _raw_forwarding_is_enabled(raw_state):
-            return
+            return True
 
-        try:
-            # WDR single-UART capture can inherit a previous raw session whose
-            # MQTT outbox is already backed up. Stop that session before we arm
-            # a new collect window so startup bytes do not get hidden behind
-            # stale queued traffic from an earlier collect run.
-            self.mcp.call_tool(
-                "radar",
-                {"action": "raw", "mode": "off"},
-                timeout=timeout,
-            )
-            logger.info("Temporarily disabled pre-existing radar raw forwarding before collect bootstrap")
-        except Exception as e:
-            logger.warning("Failed to disable pre-existing radar raw forwarding before collect bootstrap: %s", e)
+        logger.error(
+            "A host-owned raw route is already active; close it first or use --attach "
+            "to observe an application-owned MQTT DATA route. Collection will not take it over."
+        )
+        return False
 
     def _restore_raw_forwarding(self, restore_raw_args: dict, timeout: float) -> bool:
         last_error = None
@@ -541,6 +552,7 @@ class CollectCommand:
         resp_optional: bool = False,
         mode: str = "host",
         attach: bool = False,
+        overwrite: bool = False,
         timeout: float = 10.0,
     ) -> bool:
         output_paths = {
@@ -550,6 +562,14 @@ class CollectCommand:
         if len(output_paths) != 2:
             logger.error("data-output and resp-output must be different files")
             return False
+        if not overwrite:
+            collisions = [path for path in (data_output, resp_output) if os.path.exists(path)]
+            if collisions:
+                logger.error(
+                    "Collection outputs already exist; pass --overwrite to replace them: %s",
+                    ", ".join(collisions),
+                )
+                return False
 
         if mode not in {"host", "auto"}:
             logger.error("collection mode must be host or auto")
@@ -609,10 +629,15 @@ class CollectCommand:
         client = None
         capture_session = None
 
-        with open(data_output, "wb") as data_fout, open(resp_output, "wb") as resp_fout:
+        with reserve_output_files((data_output, resp_output), overwrite=overwrite) as output_stack:
+            data_fout = output_stack.handles[Path(data_output).expanduser().resolve()]
+            resp_fout = output_stack.handles[Path(resp_output).expanduser().resolve()]
             try:
                 if not (mode == "auto" and attach):
-                    self._disable_preexisting_raw_forwarding(raw_state, timeout=timeout)
+                    if not self._disable_preexisting_raw_forwarding(raw_state, timeout=timeout):
+                        result_ok = False
+                        restore_raw_args = None
+                        return result_ok
                 capture_session = _MqttRawCaptureSession(
                     resolved_data_topic,
                     resolved_resp_topic,
@@ -728,7 +753,8 @@ class CollectCommand:
                         logger.info("Collection interrupted by user")
 
                     self._print_summary(capture_session.stats, data_output, resp_output)
-                    self._log_raw_forwarding_snapshot("final snapshot before restore", timeout=timeout)
+                    if not (mode == "auto" and attach):
+                        self._log_raw_forwarding_snapshot("final snapshot before restore", timeout=timeout)
 
                     if mode == "auto":
                         result_ok = capture_session.stats["data_messages"] > 0
@@ -775,6 +801,7 @@ class CollectCommand:
         data_topic: str = "",
         resp_topic: str = "",
         resp_optional: bool = False,
+        overwrite: bool = False,
         timeout: float = 10.0,
     ) -> bool:
         output_paths = {
@@ -784,6 +811,14 @@ class CollectCommand:
         if len(output_paths) != 2:
             logger.error("data-output and resp-output must be different files")
             return False
+        if not overwrite:
+            collisions = [path for path in (data_output, resp_output) if os.path.exists(path)]
+            if collisions:
+                logger.error(
+                    "Collection outputs already exist; pass --overwrite to replace them: %s",
+                    ", ".join(collisions),
+                )
+                return False
 
         if not self.mcp:
             logger.error("trigger=none requires MQTT control transport")
@@ -837,9 +872,12 @@ class CollectCommand:
         restore_failed = False
         raw_enable_failed = False
 
-        with open(data_output, "wb") as data_fout, open(resp_output, "wb") as resp_fout:
+        with reserve_output_files((data_output, resp_output), overwrite=overwrite) as output_stack:
+            data_fout = output_stack.handles[Path(data_output).expanduser().resolve()]
+            resp_fout = output_stack.handles[Path(resp_output).expanduser().resolve()]
             try:
-                self._disable_preexisting_raw_forwarding(raw_state, timeout=timeout)
+                if not self._disable_preexisting_raw_forwarding(raw_state, timeout=timeout):
+                    return False
                 capture_session = _MqttRawCaptureSession(
                     resolved_data_topic,
                     resolved_resp_topic,

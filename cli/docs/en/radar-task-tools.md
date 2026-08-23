@@ -1,11 +1,16 @@
 # Radar Task Tools
 
-These task-oriented wrappers stay outside `run.sh` and center on two local radar workflows:
+These task-oriented wrappers stay outside `run.sh` and provide registry/config
+helpers around the shared collection engine:
 
 - `config.sh`: one registry-backed entrypoint with `init`, `update`, and `list`
-- `collect.sh`: registry-backed MQTT raw collection
+- `collect.sh`: forwards collection options to `run.sh collect`; its optional
+  `--trigger` form is the advanced pure-MQTT helper
 
-Examples in this guide use POSIX shell syntax. On Windows PowerShell, use `.\config.ps1` and `.\collect.ps1` from the `cli` directory where available. `config.ps1` requires Bash, for example Git Bash, because it delegates to `config.sh` for full registry-task parity. `collect.ps1` delegates to `collect.sh` when Bash is present; without Bash, it still supports pure-MQTT `--trigger` mode and a limited non-trigger registry fallback.
+Examples in this guide use POSIX shell syntax. On Windows PowerShell, use
+`.\config.ps1` and `.\collect.ps1` from the `cli` directory where available.
+`config.ps1` still requires Bash for its registry/config helper; `collect.ps1`
+invokes the Python collection engine directly and does not require Bash.
 
 The registry file is `<working>/device.yml`. The default `<working>` resolution is:
 
@@ -106,46 +111,26 @@ The output includes:
 - MQTT URI
 - HTTP base URL
 
-Use this to confirm which registry entry `config.sh update` and `collect.sh` will consume.
+Use this to confirm which registry entry `config.sh update` will consume. Pass
+the resulting `did` and broker URI explicitly to `run.sh collect`.
 
 ## 4. Collect Raw Data
 
-Use `collect.sh` for late-attach MQTT collection windows after the device has already been registered:
+Use `collect.sh` as a thin wrapper around the shared engine. For a late-attach
+MQTT window after the device has been registered:
 
 ```bash
-./collect.sh \
-  --did 0123456789ab \
-  --duration 10 \
-  --working ./collect-lab
+./collect.sh --transport mqtt --mode auto --attach \
+  --did 0123456789ab --broker mqtt://broker.example:1883 \
+  --duration 10 --data-output ./data.sraw --resp-output ./resp.log
 ```
 
-If you want the helper to restart the radar service after subscriptions are ready and raw forwarding is enabled, add `--reboot` so startup `raw_resp` traffic is captured in the same window:
+For host-owned MQTT collection, omit `--mode auto --attach` and use
+`--transport mqtt`; for attached UART/USB or split collection, see the
+[Radar DATA collection guide](data-collection.md). The shared engine reserves
+all outputs before mutation and reports cleanup failures separately.
 
-```bash
-./collect.sh \
-  --did 0123456789ab \
-  --duration 20 \
-  --reboot \
-  --working ./collect-lab
-```
-
-If `--duration` is omitted, the helper runs until you press `Ctrl-C`:
-
-```bash
-./collect.sh \
-  --did 0123456789ab \
-  --working ./collect-lab
-```
-
-Each run writes its artifacts under `<working>/data/<did>/` with a start-time prefix, for example:
-
-- `20260424-153000_raw_data.sraw`
-- `20260424-153000_raw_data.log`
-- `20260424-153000_summary.json`
-- `20260424-153000_state_events.log`
-
-The helper prints high-level states such as MQTT connection, command traffic seen, raw data seen, disconnect, reconnect, and shutdown.
-
-Add `--reboot` only when you intentionally want `collect.sh` to restart the radar service after subscribe-ready bootstrap so startup `raw_resp` from that same window lands in the capture.
+The engine writes the requested `.sraw`, response log, optional wire audit, and
+summary paths. It prints high-level connection, capture, and cleanup states.
 
 If you need a publication-safe 6843 vs 6432 board-selection walkthrough built around these wrappers, start with [Develop Radar With Bridge](bridge-ti-radar-debug.md).

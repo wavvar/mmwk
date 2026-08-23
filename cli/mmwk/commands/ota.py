@@ -96,9 +96,19 @@ def _build_raw_restore_args(payload: dict | list) -> dict:
     raw = _unwrap_tool_data(payload)
     mode = raw.get("mode") if raw.get("mode") in {"off", "runtime", "reconnect"} else "off"
     restore = {"action": "raw", "mode": mode}
-    if mode != "off":
-        for key in ("ctrl", "data", "baud", "escape"):
-            if key in raw:
+    if mode == "off":
+        restore["channel"] = "both"
+    else:
+        ctrl = raw.get("ctrl_route", raw.get("ctrl"))
+        data = raw.get("data_route", raw.get("data"))
+        if isinstance(ctrl, str) and isinstance(data, str):
+            restore.update(ctrl=ctrl, data=data)
+        elif isinstance(data, str):
+            restore["channel"] = data
+        else:
+            restore["channel"] = "both"
+        for key in ("baud", "escape"):
+            if key in raw and raw[key] not in (None, ""):
                 restore[key] = raw[key]
     return restore
 
@@ -630,8 +640,8 @@ class OtaCommand:
             if raw_resp_output:
                 raw_state = self._tool_json("radar", {"action": "raw"}, timeout=min(timeout, 10.0))
                 restore_raw_args = _build_raw_restore_args(raw_state)
-                raw_status = raw_state.get("status", {}) if isinstance(raw_state, dict) else {}
-                if isinstance(raw_status, dict) and raw_status.get("radar") != "host":
+                raw_status = _unwrap_tool_data(raw_state)
+                if raw_status.get("radar") != "host":
                     logger.error("--raw-resp-output requires radar host mode; auto mode is DATA-only")
                     return False
                 raw_cfg = _unwrap_tool_data(raw_state)

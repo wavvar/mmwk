@@ -7,6 +7,7 @@ import os
 import sys
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Mapping, Sequence
 
@@ -19,6 +20,7 @@ from mmwk.commands.collect import (
     _parse_broker_endpoint,
     _unwrap_tool_data,
 )
+from mmwk.commands.collect_engine import reserve_output_files
 from mmwk.mcp_client import McpClient
 from mmwk.mqtt_topics import build_mqtt_topics
 from mmwk.transport import create_transport
@@ -56,6 +58,7 @@ class CollectRawConfig:
     data_output: str
     resp_output: str
     resp_optional: bool
+    overwrite: bool = False
 
 
 def _topic_defaults(*, did: str, prod: str, oid: str, cid: str) -> dict[str, str]:
@@ -132,6 +135,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--resp-optional",
         action="store_true",
         help="Allow resp capture to be optional for trigger=none only",
+    )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Replace existing capture outputs instead of rejecting collisions",
     )
     return parser
 
@@ -212,6 +220,7 @@ def resolve_collect_raw_config(
         data_output=data_output,
         resp_output=resp_output,
         resp_optional=bool(getattr(args, "resp_optional", False)),
+        overwrite=bool(getattr(args, "overwrite", False)),
     )
 
 
@@ -395,7 +404,12 @@ def _execute_trigger_radar_restart(
     status_stop_ok = False
     status_start_ok = False
 
-    with open(config.data_output, "wb") as data_fout, open(config.resp_output, "wb") as resp_fout:
+    with reserve_output_files(
+        (config.data_output, config.resp_output),
+        overwrite=config.overwrite,
+    ) as output_stack:
+        data_fout = output_stack.handles[Path(config.data_output).expanduser().resolve()]
+        resp_fout = output_stack.handles[Path(config.resp_output).expanduser().resolve()]
         capture_session = _MqttRawCaptureSession(
             data_topic,
             "",
@@ -559,7 +573,12 @@ def _execute_trigger_device_reboot(
     reboot_ok = False
     post_reboot_seen = False
 
-    with open(config.data_output, "wb") as data_fout, open(config.resp_output, "wb") as resp_fout:
+    with reserve_output_files(
+        (config.data_output, config.resp_output),
+        overwrite=config.overwrite,
+    ) as output_stack:
+        data_fout = output_stack.handles[Path(config.data_output).expanduser().resolve()]
+        resp_fout = output_stack.handles[Path(config.resp_output).expanduser().resolve()]
         capture_session = _MqttRawCaptureSession(
             data_topic,
             "",
@@ -651,6 +670,7 @@ def execute_collect_raw(
                 data_topic=data_topic,
                 resp_topic=resp_topic,
                 resp_optional=config.resp_optional,
+                overwrite=config.overwrite,
                 timeout=config.timeout,
             )
         if config.trigger == "radar-restart":

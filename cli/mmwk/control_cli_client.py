@@ -82,29 +82,28 @@ def _build_proto_tool() -> dict:
 
 
 def _build_radar_tool() -> dict:
-    return _tool(
+    tool = _tool(
         "radar",
         "Radar runtime, raw route, and recording control.",
         {
             "action": _action_property(["status", "start", "stop", "raw", "record"], "Radar operation"),
             "mode": {
                 "type": "string",
-                "enum": ["auto", "host", "off", "runtime", "reconnect"],
-                "description": "Start mode or raw route mode",
+                "description": "Start mode (auto|host) or raw mode (runtime|reconnect|off), selected by action",
             },
             "channel": {
                 "type": "string",
-                "enum": ["wire", "mqtt", "both", "off"],
+                "enum": ["wire", "mqtt", "both"],
                 "description": "Raw route shorthand for action=raw",
             },
             "ctrl": {
                 "type": "string",
-                "enum": ["wire", "mqtt", "both", "off"],
+                "enum": ["wire", "mqtt", "both"],
                 "description": "Raw command/response route",
             },
             "data": {
                 "type": "string",
-                "enum": ["wire", "mqtt", "both", "off"],
+                "enum": ["wire", "mqtt", "both"],
                 "description": "Raw radar-data route",
             },
             "baud": {"type": "number", "description": "Wire raw data baud, capped at 1000000"},
@@ -114,14 +113,79 @@ def _build_radar_tool() -> dict:
                 "enum": ["status", "config_get", "config_set", "start", "stop", "trigger"],
                 "description": "Recording operation for action=record",
             },
-            "config": {"type": "object", "description": "Record config patch for op=config_set"},
-            "patch": {"type": "object", "description": "Alias of config for op=config_set"},
+            "config": {"type": "object", "description": "Record configuration for op=config_set"},
             "uri": {"type": "string", "description": "Upload target for action=record op=start"},
             "event": {"type": "string", "description": "Trigger event for action=record op=trigger"},
             "duration_s": {"type": "number", "description": "Trigger duration for action=record op=trigger"},
         },
         ["action"],
     )
+    tool["inputSchema"]["allOf"] = [
+        {
+            "if": {"properties": {"action": {"const": "start"}}},
+            "then": {"properties": {"mode": {"enum": ["auto", "host"]}}},
+        },
+        {
+            "if": {"properties": {"action": {"const": "raw"}}},
+            "then": {"properties": {"mode": {"enum": ["runtime", "reconnect", "off"]}}},
+        },
+        {
+            "if": {
+                "properties": {
+                    "action": {"const": "raw"},
+                    "mode": {"enum": ["runtime", "reconnect", "off"]},
+                },
+                "required": ["action", "mode"],
+            },
+            "then": {
+                "anyOf": [
+                    {"required": ["channel"]},
+                    {"required": ["ctrl", "data"]},
+                ]
+            },
+        },
+        {
+            "if": {
+                "properties": {"action": {"const": "raw"}},
+                "required": ["action"],
+            },
+            "then": {
+                "allOf": [
+                    {"not": {"required": ["channel", "ctrl"]}},
+                    {"not": {"required": ["channel", "data"]}},
+                ],
+            },
+        },
+        {
+            "if": {
+                "properties": {
+                    "action": {"const": "raw"},
+                    "mode": {"const": "reconnect"},
+                },
+                "required": ["action", "mode"],
+            },
+            "then": {
+                "properties": {
+                    "channel": {"const": "mqtt"},
+                    "ctrl": {"maxLength": 0},
+                    "data": {"maxLength": 0},
+                },
+                "required": ["channel"],
+            },
+        },
+        {
+            "if": {"properties": {"action": {"const": "record"}}},
+            "then": {
+                "properties": {
+                    "op": {
+                        "enum": ["status", "config_get", "config_set", "start", "stop", "trigger"]
+                    }
+                },
+                "required": ["op"],
+            },
+        },
+    ]
+    return tool
 
 
 def _build_radar_config_tool() -> dict:
@@ -131,9 +195,6 @@ def _build_radar_config_tool() -> dict:
         {
             "action": _action_property(["read", "apply"], "Config operation"),
             "gen": {"type": "boolean", "description": "Return generated config for action=read"},
-            "enabled": {"type": "boolean", "description": "Data output enable"},
-            "uri": {"type": "string", "description": "Raw MQTT broker URI"},
-            "uart": {"type": "boolean", "description": "Mirror raw frames to UART notifications"},
         },
         ["action"],
     )

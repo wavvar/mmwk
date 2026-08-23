@@ -62,6 +62,7 @@ python_supports_inline_code() {
 
 setup_venv() {
     local venv_python=""
+    local requirements_file="$PROJECT_DIR/requirements.txt"
 
     if [ ! -d "$PROJECT_DIR/venv" ]; then
         "$PYTHON" -m venv "$PROJECT_DIR/venv"
@@ -78,6 +79,14 @@ setup_venv() {
     venv_python="$(resolve_venv_python || true)"
     if [ -n "$venv_python" ]; then
         PYTHON="$venv_python"
+    fi
+
+    # An empty requirements file is a valid lightweight CLI fixture (and a
+    # useful offline mode).  Do not probe optional runtime imports or invoke
+    # pip in that case; the probe would invalidate a fresh stamp on systems
+    # where the bootstrap interpreter has no pip module.
+    if [ ! -s "$requirements_file" ]; then
+        return 0
     fi
 
     if [ -n "$venv_python" ] && python_supports_inline_code "$venv_python" && ! "$venv_python" - <<'PY' >/dev/null 2>&1

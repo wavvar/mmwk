@@ -19,6 +19,7 @@ from mmwk.commands.collect import (
     _parse_broker_endpoint,
     _unwrap_tool_data,
 )
+from mmwk.commands.collect_engine import reserve_output_files
 from mmwk.mqtt_topics import build_mqtt_topics
 from mmwk.protocol_client import create_protocol_client
 from mmwk.transport import create_transport
@@ -27,14 +28,21 @@ from mmwk.transport import create_transport
 class CollectStatePrinter:
     """Print high-level state transitions once."""
 
-    def __init__(self, stream, event_log_path: str | os.PathLike[str] | None = None):
+    def __init__(
+        self,
+        stream,
+        event_log_path: str | os.PathLike[str] | None = None,
+        *,
+        overwrite: bool = False,
+    ):
         self.stream = stream
         self._seen = set()
         self._device_connected: bool | None = None
         self._event_log = None
         if event_log_path is not None:
             Path(event_log_path).parent.mkdir(parents=True, exist_ok=True)
-            self._event_log = open(event_log_path, "a", encoding="utf-8")
+            mode = "w" if overwrite else "x"
+            self._event_log = open(event_log_path, mode, encoding="utf-8")
 
     def close(self):
         if self._event_log is not None:
@@ -119,10 +127,13 @@ class CollectSummary:
         }
 
 
-def _write_summary_json(path: str | os.PathLike[str], summary: dict):
+def _write_summary_json(path: str | os.PathLike[str], summary: dict, *, overwrite: bool = False):
     out_path = Path(path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    with reserve_output_files((out_path,), overwrite=overwrite) as outputs:
+        handle = outputs.handles[out_path.expanduser().resolve()]
+        handle.write((json.dumps(summary, indent=2, sort_keys=True) + "\n").encode("utf-8"))
+        handle.flush()
 
 
 def run_collect_session(
@@ -131,12 +142,13 @@ def run_collect_session(
     duration: float | None,
     summary_path: str | os.PathLike[str],
     state_printer: CollectStatePrinter,
+    overwrite: bool = False,
     sleep_fn=time.sleep,
     monotonic_fn=time.monotonic,
     poll_interval: float = 0.2,
 ) -> int:
-    controller.start()
     try:
+        controller.start()
         if duration is None:
             while True:
                 controller.poll(state_printer)
@@ -150,20 +162,20 @@ def run_collect_session(
         state_printer.mark("capture stopping")
         summary = dict(controller.stop())
         summary["interrupted"] = False
-        _write_summary_json(summary_path, summary)
+        _write_summary_json(summary_path, summary, overwrite=overwrite)
         return 0
     except KeyboardInterrupt:
         state_printer.mark("capture stopping")
         summary = dict(controller.stop())
         summary["interrupted"] = True
-        _write_summary_json(summary_path, summary)
+        _write_summary_json(summary_path, summary, overwrite=overwrite)
         return 130
     except Exception as exc:
         state_printer.mark("capture stopping")
         summary = dict(controller.stop())
         summary["interrupted"] = False
         summary["error"] = str(exc)
-        _write_summary_json(summary_path, summary)
+        _write_summary_json(summary_path, summary, overwrite=overwrite)
         raise
 
 
@@ -185,6 +197,7 @@ class _LiveCollectController:
         reboot: bool = False,
         mode: str = "host",
         attach: bool = False,
+        overwrite: bool = False,
     ):
         self.did = did
         self.prod = prod or "mmwk"
@@ -200,6 +213,7 @@ class _LiveCollectController:
         self.reboot = bool(reboot)
         self.mode = mode
         self.attach = bool(attach)
+        self.overwrite = bool(overwrite)
         if self.mode == "auto" and not self.attach:
             raise ValueError("auto live collection requires --attach")
         if self.mode == "auto" and self.reboot:
@@ -216,6 +230,7 @@ class _LiveCollectController:
         self.capture_session = None
         self.data_fout = None
         self.resp_fout = None
+        self.output_stack = None
         self.restore_raw_args = None
         self._connected = False
         self._mqtt_connected_seen = False
@@ -226,8 +241,15 @@ class _LiveCollectController:
 
     def start(self):
         Path(self.output_dir).mkdir(parents=True, exist_ok=True)
-        self.data_fout = open(self.data_output, "wb")
-        self.resp_fout = open(self.resp_output, "wb")
+        # Reserve output files before querying or changing the radar route.
+        # This prevents a host-owned raw session from starting with a
+        # truncated or unavailable destination.
+        self.output_stack = reserve_output_files(
+            (self.data_output, self.resp_output),
+            overwrite=self.overwrite,
+        )
+        self.data_fout = self.output_stack.handles[Path(self.data_output).expanduser().resolve()]
+        self.resp_fout = self.output_stack.handles[Path(self.resp_output).expanduser().resolve()]
 
         hi = {}
         raw_state = {}
@@ -254,6 +276,13 @@ class _LiveCollectController:
             hi = self.collector._hydrate_hi(self.collector._load_hi(timeout=self.timeout), timeout=self.timeout)
             raw_state = self.collector._tool_json("radar", {"action": "raw"}, timeout=self.timeout)
             self.restore_raw_args = _build_raw_restore_args(raw_state)
+            raw_cfg = _unwrap_tool_data(raw_state)
+            data_route = raw_cfg.get("data_route", raw_cfg.get("data", "off"))
+            if self.mode != "auto" and raw_cfg.get("radar") == "host" and data_route not in ("off", 0, None):
+                self.restore_raw_args = None
+                raise RuntimeError(
+                    "a host-owned raw route is already active; close it first or use --attach"
+                )
 
         default_topics = build_mqtt_topics(
             did=self.did,
@@ -378,8 +407,10 @@ class _LiveCollectController:
             self.data_fout.close()
             self.data_fout = None
         if self.resp_fout is not None:
-            self.resp_fout.close()
             self.resp_fout = None
+        if self.output_stack is not None:
+            self.output_stack.close()
+            self.output_stack = None
 
         return self._summary_dict(interrupted=False, error="")
 
@@ -430,6 +461,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--timeout", type=float, default=10.0, help="Control/MQTT timeout in seconds")
     parser.add_argument("--mode", choices=["host", "auto"], default="host", help="Radar ownership mode")
     parser.add_argument("--attach", action="store_true", help="Observe an existing auto MQTT DATA route")
+    parser.add_argument("--overwrite", action="store_true", help="Replace existing capture outputs")
     parser.add_argument("--data-topic", help="Raw data topic override")
     parser.add_argument("--resp-topic", help="Raw resp topic override")
     parser.add_argument(
@@ -449,7 +481,33 @@ def main(argv: list[str] | None = None) -> int:
     summary_path = os.path.join(output_dir, f"{output_prefix}summary.json")
     state_log_path = os.path.join(output_dir, f"{output_prefix}state_events.log")
 
-    state_printer = CollectStatePrinter(sys.stdout, event_log_path=state_log_path)
+    output_paths = tuple(
+        Path(path).expanduser().resolve()
+        for path in (
+            os.path.join(output_dir, f"{output_prefix}raw_data.sraw"),
+            os.path.join(output_dir, f"{output_prefix}raw_data.log"),
+            summary_path,
+            state_log_path,
+        )
+    )
+    if len(set(output_paths)) != len(output_paths):
+        print("Error: collection output paths must be distinct", file=sys.stderr)
+        return 1
+    if not args.overwrite:
+        collisions = [str(path) for path in output_paths if path.exists()]
+        if collisions:
+            print(
+                "Error: collection outputs already exist; pass --overwrite to replace them: "
+                + ", ".join(collisions),
+                file=sys.stderr,
+            )
+            return 1
+
+    state_printer = CollectStatePrinter(
+        sys.stdout,
+        event_log_path=state_log_path,
+        overwrite=args.overwrite,
+    )
     state_printer.mark("server ready")
 
     controller = _LiveCollectController(
@@ -467,6 +525,7 @@ def main(argv: list[str] | None = None) -> int:
         reboot=args.reboot,
         mode=args.mode,
         attach=args.attach,
+        overwrite=args.overwrite,
     )
 
     try:
@@ -475,6 +534,7 @@ def main(argv: list[str] | None = None) -> int:
             duration=args.duration,
             summary_path=summary_path,
             state_printer=state_printer,
+            overwrite=args.overwrite,
         )
     except Exception as exc:
         print(f"Error: {exc}", file=sys.stderr)

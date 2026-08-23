@@ -1,177 +1,67 @@
 # 通过 Bridge 开发雷达
 
-这份文档面向一条最常见、最可重复的开发路径：通过 `mmwk_sensor_bridge` 完成 TI 雷达开发。
+这份文档介绍公开 bridge 开发循环：通过 UART 配置，更新配对的雷达固件和 cfg，
+再用共用 host/MQTT 引擎采集。Windows 可用 `server.ps1`、`run.ps1`、
+`collect.ps1`；注册表配置仍可用 `config.ps1`。采集 PowerShell wrapper 不需要
+Bash。
 
-这里的“通过 bridge 开发雷达”指的是把 bridge 当作公开可复用的开发载体，持续执行下面这条主循环：
+## 选择 bridge 板型
 
-- 通过 UART 完成 bridge 配置
-- 通过网络更新雷达固件或运行时 cfg
-- 通过 MQTT 采集原始数据和启动期输出
-- 围绕这条链路反复迭代，并为不同雷达系列选择合适的公开 bridge 板型
+| 雷达系列 | Bridge | 固件配对 |
+| --- | --- | --- |
+| `IWR6843` / `IWR6843AOP` | `mini` 或 `pro` | `firmwares/radar/iwr6843/` 下 `.bin` + `.cfg` |
+| `IWRL6432` | `wdr` | `firmwares/radar/iwrl6432/` 下 `.appimage` + `.cfg` |
 
-下面的例子默认你的当前工作目录是已发布 `mmwk` 包里的 `cli` 目录，示例路径只使用公开包结构，并使用 POSIX shell wrapper 名称。Windows PowerShell 下可使用 `.\server.ps1`、`.\run.ps1` 和 `.\collect.ps1`；`.\config.ps1` 因为会转调 `config.sh`，仍需要 Bash / Git Bash。
+固件与 cfg 必须来自同一版本。WDR 高速 DATA 应使用原生 USB、MQTT 或 split；
+外部 1000000 波特 UART 无法无损承载 1250000 波特的雷达输出。
 
-## 先选对 Bridge 板子
-
-| 雷达系列 | 推荐 bridge 板子 | 公开固件形态 | 说明 |
-|---|---|---|---|
-| `IWR6843` / `IWR6843AOP` | `mini` 或 `pro` | `../firmwares/radar/iwr6843/...` 下的 `.bin` + `.cfg` | 标准 68xx bridge 开发路径 |
-| `IWRL6432` | `wdr` | `../firmwares/radar/iwrl6432/...` 下的 `.appimage` + `.cfg` | bridge 侧是单 UART 雷达开发路径 |
-
-两条路径都使用同一组 wrapper：`config.sh init|update|list` 加 `collect.sh`。真正不同的是板型选择、雷达固件配对，以及运行期采集预期。
-
-## 主体步骤
-
-1. 先用 `server.sh` 启动本地 MQTT + HTTP helper。
-2. `server.sh --serve-dir` 指向你计划 OTA 的那组雷达固件目录。
-3. 用 `config.sh init` 通过 UART 下发 Wi-Fi / MQTT 设置。脚本会自动重启设备、验证 MQTT 可达，并把设备信息写入 `<working>/device.yml`。
-4. 用 `config.sh update` 通过 MQTT 做雷达 OTA 或运行时 cfg 更新。脚本会从 `device.yml` 解析设备传输信息。
-5. 用 `collect.sh` 通过 MQTT 采集 `raw_data` 和 `raw_resp`。脚本会从 `device.yml` 读取 DID 配置，并把采集产物放到 `<working>/data/<did>/`。
-
-推荐先起本地服务：
+## 通用循环
 
 ```bash
 ./server.sh start --serve-dir <radar-artifact-dir>
 eval "$(./server.sh env)"
+./config.sh init --port <control-port> --working ./collect-lab
+./config.sh update --did <DID> --fw <radar.bin> --cfg <radar.cfg> --working ./collect-lab
+./run.sh radar status --transport mqtt --broker "$MMWK_SERVER_HOST_IP" --did <DID>
 ```
 
-默认情况下，`server.sh` 会自动检测本机可用 IP。只有当自动选择的网卡不对时，才需要显式传 `--host-ip <your-host-ip>`。
+用 `config.sh list` 确认 DID 和 broker URI。不要根据 `/dev/tty*` 名称判断板型，
+应以实时 `node info` 身份为准。
 
-如果你希望把设备注册表放到别的位置，请在 `config.sh` 和 `collect.sh` 上持续使用同一个 `--working <dir>`。
+## 采集
 
-这些 wrapper 还会带来几条稳定约定：
-
-- `config.sh list` 会把 `<working>/device.yml` 里的 `did`、MQTT URI 和 HTTP base URL 直接打印出来。
-- `collect.sh` 会把带时间戳前缀的产物写入 `<working>/data/<did>/`：`*_raw_data.sraw`、`*_raw_data.log`、`*_summary.json` 和 `*_state_events.log`。
-- 只有当你明确希望 helper 在订阅 ready 之后主动重启 radar service，并把同一窗口里的 startup `raw_resp` 一起采下来时，才给 `collect.sh` 加 `--reboot`。
-
-## 6843 系列
-
-`mini` 和 `pro` 都适合 6843 开发。命令面是一样的，只是你接入的 bridge 板子不同。
-
-下面例子使用公开 OOB 固件对。若你换成自己的 6843 固件，请保证 `.bin` 和 `.cfg` 是同一套配对产物。
+MINI/PRO 本机 UART：
 
 ```bash
-cd ./cli
-
-PORT=<serial-port>
-SSID=<wifi-ssid>
-PASSWORD=<wifi-password>
-FW_DIR=../firmwares/radar/iwr6843/oob
-
-./server.sh start --serve-dir "$FW_DIR"
-eval "$(./server.sh env)"
-
-WORKING=./collect-lab
-
-./config.sh init \
-  --port "$PORT" \
-  --ssid "$SSID" \
-  --password "$PASSWORD" \
-  --working "$WORKING"
-
-DID=<由 config.sh 打印出来的 DID>
-
-./config.sh update \
-  --did "$DID" \
-  --fw "$FW_DIR/out_of_box_6843_aop.bin" \
-  --cfg "$FW_DIR/out_of_box_6843_aop.cfg" \
-  --working "$WORKING"
-
-./run.sh radar status \
-  --transport mqtt \
-  --did "$DID" \
-  --broker "$MMWK_SERVER_HOST_IP"
-
-./run.sh radar fw version \
-  --transport mqtt \
-  --did "$DID" \
-  --broker "$MMWK_SERVER_HOST_IP"
-
-./collect.sh \
-  --did "$DID" \
-  --duration 30 \
-  --working "$WORKING"
+./collect.sh --transport uart --port <control-port> --raw-baud 1000000 \
+  --duration 30 --data-output ./radar.sraw --resp-output ./radar-cmd.log
 ```
 
-正常预期：
-
-- `config.sh init` 成功意味着 bridge 已经能访问目标 MQTT server，并且 `device.yml` 已经更新。
-- `config.sh update` 会等到 `radar status` 回到 `running`。
-- `collect.sh` 会把带时间戳前缀的采集文件写入 `<working>/data/<did>/`。
-
-## 6432 系列
-
-6432 系列建议直接使用 `wdr`。
-
-下面例子使用公开的 `presence` 固件对：
+WDR 本机 USB：
 
 ```bash
-cd ./cli
-
-PORT=<serial-port>
-SSID=<wifi-ssid>
-PASSWORD=<wifi-password>
-FW_DIR=../firmwares/radar/iwrl6432/presence
-
-./server.sh start --serve-dir "$FW_DIR"
-eval "$(./server.sh env)"
-
-WORKING=./collect-lab
-
-./config.sh init \
-  --port "$PORT" \
-  --ssid "$SSID" \
-  --password "$PASSWORD" \
-  --working "$WORKING"
-
-DID=<由 config.sh 打印出来的 DID>
-
-./config.sh update \
-  --did "$DID" \
-  --fw "$FW_DIR/presence.appimage" \
-  --cfg "$FW_DIR/presence.cfg" \
-  --working "$WORKING"
-
-./run.sh radar status \
-  --transport mqtt \
-  --did "$DID" \
-  --broker "$MMWK_SERVER_HOST_IP"
-
-./run.sh radar fw version \
-  --transport mqtt \
-  --did "$DID" \
-  --broker "$MMWK_SERVER_HOST_IP"
-
-./collect.sh \
-  --did "$DID" \
-  --duration 30 \
-  --working "$WORKING"
+./collect.sh --transport usb --port <native-usb-port> --duration 30
 ```
 
-6432 相关注意点：
-
-- bridge 侧的雷达链路是单 UART。
-- 当 `uart_split=1` 时，稳定运行期的 raw 字节主要会进入 `raw_data.sraw`。
-- 带时间戳前缀的 `*_raw_data.log` 仍然主要用于看启动文本和命令响应窗口。
-
-所以，不要只看 `*_raw_data.log` 来判断 6432 是否采集成功，要同时检查 `*_raw_data.sraw` 和 `*_summary.json`。
-
-## 实际排查时怎么判断
-
-- `config.sh init` 打印出 DID 和后续命令，说明 UART bring-up 已经完成。
-- `config.sh update` 成功退出，说明它已经完成 OTA 或运行时 cfg 更新，并验证了运行态恢复。
-- 如果你要手动复查运行态，先看 `./run.sh radar status`，把 `state=running` 当成硬门槛。
-- 如果设备重启后串口号变化了，先重新识别串口，再重复 UART 命令。
-
-## 什么时候用 `collect.sh`，什么时候用 `collect -p`
-
-`collect.sh` 是一个任务导向的 MQTT helper，更适合网络已经就绪之后的 late-attach raw 采集窗口。它会从 `device.yml` 读取 MQTT 配置，并把带时间戳前缀的输出写到 `<working>/data/<did>/`。
-
-如果你要抓同一次 reboot、flash 或 radar restart 窗口里的启动期命令口输出，应改用官方的 UART 辅助采集命令：
+远程 MQTT host 或应用自有 attach：
 
 ```bash
-./run.sh collect -p <serial-port> --duration 12
+./collect.sh --transport mqtt --broker mqtt://broker.example:1883 \
+  --did <DID> --duration 30
+./collect.sh --transport mqtt --mode auto --attach \
+  --broker mqtt://broker.example:1883 --did <DID> --duration 30
 ```
 
-当雷达已经联网并且你只是想更简单地做 MQTT 采集时，再使用 `collect.sh`。
+控制与 DATA split：
+
+```bash
+./collect.sh --ctrl-transport uart --data-transport mqtt \
+  --port <control-port> --broker mqtt://broker.example:1883 --did <DID>
+```
+
+引擎会在改变设备前校验身份并预留输出，先订阅再打开 MQTT DATA，并分别报告
+路由/config/running/所有权清理。普通采集会拒绝已有 host raw 路由；`--attach`
+只借用已有的应用 DATA 路由，不执行生命周期修改。
+
+完整的 QoS、topic ACL、重连、输出、清理和波特率契约见[雷达 DATA 采集](data-collection.md)。
+构建/测试输出只能证明软件；硬件证据必须来自本次产物刷写和实时身份核对。

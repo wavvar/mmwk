@@ -6,7 +6,7 @@ CLI 现在默认使用标准 CLI JSON 协议。大多数 MMWK 固件版本也默
 
 ## 原始语义契约
 
-Raw 转发和录制都是同一个 `radar` 工具的并列 action。请先阅读[雷达数据采集指南](./radar-data-collection.md)。
+Raw 转发和录制都是同一个 `radar` 工具的并列 action。请先阅读[雷达数据采集指南](./data-collection.md)。
 
 - `radar raw` 控制 `mode=off|runtime|reconnect` 和 `channel=wire|mqtt|both`。
 - `radar record` 控制录制状态、配置和生命周期。
@@ -24,7 +24,7 @@ Raw 转发和录制都是同一个 `radar` 工具的并列 action。请先阅读
 - [通信层](#通信层)
   - [USB CDC（WDR 本地）](#usb-cdcwdr-本地)
 - [命令参考](#命令参考)
-- [雷达数据采集](./radar-data-collection.md)
+- [雷达数据采集](./data-collection.md)
 - [项目文档](#项目文档)
 - [硬件交互](#硬件交互)
 - [固件刷写流程](#固件刷写流程)
@@ -73,7 +73,7 @@ pip install -r requirements.txt
 |---|---|---|---|
 | 主 CLI | `./run.sh ...` | `.\run.ps1 ...` | 两者都会从调用 wrapper 时所在目录解析相对文件路径。`run.sh` 会管理 `./venv`；`run.ps1` 使用当前或系统 Python 3.10+ 环境。 |
 | 本地 MQTT + HTTP server | `./server.sh ...` | `.\server.ps1 ...` | 两个 wrapper 都使用 `requirements.txt` 中的 Python 依赖；不再要求安装系统 Mosquitto。 |
-| 注册表任务 helper | `./config.sh`、`./collect.sh` | `.\config.ps1`、`.\collect.ps1` | `config.ps1` 会转调 `config.sh`，因此需要 Bash，例如 Git Bash。`collect.ps1` 有 Bash 时会转调 `collect.sh`；没有 Bash 时，仍可使用 `--trigger` pure-MQTT 模式和受限的 registry 采集 fallback。 |
+| 注册表/配置 helper | `./config.sh`、`./collect.sh` | `.\config.ps1`、`.\collect.ps1` | `config.ps1` 的 registry task 需要 Bash；`collect.ps1` 直接调用 Python 采集引擎。 |
 | 直接 Python | `python3 -m mmwk ...` | `py -m mmwk ...` 或 `python -m mmwk ...` | 仅在你明确要绕过 wrapper 时使用。 |
 
 PowerShell 下参数与 POSIX 示例保持一致，主要差异是 wrapper 名和串口名：
@@ -168,7 +168,7 @@ PowerShell 下参数与 POSIX 示例保持一致，主要差异是 wrapper 名�
 
 ### 4. 为远程采集配置 Wi-Fi 与 MQTT
 
-雷达直接连接本机时不需要 Wi-Fi 或 MQTT，按[雷达数据采集指南](./radar-data-collection.md)
+雷达直接连接本机时不需要 Wi-Fi 或 MQTT，按[雷达数据采集指南](./data-collection.md)
 使用 host UART 或原生 USB。只有远程 host 或应用层 auto 数据流才需要下面的网络配置。
 
 ```bash

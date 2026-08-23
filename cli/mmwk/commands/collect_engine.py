@@ -10,10 +10,12 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 import time
+from contextlib import ExitStack
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, BinaryIO, Mapping
+from typing import Any, BinaryIO, Iterable, Mapping
 
 
 MAX_EXTERNAL_UART_BAUD = 1_000_000
@@ -66,6 +68,7 @@ class CollectionPlan:
     wire_output: str | None = None
     attach: bool = False
     allow_lossy: bool = False
+    overwrite: bool = False
     ctrl_transport: str | None = None
     data_transport: str | None = None
 
@@ -118,6 +121,113 @@ class OutputSet:
     summary: Path | None = None
     events: Path | None = None
 
+    def paths(self) -> tuple[Path, ...]:
+        """Return the complete output set without duplicate paths."""
+        values = (self.data, self.response, self.wire, self.summary, self.events)
+        result: list[Path] = []
+        seen: set[Path] = set()
+        for value in values:
+            if value is None:
+                continue
+            path = Path(value).expanduser().resolve()
+            if path in seen:
+                raise ValueError(f"collection outputs must be distinct: {path}")
+            seen.add(path)
+            result.append(path)
+        return tuple(result)
+
+
+class ReservedOutputFiles(ExitStack):
+    """Exit stack with reserved handles and optional atomic replacements."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.handles: dict[Path, BinaryIO] = {}
+        self._replacements: list[tuple[Path, Path]] = []
+        self._closed = False
+        self._discard = False
+
+    def discard(self) -> None:
+        """Close handles and remove overwrite temporaries without replacing targets."""
+        self._discard = True
+        self.close()
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        # ExitStack.close() dispatches through self.__exit__(), which is
+        # overridden below to distinguish commit from discard.  Call the
+        # base finalizer directly so every reserved handle is actually closed.
+        super().__exit__(None, None, None)
+        for temporary, target in self._replacements:
+            if self._discard:
+                try:
+                    temporary.unlink()
+                except FileNotFoundError:
+                    pass
+                continue
+            os.replace(temporary, target)
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        if exc_type is not None:
+            self.discard()
+        else:
+            self.close()
+        return False
+
+
+def reserve_output_files(paths: Iterable[str | os.PathLike[str]], *, overwrite: bool = False) -> ReservedOutputFiles:
+    """Reserve every collection output before any device mutation.
+
+    Non-overwrite reservations use exclusive create and are rolled back only
+    when a later reservation fails.  The returned ``ExitStack`` owns the open
+    handles; callers keep those handles for the complete run instead of
+    reopening paths after a device has entered raw mode.
+    """
+    normalized: list[Path] = []
+    seen: set[Path] = set()
+    for raw_path in paths:
+        path = Path(raw_path).expanduser().resolve()
+        if path in seen:
+            raise ValueError(f"collection outputs must be distinct: {path}")
+        seen.add(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        normalized.append(path)
+
+    stack = ReservedOutputFiles()
+    created: list[Path] = []
+    try:
+        for path in normalized:
+            if overwrite:
+                if path.exists() and path.is_dir():
+                    raise IsADirectoryError(str(path))
+                fd, temporary_name = tempfile.mkstemp(
+                    prefix=f".{path.name}.",
+                    suffix=".tmp",
+                    dir=str(path.parent),
+                )
+                temporary = Path(temporary_name)
+                handle = os.fdopen(fd, "w+b")
+                stack._replacements.append((temporary, path))
+            else:
+                fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_EXCL, 0o644)
+                created.append(path)
+                handle = os.fdopen(fd, "w+b")
+            stack.enter_context(handle)
+            stack.handles[path] = handle
+    except Exception:
+        stack.discard()
+        if not overwrite:
+            for path in created:
+                try:
+                    if path.stat().st_size == 0:
+                        path.unlink()
+                except OSError:
+                    pass
+        raise
+    return stack
+
 
 @dataclass(frozen=True)
 class CleanupReport:
@@ -134,6 +244,11 @@ class CollectionSummary:
     response_bytes: int = 0
     wire_bytes: int = 0
     dropped_bytes: int = 0
+    source_bytes: int = 0
+    destination_bytes: int = 0
+    queue_high_water: int = 0
+    config_source: str = ""
+    transport: str = ""
     duration_s: float = 0.0
     warnings: list[str] = field(default_factory=list)
     cleanup: CleanupReport = field(default_factory=CleanupReport)
@@ -146,6 +261,11 @@ class CollectionSummary:
             "response_bytes": self.response_bytes,
             "wire_bytes": self.wire_bytes,
             "dropped_bytes": self.dropped_bytes,
+            "source_bytes": self.source_bytes,
+            "destination_bytes": self.destination_bytes,
+            "queue_high_water": self.queue_high_water,
+            "config_source": self.config_source,
+            "transport": self.transport,
             "duration_s": self.duration_s,
             "warnings": list(self.warnings),
             "cleanup": {
@@ -442,6 +562,7 @@ def collect_split_wire_mqtt(
     from mmwk.commands.collect import _MqttRawCaptureSession, _create_mqtt_client, _parse_broker_endpoint
 
     summary = CollectionSummary()
+    summary.transport = "split"
     session = LocalWireSession(plan, serial_factory=serial_factory).open()
     start = time.monotonic()
     raw_open = False
@@ -449,11 +570,12 @@ def collect_split_wire_mqtt(
     radar_stopped = False
     parsed_restored = False
     cleanup_errors: list[str] = []
-    client = None
-    capture = None
+    wire_file = None
     data_file = None
     resp_file = None
-    wire_file = None
+    client = None
+    capture = None
+    output_stack = None
 
     def record_response(response: Mapping[str, Any] | None) -> None:
         if not response or resp_file is None:
@@ -468,10 +590,14 @@ def collect_split_wire_mqtt(
         if summary.identity.board == "wdr" and plan.raw_baud is not None:
             raise ValueError("WDR split DATA uses MQTT; omit --raw-baud")
 
-        Path(plan.data_output).parent.mkdir(parents=True, exist_ok=True)
-        Path(plan.resp_output).parent.mkdir(parents=True, exist_ok=True)
-        data_file = open(plan.data_output, "wb")
-        resp_file = open(plan.resp_output, "wb")
+        output_paths = [Path(plan.data_output), Path(plan.resp_output)]
+        if plan.wire_output:
+            output_paths.append(Path(plan.wire_output))
+        output_stack = reserve_output_files(output_paths, overwrite=plan.overwrite)
+        data_file = output_stack.handles[Path(plan.data_output).expanduser().resolve()]
+        resp_file = output_stack.handles[Path(plan.resp_output).expanduser().resolve()]
+        if plan.wire_output:
+            wire_file = output_stack.handles[Path(plan.wire_output).expanduser().resolve()]
         record_response(session.last_response)
         record_response(session.send_control({"cmd": "radar", "action": "start", "mode": "host"}))
         radar_started = True
@@ -501,10 +627,8 @@ def collect_split_wire_mqtt(
         raw_response = session.open_raw(ctrl="wire", data="mqtt", escape=plan.escape)
         record_response(raw_response)
         raw_open = True
-        if plan.wire_output:
-            Path(plan.wire_output).parent.mkdir(parents=True, exist_ok=True)
-            wire_file = open(plan.wire_output, "wb")
         cfg_payload = Path(plan.cfg_path).read_bytes() if plan.cfg_path else None
+        summary.config_source = str(Path(plan.cfg_path).expanduser()) if plan.cfg_path else "none"
         if cfg_payload:
             session.write_radar_bytes(cfg_payload)
             if not cfg_payload.endswith(b"\n"):
@@ -533,6 +657,8 @@ def collect_split_wire_mqtt(
                 break
 
         summary.data_bytes = int(capture.stats["data_bytes"])
+        summary.source_bytes = summary.data_bytes
+        summary.destination_bytes = summary.data_bytes
         if capture.stats["data_messages"] <= 0:
             summary.warnings.append("no MQTT DATA arrived before the collection deadline")
         if raw_open:
@@ -558,18 +684,14 @@ def collect_split_wire_mqtt(
                 radar_stopped = True
             except Exception as exc:
                 cleanup_errors.append(f"radar stop: {exc}")
-        if wire_file is not None:
-            wire_file.close()
         if client is not None:
             try:
                 client.loop_stop()
                 client.disconnect()
             except Exception as exc:
                 cleanup_errors.append(f"MQTT close: {exc}")
-        if data_file is not None:
-            data_file.close()
-        if resp_file is not None:
-            resp_file.close()
+        if output_stack is not None:
+            output_stack.close()
         summary.cleanup = CleanupReport(
             raw_closed=not raw_open,
             radar_stopped=radar_stopped,
@@ -581,10 +703,17 @@ def collect_split_wire_mqtt(
     return summary
 
 
-def write_summary(path: str | os.PathLike[str], summary: CollectionSummary) -> None:
+def write_summary(
+    path: str | os.PathLike[str],
+    summary: CollectionSummary,
+    *,
+    overwrite: bool = False,
+) -> None:
     target = Path(path)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(summary.as_dict(), indent=2) + "\n", encoding="utf-8")
+    with reserve_output_files((target,), overwrite=overwrite) as outputs:
+        handle = outputs.handles[target.expanduser().resolve()]
+        handle.write((json.dumps(summary.as_dict(), indent=2) + "\n").encode("utf-8"))
+        handle.flush()
 
 
 def collect_local(plan: CollectionPlan, expected_did: str | None = None, serial_factory=None) -> CollectionSummary:
@@ -597,18 +726,25 @@ def collect_local(plan: CollectionPlan, expected_did: str | None = None, serial_
 
     plan.validate()
     summary = CollectionSummary()
+    summary.transport = plan.transport
     session = LocalWireSession(plan, serial_factory=serial_factory)
     cfg_payload = None
     if plan.cfg_path:
         cfg_payload = Path(plan.cfg_path).read_bytes()
         if not cfg_payload:
             raise ValueError("cfg file is empty")
+        summary.config_source = str(Path(plan.cfg_path).expanduser())
+    else:
+        summary.config_source = "none"
     start = time.monotonic()
     raw_open = False
     radar_started = False
     radar_stopped = False
     parsed_restored = False
     cleanup_errors: list[str] = []
+    wire_file = None
+    data_file = None
+    resp_file = None
 
     def record_response(resp_file, response: Mapping[str, Any] | None) -> None:
         if not response:
@@ -630,9 +766,14 @@ def collect_local(plan: CollectionPlan, expected_did: str | None = None, serial_
             summary.warnings.append(
                 "MINI/PRO radar DATA at 921600 baud has little margin at 1000000; verify drops on hardware"
             )
-        Path(plan.data_output).parent.mkdir(parents=True, exist_ok=True)
-        Path(plan.resp_output).parent.mkdir(parents=True, exist_ok=True)
-        with open(plan.resp_output, "wb") as resp_file:
+        output_paths = [Path(plan.data_output), Path(plan.resp_output)]
+        if plan.wire_output:
+            output_paths.append(Path(plan.wire_output))
+        with reserve_output_files(output_paths, overwrite=plan.overwrite) as outputs:
+            data_file = outputs.handles[Path(plan.data_output).expanduser().resolve()]
+            resp_file = outputs.handles[Path(plan.resp_output).expanduser().resolve()]
+            if plan.wire_output:
+                wire_file = outputs.handles[Path(plan.wire_output).expanduser().resolve()]
             record_response(resp_file, session.last_response)
             start_response = session.send_control({"cmd": "radar", "action": "start", "mode": "host"})
             record_response(resp_file, start_response)
@@ -649,29 +790,23 @@ def collect_local(plan: CollectionPlan, expected_did: str | None = None, serial_
             # the first radar DATA frame separately from command responses.
             # Start the requested window at sensorStart and retain all bytes.
             capture_started = time.monotonic()
-            wire_file = None
-            if plan.wire_output:
-                Path(plan.wire_output).parent.mkdir(parents=True, exist_ok=True)
-                wire_file = open(plan.wire_output, "wb")
             capture_deadline = time.monotonic() + plan.duration + 10
             data_seen = False
-            with open(plan.data_output, "wb") as data_file:
-                while time.monotonic() < capture_deadline:
-                    payload = session.read_raw()
-                    if payload:
-                        data_seen = True
-                        data_file.write(payload)
-                        data_file.flush()
-                        summary.data_bytes += len(payload)
-                        summary.wire_bytes += len(payload)
-                        if wire_file is not None:
-                            wire_file.write(payload)
-                            wire_file.flush()
-                        if time.monotonic() >= capture_started + plan.duration:
-                            break
-            if wire_file is not None:
-                wire_file.close()
-                wire_file = None
+            while time.monotonic() < capture_deadline:
+                payload = session.read_raw()
+                if payload:
+                    data_seen = True
+                    data_file.write(payload)
+                    data_file.flush()
+                    summary.data_bytes += len(payload)
+                    summary.source_bytes += len(payload)
+                    summary.destination_bytes += len(payload)
+                    summary.wire_bytes += len(payload)
+                    if wire_file is not None:
+                        wire_file.write(payload)
+                        wire_file.flush()
+                    if time.monotonic() >= capture_started + plan.duration:
+                        break
             if raw_open:
                 try:
                     session.write_radar_bytes(b"sensorStop\n")
@@ -687,8 +822,6 @@ def collect_local(plan: CollectionPlan, expected_did: str | None = None, serial_
             if not data_seen:
                 summary.warnings.append("no raw DATA arrived before the collection deadline")
     except Exception:
-        if 'wire_file' in locals() and wire_file is not None:
-            wire_file.close()
         raise
     finally:
         if raw_open:
@@ -697,9 +830,8 @@ def collect_local(plan: CollectionPlan, expected_did: str | None = None, serial_
                 raw_open = False
                 parsed_restored = True
                 if close_response:
-                    # The response file may not have been opened if setup failed;
-                    # best-effort persistence is handled below by the normal path.
-                    pass
+                    if resp_file is not None:
+                        record_response(resp_file, close_response)
             except Exception as exc:
                 cleanup_errors.append(f"raw close: {exc}")
         if radar_started and session.parsed:
