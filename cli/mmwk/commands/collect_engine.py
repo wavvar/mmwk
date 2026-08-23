@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import tempfile
 import time
 from contextlib import ExitStack
@@ -23,6 +24,8 @@ DEFAULT_PARSED_BAUD = 115_200
 DEFAULT_RAW_BAUD = 1_000_000
 RAW_SWITCH_SETTLE_SECONDS = 0.15
 RAW_ESCAPE_GUARD_SECONDS = 1.25
+RADAR_DATA_MAGIC = bytes.fromhex("0201040306050807")
+MAX_DATA_READY_PREFIX = 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -64,14 +67,18 @@ class CollectionPlan:
     mode: str = "host"
     duration: int = 10
     cfg_path: str | None = None
-    data_output: str = "radar.sraw"
-    resp_output: str = "radar-cmd.log"
+    data_output: str | None = None
+    resp_output: str | None = None
     wire_output: str | None = None
+    summary_output: str | None = None
+    events_output: str | None = None
     attach: bool = False
     allow_lossy: bool = False
     overwrite: bool = False
     ctrl_transport: str | None = None
     data_transport: str | None = None
+    data_ready_timeout: float = 10.0
+    control_timeout: float = 10.0
 
     def __post_init__(self) -> None:
         # Keep the convenience default for a direct local UART session while
@@ -89,6 +96,10 @@ class CollectionPlan:
             raise ValueError("collection mode must be host or auto")
         if self.duration < 1:
             raise ValueError("duration must be positive")
+        if self.data_ready_timeout <= 0:
+            raise ValueError("data-ready timeout must be positive")
+        if self.control_timeout <= 0:
+            raise ValueError("control timeout must be positive")
         if self.baudrate <= 0:
             raise ValueError("baudrate must be positive")
         if self.transport == "usb" and self.raw_baud is not None:
@@ -112,6 +123,8 @@ class CollectionPlan:
             raise ValueError("--raw-baud is valid only when DATA uses an external UART")
         if self.port is None and (self.transport in {"uart", "usb"} or local_selected):
             raise ValueError("local collection requires --port")
+        if (self.data_output is None) != (self.resp_output is None):
+            raise ValueError("data and response outputs must both be explicit or both use defaults")
 
 
 @dataclass(frozen=True)
@@ -136,6 +149,47 @@ class OutputSet:
             seen.add(path)
             result.append(path)
         return tuple(result)
+
+
+def resolve_output_set(
+    plan: CollectionPlan,
+    identity: LiveIdentity,
+    *,
+    timestamp: str | None = None,
+    root: str | os.PathLike[str] | None = None,
+) -> OutputSet:
+    """Resolve explicit outputs or one DID/timestamp-scoped default set."""
+    if plan.data_output is not None and plan.resp_output is not None:
+        outputs = OutputSet(
+            data=Path(plan.data_output),
+            response=Path(plan.resp_output),
+            wire=Path(plan.wire_output) if plan.wire_output else None,
+            summary=Path(plan.summary_output) if plan.summary_output else None,
+            events=Path(plan.events_output) if plan.events_output else None,
+        )
+        outputs.paths()
+        return outputs
+
+    stamp = timestamp or time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    base = Path(root) if root is not None else Path.cwd() / "collections"
+    directory = base / identity.did / stamp
+    outputs = OutputSet(
+        data=directory / "radar.sraw",
+        response=directory / "commands.log",
+        wire=Path(plan.wire_output) if plan.wire_output else None,
+        summary=(
+            Path(plan.summary_output)
+            if plan.summary_output
+            else directory / "summary.json"
+        ),
+        events=(
+            Path(plan.events_output)
+            if plan.events_output
+            else directory / "events.jsonl"
+        ),
+    )
+    outputs.paths()
+    return outputs
 
 
 class ReservedOutputFiles(ExitStack):
@@ -230,11 +284,112 @@ def reserve_output_files(paths: Iterable[str | os.PathLike[str]], *, overwrite: 
     return stack
 
 
+def _result_payload(response: Mapping[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(response, Mapping):
+        return {}
+    payload: Any = response.get("result", response)
+    if isinstance(payload, Mapping) and isinstance(payload.get("data"), Mapping):
+        payload = payload["data"]
+    return dict(payload) if isinstance(payload, Mapping) else {}
+
+
+def _route_contains(route: str, requested: str) -> bool:
+    return route == requested or route == "both"
+
+
+@dataclass(frozen=True)
+class RawRouteSnapshot:
+    radar: str = "auto"
+    mode: str = "off"
+    ctrl: str = "off"
+    data: str = "off"
+    baud: int | None = None
+    escape: str | None = None
+
+    @classmethod
+    def from_payload(cls, payload: Mapping[str, Any]) -> "RawRouteSnapshot":
+        radar = str(payload.get("radar") or "auto").strip().lower()
+        mode = str(payload.get("mode") or "off").strip().lower()
+        ctrl = str(payload.get("ctrl_route", payload.get("ctrl", "off"))).strip().lower()
+        data = str(payload.get("data_route", payload.get("data", "off"))).strip().lower()
+        valid_routes = {"off", "wire", "mqtt", "both"}
+        if radar not in {"auto", "host"}:
+            radar = "auto"
+        if mode not in {"off", "runtime", "reconnect"}:
+            mode = "off"
+        if ctrl not in valid_routes:
+            ctrl = "off"
+        if data not in valid_routes:
+            data = "off"
+        baud_value = payload.get("current_baud", payload.get("baud"))
+        try:
+            baud = int(baud_value) if baud_value not in (None, "", 0) else None
+        except (TypeError, ValueError):
+            baud = None
+        escape_value = payload.get("escape")
+        escape = str(escape_value) if isinstance(escape_value, str) and escape_value else None
+        return cls(radar=radar, mode=mode, ctrl=ctrl, data=data, baud=baud, escape=escape)
+
+    @property
+    def live(self) -> bool:
+        return self.mode == "runtime" and (self.ctrl != "off" or self.data != "off")
+
+    def data_uses(self, route: str) -> bool:
+        return _route_contains(self.data, route)
+
+    def restore_command(self) -> dict[str, Any]:
+        command: dict[str, Any] = {"cmd": "radar", "action": "raw", "mode": self.mode}
+        if self.mode == "off":
+            command["channel"] = "both"
+        elif self.mode == "reconnect":
+            command["channel"] = "mqtt"
+        else:
+            command["ctrl"] = self.ctrl
+            command["data"] = self.data
+            if self.baud and self.data_uses("wire"):
+                command["baud"] = self.baud
+            if self.escape:
+                command["escape"] = self.escape
+        return command
+
+
+@dataclass(frozen=True)
+class RadarSnapshot:
+    state: str = "unknown"
+    mode: str = "auto"
+    config: bytes | None = None
+
+    @property
+    def running(self) -> bool:
+        return self.state == "running"
+
+
+@dataclass
+class MutationLedger:
+    """Ordered record of successful device mutations owned by one collection."""
+
+    entries: list[str] = field(default_factory=list)
+
+    def record(self, name: str) -> None:
+        if name not in self.entries:
+            self.entries.append(name)
+
+    def owns(self, name: str) -> bool:
+        return name in self.entries
+
+
 @dataclass(frozen=True)
 class CleanupReport:
     raw_closed: bool = False
     radar_stopped: bool = False
     state_restored: bool = False
+    parsed_restored: bool = False
+    baud_restored: bool = False
+    config_restored: bool = False
+    lifecycle_restored: bool = False
+    ownership_restored: bool = False
+    route_restored: bool = False
+    sensor_stopped: bool = False
     errors: tuple[str, ...] = ()
 
 
@@ -248,9 +403,15 @@ class CollectionSummary:
     source_bytes: int = 0
     destination_bytes: int = 0
     queue_high_water: int = 0
+    dropped_chunks: int = 0
+    source_crc32: int = 0
+    destination_crc32: int = 0
     config_source: str = ""
     transport: str = ""
     duration_s: float = 0.0
+    interrupted: bool = False
+    borrowed_route: bool = False
+    outputs: dict[str, str] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
     cleanup: CleanupReport = field(default_factory=CleanupReport)
 
@@ -265,14 +426,27 @@ class CollectionSummary:
             "source_bytes": self.source_bytes,
             "destination_bytes": self.destination_bytes,
             "queue_high_water": self.queue_high_water,
+            "dropped_chunks": self.dropped_chunks,
+            "source_crc32": self.source_crc32,
+            "destination_crc32": self.destination_crc32,
             "config_source": self.config_source,
             "transport": self.transport,
             "duration_s": self.duration_s,
+            "interrupted": self.interrupted,
+            "borrowed_route": self.borrowed_route,
+            "outputs": dict(self.outputs),
             "warnings": list(self.warnings),
             "cleanup": {
                 "raw_closed": self.cleanup.raw_closed,
                 "radar_stopped": self.cleanup.radar_stopped,
                 "state_restored": self.cleanup.state_restored,
+                "parsed_restored": self.cleanup.parsed_restored,
+                "baud_restored": self.cleanup.baud_restored,
+                "config_restored": self.cleanup.config_restored,
+                "lifecycle_restored": self.cleanup.lifecycle_restored,
+                "ownership_restored": self.cleanup.ownership_restored,
+                "route_restored": self.cleanup.route_restored,
+                "sensor_stopped": self.cleanup.sensor_stopped,
                 "errors": list(self.cleanup.errors),
             },
         }
@@ -292,6 +466,9 @@ class LocalWireSession:
         self.raw_open = False
         self._saved_mode = "auto"
         self.last_response: dict[str, Any] | None = None
+        self.response_history: list[dict[str, Any]] = []
+        self.on_raw_write = None
+        self.on_raw_read = None
         self._seq = 1
 
     def _make_serial(self):
@@ -377,7 +554,7 @@ class LocalWireSession:
             raise ValueError("native USB CDC has no physical raw baud")
         serial.baudrate = int(baud)
 
-    def _read_line(self, timeout: float) -> dict[str, Any]:
+    def _read_line(self, timeout: float, expected_seq: int | None = None) -> dict[str, Any]:
         serial = self._require_serial()
         deadline = time.monotonic() + max(timeout, 0.1)
         last_line = b""
@@ -428,6 +605,10 @@ class LocalWireSession:
                     candidate.get("type") in {"res", "event"}
                     or any(key in candidate for key in ("ok", "result", "error", "status"))
                 ):
+                    if expected_seq is not None:
+                        candidate_seq = candidate.get("seq")
+                        if candidate.get("type") == "event" or candidate_seq != expected_seq:
+                            continue
                     return candidate
 
         detail = f"; last line={last_line!r}" if last_line else ""
@@ -478,7 +659,7 @@ class LocalWireSession:
         serial = self._require_serial()
         request = self._build_control_request(command)
         serial.write((json.dumps(request, separators=(",", ":")) + "\n").encode("utf-8"))
-        response = self._read_line(timeout)
+        response = self._read_line(timeout, expected_seq=request["seq"])
         if response.get("ok") is False:
             error = response.get("error")
             if isinstance(error, Mapping):
@@ -487,6 +668,7 @@ class LocalWireSession:
                 message = error
             raise RuntimeError(str(message or "control request failed"))
         self.last_response = response
+        self.response_history.append(response)
         return response
 
     def identify(self, expected_did: str | None = None, timeout: float = 10.0) -> LiveIdentity:
@@ -497,6 +679,49 @@ class LocalWireSession:
         identity = LiveIdentity.from_payload(payload)
         identity.require_match(expected_did)
         return identity
+
+    def query_raw(self, timeout: float | None = None) -> tuple[RawRouteSnapshot, dict[str, Any]]:
+        response = self.send_control(
+            {"cmd": "radar", "action": "raw"},
+            timeout=self.plan.control_timeout if timeout is None else timeout,
+        )
+        return RawRouteSnapshot.from_payload(_result_payload(response)), response
+
+    def query_radar(self, timeout: float | None = None) -> tuple[RadarSnapshot, dict[str, Any]]:
+        response = self.send_control(
+            {"cmd": "radar", "action": "status"},
+            timeout=self.plan.control_timeout if timeout is None else timeout,
+        )
+        payload = _result_payload(response)
+        mode = str(payload.get("mode") or "auto").strip().lower()
+        if mode not in {"auto", "host"}:
+            mode = "auto"
+        state = str(payload.get("state") or "unknown").strip().lower()
+        return RadarSnapshot(state=state, mode=mode), response
+
+    def read_config(self, timeout: float | None = None) -> tuple[bytes, dict[str, Any]]:
+        response = self.send_control(
+            {"cmd": "radar.config", "action": "read"},
+            timeout=self.plan.control_timeout if timeout is None else timeout,
+        )
+        cfg = _result_payload(response).get("cfg")
+        if not isinstance(cfg, str):
+            raise ValueError("radar.config read did not return cfg text")
+        return cfg.encode("utf-8"), response
+
+    def wait_until_running(self, timeout: float | None = None) -> dict[str, Any]:
+        wait_timeout = self.plan.control_timeout if timeout is None else timeout
+        deadline = time.monotonic() + max(wait_timeout, 0.1)
+        last_state = "unknown"
+        while time.monotonic() < deadline:
+            snapshot, response = self.query_radar(timeout=max(0.1, deadline - time.monotonic()))
+            last_state = snapshot.state
+            if snapshot.running:
+                return response
+            if snapshot.state == "error":
+                raise RuntimeError("radar entered error state while starting")
+            time.sleep(0.1)
+        raise TimeoutError(f"timed out waiting for radar status=running (last={last_state})")
 
     def open_raw(self, *, channel: str = "wire", ctrl: str | None = None,
                  data: str | None = None, escape: str | None = None,
@@ -539,12 +764,17 @@ class LocalWireSession:
             if written <= 0:
                 raise RuntimeError("serial write returned no progress")
             total += written
+        if self.on_raw_write is not None:
+            self.on_raw_write(bytes(payload))
         return total
 
     def read_raw(self, size: int = 8192) -> bytes:
         if not self.raw_open:
             raise RuntimeError("raw route is not active")
-        return bytes(self._require_serial().read(max(1, size)))
+        payload = bytes(self._require_serial().read(max(1, size)))
+        if payload and self.on_raw_read is not None:
+            self.on_raw_read(payload)
+        return payload
 
     def close_raw(self, escape: bytes | None = None, timeout: float = 3.0) -> dict[str, Any] | None:
         if not self.raw_open:
@@ -801,47 +1031,276 @@ def write_summary(
         handle.flush()
 
 
-def collect_local(plan: CollectionPlan, expected_did: str | None = None, serial_factory=None) -> CollectionSummary:
-    """Run a conservative local host collection session.
+def _prepare_config(payload: bytes, source: str) -> bytes:
+    """Validate cfg text and remove lifecycle lines owned by the collector."""
+    if not payload:
+        raise ValueError(f"radar cfg is empty: {source}")
+    try:
+        text = payload.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError(f"radar cfg is not UTF-8 text: {source}") from exc
+    if "\x00" in text:
+        raise ValueError(f"radar cfg contains NUL bytes: {source}")
 
-    The function intentionally does not guess radar framing.  It records the
-    merged wire bytes and reports counters; callers that own the radar lifecycle
-    can segment phases around this primitive.
-    """
+    retained: list[str] = []
+    commands = 0
+    for raw_line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        stripped = raw_line.strip()
+        token = stripped.split(None, 1)[0].lower() if stripped else ""
+        if token in {"sensorstart", "sensorstop"}:
+            continue
+        retained.append(raw_line.rstrip())
+        if stripped and not stripped.startswith(("%", "#")):
+            commands += 1
+    if commands == 0:
+        raise ValueError(f"radar cfg has no configuration commands: {source}")
+    while retained and retained[-1] == "":
+        retained.pop()
+    return ("\n".join(retained) + "\n").encode("utf-8")
+
+
+def _integer(payload: Mapping[str, Any], key: str, default: int = 0) -> int:
+    try:
+        return int(payload.get(key, default))
+    except (TypeError, ValueError):
+        return default
+
+
+def _apply_raw_metrics(summary: CollectionSummary, payload: Mapping[str, Any]) -> None:
+    summary.source_bytes = _integer(payload, "source_bytes", summary.source_bytes)
+    summary.destination_bytes = _integer(
+        payload,
+        "completed_bytes",
+        _integer(payload, "submitted_bytes", summary.destination_bytes),
+    )
+    summary.dropped_bytes = _integer(payload, "dropped_bytes", summary.dropped_bytes)
+    summary.source_crc32 = _integer(payload, "source_crc32", summary.source_crc32)
+    summary.destination_crc32 = _integer(
+        payload,
+        "completed_crc32",
+        _integer(payload, "submitted_crc32", summary.destination_crc32),
+    )
+    adapters = payload.get("adapters")
+    if isinstance(adapters, Mapping):
+        for adapter in adapters.values():
+            if not isinstance(adapter, Mapping):
+                continue
+            summary.dropped_chunks += _integer(adapter, "dropped_chunks")
+            summary.queue_high_water = max(
+                summary.queue_high_water,
+                _integer(adapter, "queue_high_water"),
+                _integer(adapter, "queued_chunks"),
+            )
+
+
+def _manual_escape_recovery(escape: str) -> str:
+    return (
+        "Forced exit: keep the wire silent for one second, send "
+        f"{escape!r} with no newline, keep it silent for one second, "
+        "then reopen parsed control at 115200."
+    )
+
+
+def collect_local(plan: CollectionPlan, expected_did: str | None = None, serial_factory=None) -> CollectionSummary:
+    """Collect one local host session with snapshot-driven restoration."""
 
     plan.validate()
-    summary = CollectionSummary()
-    summary.transport = plan.transport
+    summary = CollectionSummary(transport=plan.transport)
     session = LocalWireSession(plan, serial_factory=serial_factory)
-    cfg_payload = None
+    ledger = MutationLedger()
+    total_started = time.monotonic()
+    explicit_cfg: bytes | None = None
+    explicit_source = ""
     if plan.cfg_path:
-        cfg_payload = Path(plan.cfg_path).read_bytes()
-        if not cfg_payload:
-            raise ValueError("cfg file is empty")
-        summary.config_source = str(Path(plan.cfg_path).expanduser())
-    else:
-        summary.config_source = "none"
-    start = time.monotonic()
-    raw_open = False
-    radar_started = False
-    radar_stopped = False
-    parsed_restored = False
+        cfg_path = Path(plan.cfg_path).expanduser()
+        explicit_source = str(cfg_path)
+        explicit_cfg = _prepare_config(cfg_path.read_bytes(), explicit_source)
+
+    raw_before = RawRouteSnapshot()
+    radar_before = RadarSnapshot()
+    prior_cfg: bytes | None = None
+    collection_cfg: bytes | None = None
+    outputs_set: OutputSet | None = None
+    primary_error: BaseException | None = None
     cleanup_errors: list[str] = []
-    wire_file = None
+    recorded_responses = 0
     data_file = None
     resp_file = None
+    wire_file = None
+    summary_file = None
+    events_file = None
+    capture_started: float | None = None
+    capture_elapsed = 0.0
 
-    def record_response(resp_file, response: Mapping[str, Any] | None) -> None:
-        if not response:
+    sensor_stopped = True
+    config_restored = True
+    lifecycle_restored = True
+    raw_closed = True
+    parsed_restored = True
+    baud_restored = plan.transport == "usb"
+    ownership_restored = True
+    route_restored = True
+
+    def record_event(phase: str, **details: Any) -> None:
+        if events_file is None:
             return
-        line = (json.dumps(dict(response), separators=(",", ":")) + "\n").encode("utf-8")
-        resp_file.write(line)
+        payload = {"ts": time.time(), "phase": phase, **details}
+        events_file.write((json.dumps(payload, separators=(",", ":")) + "\n").encode("utf-8"))
+        events_file.flush()
+
+    def flush_responses() -> None:
+        nonlocal recorded_responses
+        if resp_file is None:
+            return
+        while recorded_responses < len(session.response_history):
+            response = session.response_history[recorded_responses]
+            line = (json.dumps(response, separators=(",", ":")) + "\n").encode("utf-8")
+            resp_file.write(line)
+            resp_file.flush()
+            summary.response_bytes += len(line)
+            recorded_responses += 1
+
+    def write_raw_wire(direction: str, payload: bytes) -> None:
+        if wire_file is not None:
+            wire_file.write(payload)
+            wire_file.flush()
+        summary.wire_bytes += len(payload)
+        record_event("wire", direction=direction, bytes=len(payload))
+
+    def record_raw_response(payload: bytes) -> None:
+        if not payload or resp_file is None:
+            return
+        resp_file.write(payload)
         resp_file.flush()
-        summary.response_bytes += len(line)
+        summary.response_bytes += len(payload)
+
+    def read_radar_command_response(label: str) -> bytes:
+        response = bytearray()
+        deadline = time.monotonic() + plan.control_timeout
+        quiet_deadline: float | None = None
+        while time.monotonic() < deadline:
+            payload = session.read_raw()
+            now = time.monotonic()
+            if payload:
+                response.extend(payload)
+                if len(response) > MAX_DATA_READY_PREFIX:
+                    raise RuntimeError(f"{label} response exceeded safety limit")
+                quiet_deadline = now + 0.15
+                continue
+            if response and quiet_deadline is not None and now >= quiet_deadline:
+                break
+        if not response:
+            raise TimeoutError(f"timed out waiting for radar response to {label}")
+        payload = bytes(response)
+        record_raw_response(payload)
+        lowered = payload.lower()
+        if b"error" in lowered or b"not recognized" in lowered or b"failed" in lowered:
+            raise RuntimeError(f"radar rejected {label}: {payload[-240:]!r}")
+        if b"done" not in lowered:
+            raise RuntimeError(f"radar returned an incomplete response to {label}: {payload[-240:]!r}")
+        return payload
+
+    def send_radar_command(command: bytes, label: str) -> bytes:
+        if not command.endswith(b"\n"):
+            command += b"\n"
+        session.write_radar_bytes(command)
+        return read_radar_command_response(label)
+
+    def send_radar_config(config: bytes, label: str) -> None:
+        for raw_line in config.splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith((b"%", b"#")):
+                continue
+            send_radar_command(line + b"\n", f"{label}: {line[:64].decode('utf-8', 'replace')}")
+
+    def wait_for_data_magic(label: str, *, capture: bool) -> float:
+        prefix = bytearray()
+        deadline = time.monotonic() + plan.data_ready_timeout
+        while time.monotonic() < deadline:
+            payload = session.read_raw()
+            if not payload:
+                continue
+            prefix.extend(payload)
+            magic_at = prefix.find(RADAR_DATA_MAGIC)
+            if magic_at < 0:
+                if len(prefix) > MAX_DATA_READY_PREFIX:
+                    raise RuntimeError(
+                        f"{label} prefix exceeded safety limit without radar magic"
+                    )
+                continue
+            response_prefix = bytes(prefix[:magic_at])
+            first_data = bytes(prefix[magic_at:])
+            if response_prefix:
+                record_raw_response(response_prefix)
+            ready_at = time.monotonic()
+            if capture:
+                data_file.write(first_data)
+                data_file.flush()
+                summary.data_bytes += len(first_data)
+                record_event("data_ready", prefix_bytes=len(response_prefix))
+            else:
+                record_event(
+                    "lifecycle_restored",
+                    prefix_bytes=len(response_prefix),
+                    proof="radar_data_magic",
+                )
+            return ready_at
+        if prefix:
+            record_raw_response(bytes(prefix))
+        raise TimeoutError(f"timed out waiting for {label} radar frame magic")
+
+    def cleanup_action(label: str, action) -> bool:
+        try:
+            action()
+            record_event("cleanup", item=label, ok=True)
+            return True
+        except KeyboardInterrupt:
+            print(_manual_escape_recovery(plan.escape), file=sys.stderr, flush=True)
+            raise
+        except Exception as exc:
+            cleanup_errors.append(f"{label}: {exc}")
+            record_event("cleanup", item=label, ok=False, error=str(exc))
+            return False
 
     try:
         session.open()
-        summary.identity = session.identify(expected_did)
+        summary.identity = session.identify(expected_did, timeout=plan.control_timeout)
+        raw_before, _ = session.query_raw()
+        radar_before, _ = session.query_radar()
+        if radar_before.mode != raw_before.radar:
+            raise ValueError(
+                "incomplete ownership snapshot: radar status and raw status disagree "
+                f"({radar_before.mode} != {raw_before.radar})"
+            )
+        if raw_before.live:
+            if plan.attach:
+                raise ValueError(
+                    "local --attach requires a separate parsed control channel; "
+                    "use MQTT attach for an already-active route"
+                )
+            raise ValueError(
+                "a host raw route is already active; close it first or use --attach "
+                "on a supported borrowed MQTT DATA route"
+            )
+
+        try:
+            prior_cfg_raw, _ = session.read_config()
+            prior_cfg = _prepare_config(prior_cfg_raw, "device:radar.config")
+        except Exception:
+            if explicit_cfg is None or (raw_before.radar == "host" and radar_before.running):
+                raise ValueError(
+                    "a complete restorable radar config snapshot is unavailable; "
+                    "provide --cfg or use --attach without replacing the running host"
+                )
+            prior_cfg = None
+
+        if explicit_cfg is not None:
+            collection_cfg = explicit_cfg
+            summary.config_source = explicit_source
+        else:
+            collection_cfg = prior_cfg
+            summary.config_source = "device:radar.config"
+
         if summary.identity.board == "wdr" and plan.transport == "uart" and plan.raw_baud is not None:
             warning = "WDR DATA is 1250000 baud; current 1000000-baud UART adapters are not lossless"
             if not plan.allow_lossy:
@@ -851,86 +1310,226 @@ def collect_local(plan: CollectionPlan, expected_did: str | None = None, serial_
             summary.warnings.append(
                 "MINI/PRO radar DATA at 921600 baud has little margin at 1000000; verify drops on hardware"
             )
-        output_paths = [Path(plan.data_output), Path(plan.resp_output)]
-        if plan.wire_output:
-            output_paths.append(Path(plan.wire_output))
-        with reserve_output_files(output_paths, overwrite=plan.overwrite) as outputs:
-            data_file = outputs.handles[Path(plan.data_output).expanduser().resolve()]
-            resp_file = outputs.handles[Path(plan.resp_output).expanduser().resolve()]
-            if plan.wire_output:
-                wire_file = outputs.handles[Path(plan.wire_output).expanduser().resolve()]
-            record_response(resp_file, session.last_response)
-            start_response = session.send_control({"cmd": "radar", "action": "start", "mode": "host"})
-            record_response(resp_file, start_response)
-            radar_started = True
-            raw_response = session.open_raw(channel="wire", escape=plan.escape)
-            record_response(resp_file, raw_response)
-            raw_open = True
-            if cfg_payload is not None:
-                session.write_radar_bytes(cfg_payload)
-                if not cfg_payload.endswith(b"\n"):
-                    session.write_radar_bytes(b"\n")
-            session.write_radar_bytes(b"sensorStart\n")
-            # A local host wire is merged, so the collector cannot identify
-            # the first radar DATA frame separately from command responses.
-            # Start the requested window at sensorStart and retain all bytes.
-            capture_started = time.monotonic()
-            capture_deadline = time.monotonic() + plan.duration + 10
-            data_seen = False
-            while time.monotonic() < capture_deadline:
-                payload = session.read_raw()
-                if payload:
-                    data_seen = True
+
+        outputs_set = resolve_output_set(plan, summary.identity)
+        summary.outputs = {
+            "data": str(outputs_set.data),
+            "response": str(outputs_set.response),
+            **({"wire": str(outputs_set.wire)} if outputs_set.wire is not None else {}),
+            **({"summary": str(outputs_set.summary)} if outputs_set.summary is not None else {}),
+            **({"events": str(outputs_set.events)} if outputs_set.events is not None else {}),
+        }
+        with reserve_output_files(outputs_set.paths(), overwrite=plan.overwrite) as output_stack:
+            data_file = output_stack.handles[outputs_set.data.expanduser().resolve()]
+            resp_file = output_stack.handles[outputs_set.response.expanduser().resolve()]
+            if outputs_set.wire is not None:
+                wire_file = output_stack.handles[outputs_set.wire.expanduser().resolve()]
+            if outputs_set.summary is not None:
+                summary_file = output_stack.handles[outputs_set.summary.expanduser().resolve()]
+            if outputs_set.events is not None:
+                events_file = output_stack.handles[outputs_set.events.expanduser().resolve()]
+            flush_responses()
+            record_event(
+                "preflight",
+                did=summary.identity.did,
+                board=summary.identity.board,
+                ownership=raw_before.radar,
+                raw_mode=raw_before.mode,
+                radar_state=radar_before.state,
+                config_source=summary.config_source,
+            )
+
+            session.on_raw_write = lambda payload: write_raw_wire("host_to_device", payload)
+            session.on_raw_read = lambda payload: write_raw_wire("device_to_host", payload)
+
+            try:
+                if raw_before.mode == "reconnect":
+                    session.send_control(
+                        {"cmd": "radar", "action": "raw", "mode": "off", "channel": "both"}
+                    )
+                    ledger.record("route_displaced")
+                    route_restored = False
+                    flush_responses()
+
+                if raw_before.radar != "host" or not radar_before.running:
+                    session.send_control(
+                        {"cmd": "radar", "action": "start", "mode": "host"}
+                    )
+                    ledger.record("radar_started")
+                    lifecycle_restored = False
+                    if raw_before.radar != "host":
+                        ledger.record("ownership_changed")
+                        ownership_restored = False
+                    session.wait_until_running()
+                    flush_responses()
+
+                session.open_raw(channel="wire", escape=plan.escape)
+                ledger.record("raw_open")
+                raw_closed = False
+                parsed_restored = False
+                baud_restored = plan.transport == "usb"
+                flush_responses()
+
+                if collection_cfg is None:
+                    raise ValueError("no validated radar cfg is available for host collection")
+                # ``radar status=running`` proves the host service is live, but
+                # does not prove that a sensorStart command is currently
+                # producing DATA. Own the lifecycle explicitly for this
+                # window, while preserving the prior cfg/running snapshot.
+                send_radar_command(b"sensorStop\n", "collection sensorStop")
+                ledger.record("sensor_stopped_for_collection")
+                if radar_before.running:
+                    lifecycle_restored = False
+                if raw_before.radar == "host" and radar_before.running:
+                    ledger.record("config_displaced")
+                    config_restored = False
+                send_radar_config(collection_cfg, "collection cfg")
+                session.write_radar_bytes(b"sensorStart\n")
+                ledger.record("sensor_started")
+                sensor_stopped = False
+                record_event("radar", operation="sensorStop_cfg_sensorStart")
+                capture_started = wait_for_data_magic("DATA-ready", capture=True)
+
+                capture_deadline = capture_started + plan.duration
+                while time.monotonic() < capture_deadline:
+                    payload = session.read_raw()
+                    if not payload:
+                        continue
                     data_file.write(payload)
                     data_file.flush()
                     summary.data_bytes += len(payload)
-                    summary.source_bytes += len(payload)
-                    summary.destination_bytes += len(payload)
-                    summary.wire_bytes += len(payload)
-                    if wire_file is not None:
-                        wire_file.write(payload)
-                        wire_file.flush()
-                    if time.monotonic() >= capture_started + plan.duration:
-                        break
-            if raw_open:
-                try:
-                    session.write_radar_bytes(b"sensorStop\n")
-                except Exception as exc:
-                    cleanup_errors.append(f"sensorStop: {exc}")
-                try:
-                    close_response = session.close_raw(escape=plan.escape.encode("ascii"))
-                    record_response(resp_file, close_response)
-                    raw_open = False
-                    parsed_restored = True
-                except Exception as exc:
-                    cleanup_errors.append(f"raw close: {exc}")
-            if not data_seen:
-                summary.warnings.append("no raw DATA arrived before the collection deadline")
-    except Exception:
-        raise
+                capture_elapsed = max(0.0, time.monotonic() - capture_started)
+            except KeyboardInterrupt as exc:
+                summary.interrupted = True
+                primary_error = exc
+                record_event("interrupt", count=1)
+            except BaseException as exc:
+                primary_error = exc
+                summary.warnings.append(f"collection failed: {type(exc).__name__}: {exc}")
+                record_event("failure", error_type=type(exc).__name__, error=str(exc))
+            finally:
+                if ledger.owns("sensor_started") and session.raw_open:
+                    sensor_stopped = cleanup_action(
+                        "sensorStop",
+                        lambda: send_radar_command(b"sensorStop\n", "cleanup sensorStop"),
+                    )
+
+                if ledger.owns("config_displaced") and session.raw_open:
+                    def restore_config() -> None:
+                        if prior_cfg is None:
+                            raise RuntimeError("prior config snapshot is missing")
+                        send_radar_config(prior_cfg, "restore cfg")
+
+                    config_restored = cleanup_action("config restore", restore_config)
+                    if config_restored:
+                        def restore_running_lifecycle() -> None:
+                            session.write_radar_bytes(b"sensorStart\n")
+                            wait_for_data_magic("restored lifecycle", capture=False)
+
+                        lifecycle_restored = cleanup_action(
+                            "running lifecycle restore",
+                            restore_running_lifecycle,
+                        )
+
+                if session.raw_open:
+                    close_response: dict[str, Any] | None = None
+
+                    def close_route() -> None:
+                        nonlocal close_response
+                        close_response = session.close_raw(escape=plan.escape.encode("ascii"))
+
+                    raw_closed = cleanup_action("raw close", close_route)
+                    if raw_closed:
+                        baud_restored = plan.transport == "usb" or session.parsed
+                    flush_responses()
+
+                raw_after: RawRouteSnapshot | None = None
+                if session.parsed:
+                    def verify_parsed() -> None:
+                        nonlocal raw_after, raw_closed
+                        raw_after, response = session.query_raw()
+                        if raw_after.live:
+                            raw_closed = False
+                            raise RuntimeError(
+                                "collector-owned raw route is still active after escape"
+                            )
+                        raw_closed = True
+                        _apply_raw_metrics(summary, _result_payload(response))
+
+                    parsed_restored = cleanup_action("parsed verification", verify_parsed)
+                    flush_responses()
+                else:
+                    parsed_restored = False
+
+                if ledger.owns("radar_started") and session.parsed:
+                    if raw_before.radar != "host":
+                        def restore_ownership() -> None:
+                            session.send_control({
+                                "cmd": "radar", "action": "start", "mode": raw_before.radar
+                            })
+                            session.wait_until_running()
+
+                        ownership_restored = cleanup_action(
+                            "ownership restore",
+                            restore_ownership,
+                        )
+                        flush_responses()
+                        if ownership_restored and radar_before.running:
+                            lifecycle_restored = True
+
+                    if not radar_before.running and ownership_restored:
+                        lifecycle_restored = cleanup_action(
+                            "stopped lifecycle restore",
+                            lambda: session.send_control({"cmd": "radar", "action": "stop"}),
+                        )
+                        flush_responses()
+
+                if ledger.owns("route_displaced") and session.parsed:
+                    route_restored = cleanup_action(
+                        "raw route restore",
+                        lambda: session.send_control(raw_before.restore_command()),
+                    )
+                    flush_responses()
+
+                summary.source_bytes = summary.source_bytes or summary.data_bytes
+                summary.destination_bytes = summary.destination_bytes or summary.data_bytes
+                summary.duration_s = capture_elapsed
+                state_restored = all((
+                    raw_closed,
+                    parsed_restored,
+                    baud_restored,
+                    config_restored,
+                    lifecycle_restored,
+                    ownership_restored,
+                    route_restored,
+                    sensor_stopped,
+                ))
+                summary.cleanup = CleanupReport(
+                    raw_closed=raw_closed,
+                    radar_stopped=sensor_stopped,
+                    state_restored=state_restored,
+                    parsed_restored=parsed_restored,
+                    baud_restored=baud_restored,
+                    config_restored=config_restored,
+                    lifecycle_restored=lifecycle_restored,
+                    ownership_restored=ownership_restored,
+                    route_restored=route_restored,
+                    sensor_stopped=sensor_stopped,
+                    errors=tuple(cleanup_errors),
+                )
+                record_event(
+                    "complete" if primary_error is None else "cleanup_complete",
+                    cleanup=summary.as_dict()["cleanup"],
+                )
+                if summary_file is not None:
+                    summary_file.write(
+                        (json.dumps(summary.as_dict(), indent=2) + "\n").encode("utf-8")
+                    )
+                    summary_file.flush()
     finally:
-        if raw_open:
-            try:
-                close_response = session.close_raw(escape=plan.escape.encode("ascii"))
-                raw_open = False
-                parsed_restored = True
-                if close_response:
-                    if resp_file is not None:
-                        record_response(resp_file, close_response)
-            except Exception as exc:
-                cleanup_errors.append(f"raw close: {exc}")
-        if radar_started and session.parsed:
-            try:
-                session.send_control({"cmd": "radar", "action": "stop"})
-                radar_stopped = True
-            except Exception as exc:
-                cleanup_errors.append(f"radar stop: {exc}")
-        summary.cleanup = CleanupReport(
-            raw_closed=not raw_open,
-            radar_stopped=radar_stopped,
-            state_restored=parsed_restored,
-            errors=tuple(cleanup_errors),
-        )
-        summary.duration_s = max(0.0, time.monotonic() - start)
         session.close()
+
+    if primary_error is not None:
+        raise primary_error
+    summary.duration_s = max(summary.duration_s, 0.0)
     return summary

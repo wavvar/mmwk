@@ -18,9 +18,10 @@ from mmwk.commands.device_ota import DeviceOtaCommand
 from mmwk.commands.collect import CollectCommand
 from mmwk.commands.collect_engine import (
     CollectionPlan,
+    LiveIdentity,
     collect_local,
     collect_split_wire_mqtt,
-    write_summary,
+    resolve_output_set,
 )
 from mmwk.commands.cfg import CfgCommand
 
@@ -951,21 +952,19 @@ def cmd_radar_record(args):
 def cmd_collect(args):
     """Handle: mmwk collect ..."""
     summary_output = getattr(args, "summary_output", None)
-    if summary_output:
-        output_paths = {
-            Path(args.data_output).expanduser().resolve(),
-            Path(args.resp_output).expanduser().resolve(),
-        }
-        wire_output = getattr(args, "wire_output", None)
-        if wire_output:
-            output_paths.add(Path(wire_output).expanduser().resolve())
-        summary_path = Path(summary_output).expanduser().resolve()
-        if summary_path in output_paths:
-            print("Error: summary output must be distinct from collection outputs")
-            sys.exit(1)
-        if summary_path.exists() and not getattr(args, "overwrite", False):
-            print("Error: summary output already exists; pass --overwrite to replace it")
-            sys.exit(1)
+    explicit_output_values = [
+        value for value in (
+            getattr(args, "data_output", None),
+            getattr(args, "resp_output", None),
+            getattr(args, "wire_output", None),
+            summary_output,
+            getattr(args, "events_output", None),
+        ) if value
+    ]
+    resolved_outputs = [Path(value).expanduser().resolve() for value in explicit_output_values]
+    if len(set(resolved_outputs)) != len(resolved_outputs):
+        print("Error: collection output paths must be distinct")
+        sys.exit(1)
     transport_name = getattr(args, "transport", None)
     ctrl_transport = getattr(args, "ctrl_transport", None)
     data_transport = getattr(args, "data_transport", None)
@@ -1000,11 +999,15 @@ def cmd_collect(args):
                 data_output=args.data_output,
                 resp_output=args.resp_output,
                 wire_output=getattr(args, "wire_output", None),
+                summary_output=summary_output,
+                events_output=getattr(args, "events_output", None),
                 overwrite=getattr(args, "overwrite", False),
                 attach=getattr(args, "attach", False),
                 allow_lossy=getattr(args, "allow_lossy", False),
                 ctrl_transport=ctrl_transport,
                 data_transport=data_transport,
+                data_ready_timeout=getattr(args, "data_ready_timeout", 10.0),
+                control_timeout=args.timeout,
             )
             if ctrl_transport is not None:
                 summary = collect_split_wire_mqtt(
@@ -1019,8 +1022,6 @@ def cmd_collect(args):
                 )
             else:
                 summary = collect_local(plan, expected_did=args.did)
-            if summary_output:
-                write_summary(summary_output, summary, overwrite=getattr(args, "overwrite", False))
             print(json.dumps(summary.as_dict(), indent=2))
             return
         except Exception as exc:
@@ -1031,6 +1032,18 @@ def cmd_collect(args):
     mcp = None
 
     try:
+        if args.data_output is None and args.resp_output is None:
+            fallback_identity = LiveIdentity((args.did or "unresolved").strip().lower())
+            fallback_plan = CollectionPlan(
+                transport="mqtt",
+                mode=mode,
+                duration=args.duration,
+                data_output=None,
+                resp_output=None,
+            )
+            fallback_outputs = resolve_output_set(fallback_plan, fallback_identity)
+            args.data_output = str(fallback_outputs.data)
+            args.resp_output = str(fallback_outputs.response)
         if args.port:
             transport = _cli_create_transport(args)
             mcp = McpClient(transport)
@@ -1685,6 +1698,8 @@ def main():
                                 help="Allow explicitly lossy local UART capture (never claims lossless output)")
     collect_parser.add_argument("--wire-output",
                                 help="Optional complete merged wire audit output")
+    collect_parser.add_argument("--events-output",
+                                help="Optional JSON-lines phase and cleanup event log")
     collect_parser.add_argument("--overwrite", action="store_true",
                                 help="Atomically replace existing collection outputs")
     collect_parser.add_argument("--summary-output",
@@ -1693,15 +1708,17 @@ def main():
                                 help="Control protocol for optional device discovery (default: cli)")
     collect_parser.add_argument(
         "--data-output",
-        default="data_resp.sraw",
+        default=None,
         help=("Output file for raw DATA payloads; local host captures the merged raw wire, "
-              "while auto/split MQTT captures DATA-only payloads (default: data_resp.sraw)"),
+              "while auto/split MQTT captures DATA-only payloads "
+              "(default: collections/<did>/<timestamp>/radar.sraw)"),
     )
     collect_parser.add_argument(
         "--resp-output",
-        default="cmd_resp.log",
+        default=None,
         help=("Output file for parsed setup/close acknowledgements in local host mode, "
-              "or MQTT raw/resp payloads in remote host mode (default: cmd_resp.log)"),
+              "or MQTT raw/resp payloads in remote host mode "
+              "(default: collections/<did>/<timestamp>/commands.log)"),
     )
     collect_parser.add_argument(
         "--resp-optional",
@@ -1735,6 +1752,8 @@ def main():
                                 help="Reset device before auto-discovery when --port is used")
     collect_parser.add_argument("--timeout", type=float, default=10.0,
                                 help="Timeout for auto-discovery in seconds (default: 10)")
+    collect_parser.add_argument("--data-ready-timeout", type=float, default=10.0,
+                                help="Seconds to wait for the first radar DATA frame (default: 10)")
     collect_parser.add_argument("-v", "--verbose", action="store_true",
                                 help="Enable debug logging")
     collect_parser.set_defaults(func=cmd_collect, transport=None)
