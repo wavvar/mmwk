@@ -2677,17 +2677,19 @@ def _apply_raw_metrics(summary: CollectionSummary, payload: Mapping[str, Any]) -
         "completed_crc32",
         _integer(payload, "submitted_crc32", summary.destination_crc32),
     )
+    observed_dropped_chunks = _integer(payload, "open_drop")
     adapters = payload.get("adapters")
     if isinstance(adapters, Mapping):
         for adapter in adapters.values():
             if not isinstance(adapter, Mapping):
                 continue
-            summary.dropped_chunks += _integer(adapter, "dropped_chunks")
+            observed_dropped_chunks += _integer(adapter, "dropped_chunks")
             summary.queue_high_water = max(
                 summary.queue_high_water,
                 _integer(adapter, "queue_high_water"),
                 _integer(adapter, "queued_chunks"),
             )
+    summary.dropped_chunks = max(summary.dropped_chunks, observed_dropped_chunks)
 
 
 def _manual_escape_recovery(escape: str) -> str:
