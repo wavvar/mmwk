@@ -28,6 +28,132 @@ RAW_SWITCH_SETTLE_SECONDS = 0.15
 RAW_ESCAPE_GUARD_SECONDS = 1.25
 RADAR_DATA_MAGIC = bytes.fromhex("0201040306050807")
 MAX_DATA_READY_PREFIX = 1024 * 1024
+RADAR_FRAME_HEADER_SIZE = 40
+RADAR_FRAME_LENGTH_OFFSET = 12
+
+
+class _RadarCommandResponseStream:
+    """Separate radar CLI text from DATA frames already in flight."""
+
+    def __init__(self) -> None:
+        self._pending = bytearray()
+        self._line = bytearray()
+        self._response = bytearray()
+        self.done = False
+        self.rejected = False
+        self.binary_bytes = 0
+
+    @staticmethod
+    def _magic_suffix_length(payload: bytearray) -> int:
+        limit = min(len(payload), len(RADAR_DATA_MAGIC) - 1)
+        for length in range(limit, 0, -1):
+            if payload[-length:] == RADAR_DATA_MAGIC[:length]:
+                return length
+        return 0
+
+    def _finish_line(self) -> None:
+        line = bytes(self._line)
+        self._line.clear()
+        self._response.extend(line + b"\n")
+        lowered = line.strip().lower()
+        if lowered == b"done":
+            self.done = True
+        elif any(token in lowered for token in (b"error", b"failed", b"not recognized")):
+            self.rejected = True
+
+    def _consume_unframed(self, payload: bytes) -> None:
+        for value in payload:
+            if value == 0x0A:
+                self._finish_line()
+            elif value == 0x0D or value == 0x09 or 0x20 <= value <= 0x7E:
+                self._line.append(value)
+            else:
+                self.binary_bytes += len(self._line) + 1
+                self._line.clear()
+
+    def feed(self, payload: bytes) -> None:
+        self._pending.extend(payload)
+        while self._pending and not (self.done or self.rejected):
+            magic_at = self._pending.find(RADAR_DATA_MAGIC)
+            if magic_at == 0:
+                length_end = RADAR_FRAME_LENGTH_OFFSET + 4
+                if len(self._pending) < length_end:
+                    return
+                frame_length = int.from_bytes(
+                    self._pending[RADAR_FRAME_LENGTH_OFFSET:length_end], "little"
+                )
+                if not RADAR_FRAME_HEADER_SIZE <= frame_length <= MAX_DATA_READY_PREFIX:
+                    self._consume_unframed(bytes(self._pending[:1]))
+                    del self._pending[:1]
+                    continue
+                if len(self._pending) < frame_length:
+                    return
+                if self._line:
+                    self.binary_bytes += len(self._line)
+                    self._line.clear()
+                del self._pending[:frame_length]
+                self.binary_bytes += frame_length
+                continue
+            if magic_at > 0:
+                prefix = bytes(self._pending[:magic_at])
+                del self._pending[:magic_at]
+                self._consume_unframed(prefix)
+                continue
+
+            keep = self._magic_suffix_length(self._pending)
+            consume = len(self._pending) - keep
+            if consume:
+                prefix = bytes(self._pending[:consume])
+                del self._pending[:consume]
+                self._consume_unframed(prefix)
+            return
+
+    def response(self, *, include_partial: bool = False) -> bytes:
+        payload = bytes(self._response)
+        if include_partial and self._line:
+            payload += bytes(self._line)
+        return payload
+
+    @property
+    def buffered_bytes(self) -> int:
+        return len(self._pending) + len(self._line) + len(self._response)
+
+
+def _await_radar_command_response(
+    read_raw,
+    record_response,
+    *,
+    label: str,
+    timeout: float,
+) -> bytes:
+    """Wait for a terminal radar CLI line while discarding in-flight DATA."""
+
+    stream = _RadarCommandResponseStream()
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        payload = read_raw()
+        if payload:
+            stream.feed(payload)
+            if stream.buffered_bytes > MAX_DATA_READY_PREFIX:
+                response = stream.response(include_partial=True)
+                record_response(response)
+                raise RuntimeError(f"{label} response exceeded safety limit")
+        if stream.done:
+            response = stream.response()
+            record_response(response)
+            return response
+        if stream.rejected:
+            response = stream.response()
+            record_response(response)
+            raise RuntimeError(f"radar rejected {label}: {response[-240:]!r}")
+
+    response = stream.response(include_partial=True)
+    record_response(response)
+    if not response:
+        raise TimeoutError(f"timed out waiting for radar response to {label}")
+    raise RuntimeError(
+        f"radar returned an incomplete response to {label}: {response[-240:]!r}"
+    )
 
 
 @dataclass(frozen=True)
@@ -2234,32 +2360,19 @@ def collect_split_wire_mqtt(
                 record_event("wire", direction=direction, bytes=len(payload))
 
             def read_command_response(label: str) -> bytes:
-                response = bytearray()
-                deadline = time.monotonic() + plan.control_timeout
-                quiet_deadline: float | None = None
-                while time.monotonic() < deadline:
-                    payload = session.read_raw()
-                    now = time.monotonic()
-                    if payload:
-                        response.extend(payload)
-                        quiet_deadline = now + 0.15
-                        if len(response) > MAX_DATA_READY_PREFIX:
-                            raise RuntimeError(f"{label} response exceeded safety limit")
-                        continue
-                    if response and quiet_deadline is not None and now >= quiet_deadline:
-                        break
-                if not response:
-                    raise TimeoutError(f"timed out waiting for radar response to {label}")
-                payload = bytes(response)
-                resp_file.write(payload)
-                resp_file.flush()
-                summary.response_bytes += len(payload)
-                lowered = payload.lower()
-                if any(token in lowered for token in (b"error", b"failed", b"not recognized")):
-                    raise RuntimeError(f"radar rejected {label}: {payload[-240:]!r}")
-                if b"done" not in lowered:
-                    raise RuntimeError(f"radar returned an incomplete response to {label}")
-                return payload
+                def record_response(payload: bytes) -> None:
+                    if not payload:
+                        return
+                    resp_file.write(payload)
+                    resp_file.flush()
+                    summary.response_bytes += len(payload)
+
+                return _await_radar_command_response(
+                    session.read_raw,
+                    record_response,
+                    label=label,
+                    timeout=plan.control_timeout,
+                )
 
             def send_command(command: bytes, label: str) -> None:
                 payload = command if command.endswith(b"\n") else command + b"\n"
@@ -2659,30 +2772,12 @@ def collect_local(plan: CollectionPlan, expected_did: str | None = None, serial_
         summary.response_bytes += len(payload)
 
     def read_radar_command_response(label: str) -> bytes:
-        response = bytearray()
-        deadline = time.monotonic() + plan.control_timeout
-        quiet_deadline: float | None = None
-        while time.monotonic() < deadline:
-            payload = session.read_raw()
-            now = time.monotonic()
-            if payload:
-                response.extend(payload)
-                if len(response) > MAX_DATA_READY_PREFIX:
-                    raise RuntimeError(f"{label} response exceeded safety limit")
-                quiet_deadline = now + 0.15
-                continue
-            if response and quiet_deadline is not None and now >= quiet_deadline:
-                break
-        if not response:
-            raise TimeoutError(f"timed out waiting for radar response to {label}")
-        payload = bytes(response)
-        record_raw_response(payload)
-        lowered = payload.lower()
-        if b"error" in lowered or b"not recognized" in lowered or b"failed" in lowered:
-            raise RuntimeError(f"radar rejected {label}: {payload[-240:]!r}")
-        if b"done" not in lowered:
-            raise RuntimeError(f"radar returned an incomplete response to {label}: {payload[-240:]!r}")
-        return payload
+        return _await_radar_command_response(
+            session.read_raw,
+            record_raw_response,
+            label=label,
+            timeout=plan.control_timeout,
+        )
 
     def send_radar_command(command: bytes, label: str) -> bytes:
         if not command.endswith(b"\n"):
