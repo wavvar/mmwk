@@ -37,6 +37,10 @@ Windows 下命令形状相同：
 可仅为本次采集换用另一份 cfg；它在接管前校验，不会持久化，summary 的
 `config_source` 记录其路径。不传时来源为 `device:radar.config`。
 
+采集器会从所选 cfg 保留生命周期命令及其参数，包括 WDR 的
+`sensorStop 0` 和 `sensorStart 0 0 0 0`。WDR 的 `baudRate` 只用于启动阶段，
+运行期采集不会重放它；否则会改变雷达串口速率，却不同步桥接侧串口。
+
 ## 2. WDR 本机原生 USB
 
 WDR DATA 是 1250000 baud，因此原生 USB CDC 是本机无损路径：
@@ -158,6 +162,9 @@ attach 还应满足 `borrowed_route=true`；这里的成功表示 borrowed 路�
 普通自有采集遇到已打开的 runtime raw 路由会拒绝执行，不会关闭其他客户端会话。
 如果没有完整可恢复的 config 和生命周期快照，也不会替换运行中的 host 会话。每个
 成功 mutation 都会在下一步前登记，清理只逆转本次采集拥有的 mutation。
+
+正常关闭时，采集器会在 escape 前后两个 guard 窗口持续读取，从而排空 WDR 的末尾
+DATA，并在 host ingress 保持静默时避免原生 USB 反压。
 
 第一次 `Ctrl-C` 执行正常清理。若清理本身再次被中断，先让 wire 静默 1 秒，发送
 不带换行的可打印 escape，再静默 1 秒，然后以 115200 恢复 parsed 控制。默认

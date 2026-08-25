@@ -40,6 +40,12 @@ radar cfg. Pass `--cfg FILE` to use another cfg for this run. It is validated
 before takeover, is not persisted, and its path appears as `config_source` in
 the summary. Without `--cfg`, the source is `device:radar.config`.
 
+The lifecycle commands are taken from the selected cfg, including profile
+arguments such as WDR's `sensorStop 0` and `sensorStart 0 0 0 0`. WDR's
+`baudRate` line is a boot-time setting and is not replayed through the runtime
+collection window; replaying it would change the radar UART without changing
+the bridge-side UART.
+
 ## 2. WDR attached native USB
 
 WDR DATA is 1250000 baud, so native USB CDC is the attached lossless path:
@@ -179,6 +185,10 @@ another client's session. It also refuses to replace a running host session
 unless it has a complete restorable config and lifecycle snapshot. Every
 successful mutation is recorded before the next step, and cleanup reverses only
 mutations owned by this run.
+
+During a normal close, the collector keeps reading through both escape guard
+windows. This drains final WDR DATA and prevents native USB backpressure while
+host ingress remains silent.
 
 The first `Ctrl-C` runs normal cleanup. If cleanup itself is interrupted, keep
 the wire silent for one second, send the configured printable escape with no

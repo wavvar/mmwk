@@ -25,6 +25,9 @@ MAX_EXTERNAL_UART_BAUD = 1_000_000
 DEFAULT_PARSED_BAUD = 115_200
 DEFAULT_RAW_BAUD = 1_000_000
 RAW_SWITCH_SETTLE_SECONDS = 0.15
+# xWRL6432 can emit one final DATA frame after the sensorStop acknowledgement.
+# Do not put the next runtime CLI command into that single-UART tail window.
+RADAR_SENSOR_STOP_SETTLE_SECONDS = 0.30
 RAW_ESCAPE_GUARD_SECONDS = 1.25
 RADAR_DATA_MAGIC = bytes.fromhex("0201040306050807")
 MAX_DATA_READY_PREFIX = 1024 * 1024
@@ -71,6 +74,25 @@ class _RadarCommandResponseStream:
                 self.binary_bytes += len(self._line) + 1
                 self._line.clear()
 
+    def _incomplete_frame_terminal_at(self) -> int:
+        """Find a CLI terminal line following a sensorStop-truncated frame.
+
+        WDR shares radar DATA and CLI on one UART.  A final frame may stop
+        after its header but before its advertised length, with ``Done``
+        following immediately.  Waiting for the impossible remaining frame
+        bytes would consume the CLI response as binary and make cleanup time
+        out.  Limit recovery to terminal lines and only after a valid frame
+        header, leaving ordinary partial frames buffered.
+        """
+        search_from = min(len(self._pending), RADAR_FRAME_LENGTH_OFFSET + 4)
+        lowered = bytes(self._pending).lower()
+        positions = [
+            position
+            for marker in (b"done\n", b"done\r\n", b"error", b"failed")
+            if (position := lowered.find(marker, search_from)) >= 0
+        ]
+        return min(positions) if positions else -1
+
     def feed(self, payload: bytes) -> None:
         self._pending.extend(payload)
         while self._pending and not (self.done or self.rejected):
@@ -87,6 +109,11 @@ class _RadarCommandResponseStream:
                     del self._pending[:1]
                     continue
                 if len(self._pending) < frame_length:
+                    terminal_at = self._incomplete_frame_terminal_at()
+                    if terminal_at >= 0:
+                        self.binary_bytes += terminal_at
+                        del self._pending[:terminal_at]
+                        continue
                     return
                 if self._line:
                     self.binary_bytes += len(self._line)
@@ -990,16 +1017,25 @@ class LocalWireSession:
             self.on_raw_read(payload)
         return payload
 
+    def _drain_raw_for(self, duration: float) -> None:
+        """Keep consuming raw output while an escape guard is in progress."""
+        serial = self._require_serial()
+        deadline = time.monotonic() + max(0.0, duration)
+        while time.monotonic() < deadline:
+            payload = bytes(serial.read(8192))
+            if payload and self.on_raw_read is not None:
+                self.on_raw_read(payload)
+
     def close_raw(self, escape: bytes | None = None, timeout: float = 3.0) -> dict[str, Any] | None:
         if not self.raw_open:
             return None
-        serial = self._require_serial()
         # The firmware only accepts the escape sequence after a full guard
-        # interval without radar output.  sensorStop's final response can
-        # refresh that interval, so leave a small margin before sending +++.
-        time.sleep(RAW_ESCAPE_GUARD_SECONDS)
+        # interval without host ingress.  Continue reading during both guard
+        # windows so a running WDR lifecycle cannot fill the native USB TX
+        # queue and turn a clean route close into a dropped DATA chunk.
+        self._drain_raw_for(RAW_ESCAPE_GUARD_SECONDS)
         self.write_radar_bytes(escape if escape is not None else self.plan.escape.encode("ascii"))
-        time.sleep(RAW_ESCAPE_GUARD_SECONDS)
+        self._drain_raw_for(RAW_ESCAPE_GUARD_SECONDS)
         if self.plan.raw_baud is not None:
             self._set_baud(self.plan.baudrate)
         self.raw_open = False
@@ -1434,10 +1470,16 @@ def collect_mqtt(
 
     explicit_cfg: bytes | None = None
     explicit_source = ""
+    explicit_sensor_stop = b"sensorStop\n"
+    explicit_sensor_start = b"sensorStart\n"
     if plan.cfg_path:
         cfg_path = Path(plan.cfg_path).expanduser()
         explicit_source = str(cfg_path)
-        explicit_cfg = _prepare_config(cfg_path.read_bytes(), explicit_source)
+        explicit_payload = cfg_path.read_bytes()
+        explicit_sensor_stop, explicit_sensor_start = _radar_lifecycle_commands(
+            explicit_payload, explicit_source
+        )
+        explicit_cfg = _prepare_config(explicit_payload, explicit_source)
 
     summary = CollectionSummary(transport="mqtt", borrowed_route=plan.attach)
     ledger = MutationLedger()
@@ -1471,6 +1513,10 @@ def collect_mqtt(
             f"({radar_before.mode} != {raw_before.radar})"
         )
 
+    prior_sensor_stop = b"sensorStop\n"
+    prior_sensor_start = b"sensorStart\n"
+    collection_sensor_stop = b"sensorStop\n"
+    collection_sensor_start = b"sensorStart\n"
     if plan.attach:
         if not raw_before.live or not raw_before.data_uses("mqtt"):
             raise ValueError(
@@ -1501,10 +1547,27 @@ def collect_mqtt(
                 )
             prior_cfg = None
         else:
+            prior_sensor_stop, prior_sensor_start = _radar_lifecycle_commands(
+                cfg_text.encode("utf-8"), "device:radar.config"
+            )
             prior_cfg = _prepare_config(
                 cfg_text.encode("utf-8"), "device:radar.config"
             )
+        if explicit_cfg is not None:
+            explicit_cfg = _prepare_runtime_config(
+                explicit_cfg, explicit_source, summary.identity.board
+            )
+        if prior_cfg is not None:
+            prior_cfg = _prepare_runtime_config(
+                prior_cfg, "device:radar.config", summary.identity.board
+            )
         collection_cfg = explicit_cfg if explicit_cfg is not None else prior_cfg
+        if explicit_cfg is not None:
+            collection_sensor_stop = explicit_sensor_stop
+            collection_sensor_start = explicit_sensor_start
+        else:
+            collection_sensor_stop = prior_sensor_stop
+            collection_sensor_start = prior_sensor_start
         summary.config_source = (
             explicit_source if explicit_cfg is not None else "device:radar.config"
         )
@@ -1638,6 +1701,11 @@ def collect_mqtt(
                 published_callback=published_callback,
             )
             record_event("raw_cmd", label=label, bytes=len(payload), qos=1)
+            settle_seconds = _radar_command_settle_seconds(
+                summary.identity.board, payload
+            )
+            if settle_seconds > 0.0:
+                time.sleep(settle_seconds)
 
         def send_config(config: bytes, label: str) -> None:
             for raw_line in config.splitlines():
@@ -1719,7 +1787,7 @@ def collect_mqtt(
                 ledger.record("raw_open")
                 raw_closed = False
 
-                send_command(b"sensorStop\n", "collection sensorStop")
+                send_command(collection_sensor_stop, "collection sensorStop")
                 ledger.record("sensor_stopped_for_collection")
                 if radar_before.running:
                     lifecycle_restored = False
@@ -1735,7 +1803,7 @@ def collect_mqtt(
                     sensor_stopped = False
 
                 send_command(
-                    b"sensorStart\n",
+                    collection_sensor_start,
                     "collection sensorStart",
                     published_callback=mark_sensor_started,
                 )
@@ -1766,7 +1834,10 @@ def collect_mqtt(
             if not plan.attach and capture is not None and client is not None:
                 if ledger.owns("sensor_started"):
                     sensor_stopped = cleanup_action(
-                        "sensorStop", lambda: send_command(b"sensorStop\n", "cleanup sensorStop")
+                        "sensorStop",
+                        lambda: send_command(
+                            collection_sensor_stop, "cleanup sensorStop"
+                        ),
                     )
 
                 if ledger.owns("config_displaced"):
@@ -1779,7 +1850,7 @@ def collect_mqtt(
                     if config_restored:
                         def restore_running() -> None:
                             capture.start_probe()
-                            send_command(b"sensorStart\n", "restore sensorStart")
+                            send_command(prior_sensor_start, "restore sensorStart")
                             if not capture.wait_for_data_ready(plan.data_ready_timeout):
                                 raise TimeoutError(
                                     "timed out proving restored MQTT radar lifecycle"
@@ -2216,10 +2287,16 @@ def collect_split_wire_mqtt(
 
     explicit_cfg: bytes | None = None
     explicit_source = ""
+    explicit_sensor_stop = b"sensorStop\n"
+    explicit_sensor_start = b"sensorStart\n"
     if plan.cfg_path:
         cfg_path = Path(plan.cfg_path).expanduser()
         explicit_source = str(cfg_path)
-        explicit_cfg = _prepare_config(cfg_path.read_bytes(), explicit_source)
+        explicit_payload = cfg_path.read_bytes()
+        explicit_sensor_stop, explicit_sensor_start = _radar_lifecycle_commands(
+            explicit_payload, explicit_source
+        )
+        explicit_cfg = _prepare_config(explicit_payload, explicit_source)
 
     summary = CollectionSummary(transport="split")
     session = LocalWireSession(plan, serial_factory=serial_factory)
@@ -2232,7 +2309,11 @@ def collect_split_wire_mqtt(
     raw_before = RawRouteSnapshot()
     radar_before = RadarSnapshot()
     prior_cfg: bytes | None = None
+    prior_sensor_stop = b"sensorStop\n"
+    prior_sensor_start = b"sensorStart\n"
     collection_cfg: bytes | None = None
+    collection_sensor_stop = b"sensorStop\n"
+    collection_sensor_start = b"sensorStart\n"
 
     raw_closed = True
     sensor_stopped = True
@@ -2262,6 +2343,9 @@ def collect_split_wire_mqtt(
             )
         try:
             prior_cfg_raw, _ = session.read_config()
+            prior_sensor_stop, prior_sensor_start = _radar_lifecycle_commands(
+                prior_cfg_raw, "device:radar.config"
+            )
             prior_cfg = _prepare_config(prior_cfg_raw, "device:radar.config")
         except Exception:
             if explicit_cfg is None or (raw_before.radar == "host" and radar_before.running):
@@ -2269,7 +2353,21 @@ def collect_split_wire_mqtt(
                     "a complete restorable radar config snapshot is unavailable; "
                     "provide --cfg or use --attach"
                 )
+        if explicit_cfg is not None:
+            explicit_cfg = _prepare_runtime_config(
+                explicit_cfg, explicit_source, summary.identity.board
+            )
+        if prior_cfg is not None:
+            prior_cfg = _prepare_runtime_config(
+                prior_cfg, "device:radar.config", summary.identity.board
+            )
         collection_cfg = explicit_cfg if explicit_cfg is not None else prior_cfg
+        if explicit_cfg is not None:
+            collection_sensor_stop = explicit_sensor_stop
+            collection_sensor_start = explicit_sensor_start
+        else:
+            collection_sensor_stop = prior_sensor_stop
+            collection_sensor_start = prior_sensor_start
         if collection_cfg is None:
             raise ValueError("no validated radar cfg is available for split collection")
         summary.config_source = (
@@ -2378,6 +2476,11 @@ def collect_split_wire_mqtt(
                 payload = command if command.endswith(b"\n") else command + b"\n"
                 session.write_radar_bytes(payload)
                 read_command_response(label)
+                settle_seconds = _radar_command_settle_seconds(
+                    summary.identity.board, payload
+                )
+                if settle_seconds > 0.0:
+                    time.sleep(settle_seconds)
 
             def send_config(config: bytes, label: str) -> None:
                 for raw_line in config.splitlines():
@@ -2448,7 +2551,7 @@ def collect_split_wire_mqtt(
                 parsed_restored = False
                 flush_responses()
 
-                send_command(b"sensorStop\n", "collection sensorStop")
+                send_command(collection_sensor_stop, "collection sensorStop")
                 ledger.record("sensor_stopped_for_collection")
                 if radar_before.running:
                     lifecycle_restored = False
@@ -2457,7 +2560,7 @@ def collect_split_wire_mqtt(
                     config_restored = False
                 send_config(collection_cfg, "collection cfg")
                 capture.start_capture()
-                session.write_radar_bytes(b"sensorStart\n")
+                session.write_radar_bytes(collection_sensor_start)
                 ledger.record("sensor_started")
                 sensor_stopped = False
                 read_command_response("collection sensorStart")
@@ -2485,7 +2588,9 @@ def collect_split_wire_mqtt(
                 if ledger.owns("sensor_started") and session.raw_open:
                     sensor_stopped = cleanup_action(
                         "sensorStop",
-                        lambda: send_command(b"sensorStop\n", "cleanup sensorStop"),
+                        lambda: send_command(
+                            collection_sensor_stop, "cleanup sensorStop"
+                        ),
                     )
 
                 if ledger.owns("config_displaced") and session.raw_open:
@@ -2498,7 +2603,7 @@ def collect_split_wire_mqtt(
                     if config_restored and capture is not None:
                         def restore_running() -> None:
                             capture.start_probe()
-                            session.write_radar_bytes(b"sensorStart\n")
+                            session.write_radar_bytes(prior_sensor_start)
                             read_command_response("restore sensorStart")
                             if not capture.wait_for_data_ready(plan.data_ready_timeout):
                                 raise TimeoutError("timed out proving restored split lifecycle")
@@ -2628,8 +2733,8 @@ def write_summary(
         handle.flush()
 
 
-def _prepare_config(payload: bytes, source: str) -> bytes:
-    """Validate cfg text and remove lifecycle lines owned by the collector."""
+def _decode_config_text(payload: bytes, source: str) -> str:
+    """Validate a radar cfg payload and return normalized text."""
     if not payload:
         raise ValueError(f"radar cfg is empty: {source}")
     try:
@@ -2638,10 +2743,39 @@ def _prepare_config(payload: bytes, source: str) -> bytes:
         raise ValueError(f"radar cfg is not UTF-8 text: {source}") from exc
     if "\x00" in text:
         raise ValueError(f"radar cfg contains NUL bytes: {source}")
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _radar_lifecycle_commands(payload: bytes, source: str) -> tuple[bytes, bytes]:
+    """Return the cfg-owned sensorStop/sensorStart commands.
+
+    Older radar profiles use bare lifecycle commands, while the L6432 WDR
+    profiles require their arguments.  The collector owns the lifecycle
+    window, so it must preserve those arguments instead of reconstructing
+    generic commands after stripping the lines from the config body.
+    """
+    text = _decode_config_text(payload, source)
+    sensor_stop = b"sensorStop\n"
+    sensor_start = b"sensorStart\n"
+    for raw_line in text.split("\n"):
+        stripped = raw_line.strip()
+        if not stripped or stripped.startswith(("%", "#")):
+            continue
+        token = stripped.split(None, 1)[0].lower()
+        if token == "sensorstop" and sensor_stop == b"sensorStop\n":
+            sensor_stop = stripped.encode("utf-8") + b"\n"
+        elif token == "sensorstart" and sensor_start == b"sensorStart\n":
+            sensor_start = stripped.encode("utf-8") + b"\n"
+    return sensor_stop, sensor_start
+
+
+def _prepare_config(payload: bytes, source: str) -> bytes:
+    """Validate cfg text and remove lifecycle lines owned by the collector."""
+    text = _decode_config_text(payload, source)
 
     retained: list[str] = []
     commands = 0
-    for raw_line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+    for raw_line in text.split("\n"):
         stripped = raw_line.strip()
         token = stripped.split(None, 1)[0].lower() if stripped else ""
         if token in {"sensorstart", "sensorstop"}:
@@ -2654,6 +2788,41 @@ def _prepare_config(payload: bytes, source: str) -> bytes:
     while retained and retained[-1] == "":
         retained.pop()
     return ("\n".join(retained) + "\n").encode("utf-8")
+
+
+def _prepare_runtime_config(config: bytes, source: str, board: str) -> bytes:
+    """Remove commands that are valid only during radar boot.
+
+    ``baudRate`` is interpreted by the bridge driver while applying boot
+    configuration.  Replaying it through the runtime CLI changes the radar's
+    UART clock without retuning the bridge-side UART, which corrupts the
+    following response and leaves the raw handoff out of sync.  WDR profiles
+    are already booted at their required 1.25 Mbit/s rate, so omit this one
+    boot-only command from a collection window.  Other boards retain their
+    existing runtime configuration behavior.
+    """
+    if board.strip().lower() != "wdr":
+        return config
+    retained: list[bytes] = []
+    for raw_line in config.splitlines():
+        stripped = raw_line.strip()
+        token = stripped.split(None, 1)[0].lower() if stripped else b""
+        if token == b"baudrate":
+            continue
+        retained.append(raw_line.rstrip())
+    while retained and retained[-1] == b"":
+        retained.pop()
+    if not retained:
+        raise ValueError(f"radar cfg has no runtime commands after filtering: {source}")
+    return b"\n".join(retained) + b"\n"
+
+
+def _radar_command_settle_seconds(board: str, command: bytes) -> float:
+    """Return the board-specific quiet time after a runtime radar command."""
+    command_name = command.lstrip().split(None, 1)[0].lower() if command.strip() else b""
+    if board.strip().lower() == "wdr" and command_name == b"sensorstop":
+        return RADAR_SENSOR_STOP_SETTLE_SECONDS
+    return 0.0
 
 
 def _integer(payload: Mapping[str, Any], key: str, default: int = 0) -> int:
@@ -2710,15 +2879,25 @@ def collect_local(plan: CollectionPlan, expected_did: str | None = None, serial_
     total_started = time.monotonic()
     explicit_cfg: bytes | None = None
     explicit_source = ""
+    explicit_sensor_stop = b"sensorStop\n"
+    explicit_sensor_start = b"sensorStart\n"
     if plan.cfg_path:
         cfg_path = Path(plan.cfg_path).expanduser()
         explicit_source = str(cfg_path)
-        explicit_cfg = _prepare_config(cfg_path.read_bytes(), explicit_source)
+        explicit_payload = cfg_path.read_bytes()
+        explicit_sensor_stop, explicit_sensor_start = _radar_lifecycle_commands(
+            explicit_payload, explicit_source
+        )
+        explicit_cfg = _prepare_config(explicit_payload, explicit_source)
 
     raw_before = RawRouteSnapshot()
     radar_before = RadarSnapshot()
     prior_cfg: bytes | None = None
+    prior_sensor_stop = b"sensorStop\n"
+    prior_sensor_start = b"sensorStart\n"
     collection_cfg: bytes | None = None
+    collection_sensor_stop = b"sensorStop\n"
+    collection_sensor_start = b"sensorStart\n"
     outputs_set: OutputSet | None = None
     primary_error: BaseException | None = None
     cleanup_errors: list[str] = []
@@ -2785,7 +2964,17 @@ def collect_local(plan: CollectionPlan, expected_did: str | None = None, serial_
         if not command.endswith(b"\n"):
             command += b"\n"
         session.write_radar_bytes(command)
-        return read_radar_command_response(label)
+        response = read_radar_command_response(label)
+        settle_seconds = _radar_command_settle_seconds(
+            summary.identity.board if summary.identity else "",
+            command,
+        )
+        if settle_seconds > 0.0:
+            # The WDR single-UART radar may still deliver one final DATA
+            # frame after its CLI ACK.  Waiting for that tail to drain keeps
+            # the following cfg command from being consumed as stale output.
+            time.sleep(settle_seconds)
+        return response
 
     def send_radar_config(config: bytes, label: str) -> None:
         for raw_line in config.splitlines():
@@ -2866,6 +3055,9 @@ def collect_local(plan: CollectionPlan, expected_did: str | None = None, serial_
 
         try:
             prior_cfg_raw, _ = session.read_config()
+            prior_sensor_stop, prior_sensor_start = _radar_lifecycle_commands(
+                prior_cfg_raw, "device:radar.config"
+            )
             prior_cfg = _prepare_config(prior_cfg_raw, "device:radar.config")
         except Exception:
             if explicit_cfg is None or (raw_before.radar == "host" and radar_before.running):
@@ -2876,10 +3068,22 @@ def collect_local(plan: CollectionPlan, expected_did: str | None = None, serial_
             prior_cfg = None
 
         if explicit_cfg is not None:
+            explicit_cfg = _prepare_runtime_config(
+                explicit_cfg, explicit_source, summary.identity.board
+            )
+        if prior_cfg is not None:
+            prior_cfg = _prepare_runtime_config(
+                prior_cfg, "device:radar.config", summary.identity.board
+            )
+        if explicit_cfg is not None:
             collection_cfg = explicit_cfg
+            collection_sensor_stop = explicit_sensor_stop
+            collection_sensor_start = explicit_sensor_start
             summary.config_source = explicit_source
         else:
             collection_cfg = prior_cfg
+            collection_sensor_stop = prior_sensor_stop
+            collection_sensor_start = prior_sensor_start
             summary.config_source = "device:radar.config"
 
         if summary.identity.board == "wdr" and plan.transport == "uart" and plan.raw_baud is not None:
@@ -2961,7 +3165,7 @@ def collect_local(plan: CollectionPlan, expected_did: str | None = None, serial_
                 # does not prove that a sensorStart command is currently
                 # producing DATA. Own the lifecycle explicitly for this
                 # window, while preserving the prior cfg/running snapshot.
-                send_radar_command(b"sensorStop\n", "collection sensorStop")
+                send_radar_command(collection_sensor_stop, "collection sensorStop")
                 ledger.record("sensor_stopped_for_collection")
                 if radar_before.running:
                     lifecycle_restored = False
@@ -2969,7 +3173,7 @@ def collect_local(plan: CollectionPlan, expected_did: str | None = None, serial_
                     ledger.record("config_displaced")
                     config_restored = False
                 send_radar_config(collection_cfg, "collection cfg")
-                session.write_radar_bytes(b"sensorStart\n")
+                session.write_radar_bytes(collection_sensor_start)
                 ledger.record("sensor_started")
                 sensor_stopped = False
                 record_event("radar", operation="sensorStop_cfg_sensorStart")
@@ -2996,7 +3200,9 @@ def collect_local(plan: CollectionPlan, expected_did: str | None = None, serial_
                 if ledger.owns("sensor_started") and session.raw_open:
                     sensor_stopped = cleanup_action(
                         "sensorStop",
-                        lambda: send_radar_command(b"sensorStop\n", "cleanup sensorStop"),
+                        lambda: send_radar_command(
+                            collection_sensor_stop, "cleanup sensorStop"
+                        ),
                     )
 
                 if ledger.owns("config_displaced") and session.raw_open:
@@ -3008,7 +3214,7 @@ def collect_local(plan: CollectionPlan, expected_did: str | None = None, serial_
                     config_restored = cleanup_action("config restore", restore_config)
                     if config_restored:
                         def restore_running_lifecycle() -> None:
-                            session.write_radar_bytes(b"sensorStart\n")
+                            session.write_radar_bytes(prior_sensor_start)
                             wait_for_data_magic("restored lifecycle", capture=False)
 
                         lifecycle_restored = cleanup_action(
