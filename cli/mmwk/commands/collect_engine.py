@@ -28,11 +28,16 @@ RAW_SWITCH_SETTLE_SECONDS = 0.15
 # xWRL6432 can emit one final DATA frame after the sensorStop acknowledgement.
 # Do not put the next runtime CLI command into that single-UART tail window.
 RADAR_SENSOR_STOP_SETTLE_SECONDS = 0.30
+RADAR_SENSOR_STOP_RETRY_SECONDS = 0.30
 RAW_ESCAPE_GUARD_SECONDS = 1.25
 RADAR_DATA_MAGIC = bytes.fromhex("0201040306050807")
 MAX_DATA_READY_PREFIX = 1024 * 1024
 RADAR_FRAME_HEADER_SIZE = 40
 RADAR_FRAME_LENGTH_OFFSET = 12
+
+
+class _RadarCommandIncompleteResponse(RuntimeError):
+    pass
 
 
 class _RadarCommandResponseStream:
@@ -178,7 +183,7 @@ def _await_radar_command_response(
     record_response(response)
     if not response:
         raise TimeoutError(f"timed out waiting for radar response to {label}")
-    raise RuntimeError(
+    raise _RadarCommandIncompleteResponse(
         f"radar returned an incomplete response to {label}: {response[-240:]!r}"
     )
 
@@ -2963,18 +2968,37 @@ def collect_local(plan: CollectionPlan, expected_did: str | None = None, serial_
     def send_radar_command(command: bytes, label: str) -> bytes:
         if not command.endswith(b"\n"):
             command += b"\n"
-        session.write_radar_bytes(command)
-        response = read_radar_command_response(label)
-        settle_seconds = _radar_command_settle_seconds(
-            summary.identity.board if summary.identity else "",
-            command,
-        )
-        if settle_seconds > 0.0:
-            # The WDR single-UART radar may still deliver one final DATA
-            # frame after its CLI ACK.  Waiting for that tail to drain keeps
-            # the following cfg command from being consumed as stale output.
-            time.sleep(settle_seconds)
-        return response
+        board = summary.identity.board if summary.identity else ""
+        command_name = command.lstrip().split(None, 1)[0].lower()
+        retry_stop = board.strip().lower() == "wdr" and command_name == b"sensorstop"
+        attempts = 2 if retry_stop else 1
+
+        for attempt in range(1, attempts + 1):
+            session.write_radar_bytes(command)
+            try:
+                response = read_radar_command_response(label)
+            except (TimeoutError, _RadarCommandIncompleteResponse) as exc:
+                if attempt >= attempts:
+                    raise
+                record_event(
+                    "radar_command_retry",
+                    label=label,
+                    command="sensorStop",
+                    attempt=attempt + 1,
+                    reason=str(exc),
+                )
+                time.sleep(RADAR_SENSOR_STOP_RETRY_SECONDS)
+                continue
+
+            settle_seconds = _radar_command_settle_seconds(board, command)
+            if settle_seconds > 0.0:
+                # The WDR single-UART radar may still deliver one final DATA
+                # frame after its CLI ACK.  Waiting for that tail to drain keeps
+                # the following cfg command from being consumed as stale output.
+                time.sleep(settle_seconds)
+            return response
+
+        raise AssertionError("unreachable radar command retry state")
 
     def send_radar_config(config: bytes, label: str) -> None:
         for raw_line in config.splitlines():
