@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import tempfile
 import threading
@@ -38,6 +39,25 @@ RADAR_FRAME_LENGTH_OFFSET = 12
 
 class _RadarCommandIncompleteResponse(RuntimeError):
     pass
+
+
+class _RadarCommandRejected(RuntimeError):
+    def __init__(self, label: str, response: bytes):
+        self.response = response
+        super().__init__(f"radar rejected {label}: {response[-240:]!r}")
+
+
+def _retryable_wdr_sensor_stop_rejection(response: bytes) -> bool:
+    """Recognize a transport-truncated sensorStop rejection, not a semantic error."""
+
+    match = re.search(
+        rb"['\"]([^'\"]+)['\"] is not recognized as a cli command",
+        response.lower(),
+    )
+    if not match:
+        return False
+    rejected = match.group(1).strip()
+    return bool(rejected) and rejected != b"sensorstop" and b"sensorstop".startswith(rejected)
 
 
 class _RadarCommandResponseStream:
@@ -177,7 +197,7 @@ def _await_radar_command_response(
         if stream.rejected:
             response = stream.response()
             record_response(response)
-            raise RuntimeError(f"radar rejected {label}: {response[-240:]!r}")
+            raise _RadarCommandRejected(label, response)
 
     response = stream.response(include_partial=True)
     record_response(response)
@@ -2977,8 +2997,14 @@ def collect_local(plan: CollectionPlan, expected_did: str | None = None, serial_
             session.write_radar_bytes(command)
             try:
                 response = read_radar_command_response(label)
-            except (TimeoutError, _RadarCommandIncompleteResponse) as exc:
-                if attempt >= attempts:
+            except (TimeoutError, _RadarCommandIncompleteResponse, _RadarCommandRejected) as exc:
+                fragmented_stop = (
+                    isinstance(exc, _RadarCommandRejected)
+                    and _retryable_wdr_sensor_stop_rejection(exc.response)
+                )
+                if attempt >= attempts or (
+                    isinstance(exc, _RadarCommandRejected) and not fragmented_stop
+                ):
                     raise
                 record_event(
                     "radar_command_retry",
