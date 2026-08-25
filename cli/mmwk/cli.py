@@ -101,7 +101,7 @@ def _usb_node_info_matches(text, expected_did=None):
         if reported_did is not None:
             break
 
-    if str(board or "").strip().casefold() != "wdr":
+    if str(board or "").strip().casefold() not in {"wdr", "wsr"}:
         logger.debug("USB node info probe rejected board=%r", board)
         return False
     if expected_did and str(reported_did or "").strip().casefold() != expected_did:
@@ -293,7 +293,7 @@ def add_transport_args(parser, include_route_args=True):
                        help="Control protocol (default: cli; use mcp as fallback)")
     group.add_argument("--transport", "-t", default="uart",
                        choices=["uart", "usb", "mqtt"],
-                       help="Transport layer (default: uart; USB is WDR CDC only)")
+                       help="Transport layer (default: uart; USB is WDR/WSR CDC only)")
     group.add_argument("--port", "-p", help="Serial port (UART or exact USB CDC path)")
     group.add_argument("--baudrate", "-b", type=int, default=115200,
                        help="UART baudrate (USB CDC always uses 115200; default: 115200)")
@@ -1638,7 +1638,7 @@ def main():
         dest="usb_ms",
         type=_usb_ms_arg,
         default=None,
-        help="WDR UART idle window before USB CDC takeover (0=stay on UART, max 60000)",
+        help="WDR/WSR UART idle window before USB CDC takeover (0=stay on UART, max 60000)",
     )
     add_transport_args(device_agent_parser)
     device_agent_parser.set_defaults(func=cmd_device_agent)

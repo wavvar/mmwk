@@ -13,10 +13,10 @@
 
 `RPX` 系列主要面向独立感知模组和紧凑型开发平台，当前包含 `6843` 产品分支以及 `6432` 类别中的 `RPI` 平台。
 
-- [`MINI`](./mini_cn.md)、[`PRO(RTP)`](./pro_cn.md)、`RTL`、`CFH` 属于 `6843` 系列，适合人体存在检测、轨迹跟踪、空间占用感知和空间感知类应用。
+- [`MINI`](./mini_cn.md)、[`PRO(RTP)`](./pro_cn.md)、[`WSR`](./wsr_cn.md)、`RTL`、`CFH` 属于 `6843` 系列，适合人体存在检测、轨迹跟踪、空间占用感知和空间感知类应用。WSR 采用 PRO 硬件基线和 WDR 式原生 Type-C 接口。
 - [`RPI`](./rpx_cn.md#3-rpi-6432-感知模块) 是一款紧凑型 `6432` 类感知平台，适合低功耗嵌入式集成和体征相关应用。
 - 详细文档： [RPX 系列使用指南](./rpx_cn.md) | [English](./rpx.md)
-- 独立模组文档： [MINI 模组简介](./mini_cn.md) | [English](./mini.md) | [PRO 模组简介](./pro_cn.md) | [English](./pro.md)
+- 独立模组文档： [MINI 模组简介](./mini_cn.md) | [PRO 模组简介](./pro_cn.md) | [WSR 模组简介](./wsr_cn.md)；English: [MINI](./mini.md) | [PRO](./pro.md) | [WSR](./wsr.md)
 
 ## 2. WDR / ML6432Ax 系列
 
@@ -46,6 +46,6 @@
 
 ## 4. 阅读建议
 
-- 如果目标是查看独立 `6843` 模组细节，优先阅读 [MINI 模组简介](./mini_cn.md) 或 [PRO 模组简介](./pro_cn.md)；如果想看更完整的 RPX 产品图谱，再看 [rpx_cn.md](./rpx_cn.md)。
+- 如果目标是查看独立 `6843` 模组细节，优先阅读 [MINI 模组简介](./mini_cn.md)、[PRO 模组简介](./pro_cn.md)或 [WSR 模组简介](./wsr_cn.md)；如果想看更完整的 RPX 产品图谱，再看 [rpx_cn.md](./rpx_cn.md)。
 - 如果目标是集成完整的 `6432` 控制与通信平台，优先阅读 [wdr-m_cn.md](./wdr-m_cn.md)，再继续查看 [wdr-4g_cn.md](./wdr-4g_cn.md)、[ml6432a_bo_cn.md](./ml6432a_bo_cn.md) 和 [ml6432a_cn.md](./ml6432a_cn.md) 了解板级细节。
 - 如果目标是电动两轮车或三轮车的后向安全感知应用，优先阅读 [f9a1_cn.md](./f9a1_cn.md)。

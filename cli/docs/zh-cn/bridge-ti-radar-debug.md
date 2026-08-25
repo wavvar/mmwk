@@ -9,7 +9,7 @@ Bash。
 
 | 雷达系列 | Bridge | 固件配对 |
 | --- | --- | --- |
-| `IWR6843` / `IWR6843AOP` | `mini` 或 `pro` | `firmwares/radar/iwr6843/` 下 `.bin` + `.cfg` |
+| `IWR6843` / `IWR6843AOP` | `mini`、`pro` 或 `wsr` | `firmwares/radar/iwr6843/` 下 `.bin` + `.cfg` |
 | `IWRL6432` | `wdr` | `firmwares/radar/iwrl6432/` 下 `.appimage` + `.cfg` |
 
 固件与 cfg 必须来自同一版本。WDR 高速 DATA 应使用原生 USB、MQTT 或 split；
@@ -30,14 +30,14 @@ eval "$(./server.sh env)"
 
 ## 采集
 
-MINI/PRO 本机 UART：
+MINI/PRO/WSR 本机 UART：
 
 ```bash
 ./collect.sh --transport uart --port <control-port> --raw-baud 1000000 \
   --duration 30 --data-output ./radar.sraw --resp-output ./radar-cmd.log
 ```
 
-WDR 本机 USB：
+WDR/WSR 本机 USB：
 
 ```bash
 ./collect.sh --transport usb --port <native-usb-port> --duration 30

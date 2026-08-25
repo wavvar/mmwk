@@ -31,10 +31,10 @@
 本机 UART/USB、远程 MQTT、split 和 attach 都使用同一入口：
 
 ```bash
-# MINI/PRO UART
+# MINI/PRO/WSR UART
 ./collect.sh --transport uart --port /dev/ttyUSB1 --duration 30
 
-# WDR 原生 USB（不要传 --raw-baud）
+# WDR/WSR 原生 USB（不要传 --raw-baud）
 ./collect.sh --transport usb --port /dev/ttyACM0 --duration 30
 
 # 应用自有 MQTT DATA，只观察不接管

@@ -1,6 +1,6 @@
 # MMWK CLI Wrapper
 
-本文档介绍 MMWK 主机侧 CLI wrapper。macOS / Linux / Git Bash 使用 POSIX 入口 [`./run.sh`](../../run.sh)，Windows PowerShell 使用 [`./run.ps1`](../../run.ps1)。两类入口都会调用 [`mmwk/`](../../mmwk/) 中的 Python CLI，并通过 UART（串口）、WDR USB CDC 和 MQTT 暴露同一套命令面，默认走标准 CLI JSON；在配套的 MCP 固件版本下，也支持 MCP 协议。
+本文档介绍 MMWK 主机侧 CLI wrapper。macOS / Linux / Git Bash 使用 POSIX 入口 [`./run.sh`](../../run.sh)，Windows PowerShell 使用 [`./run.ps1`](../../run.ps1)。两类入口都会调用 [`mmwk/`](../../mmwk/) 中的 Python CLI，并通过 UART（串口）、WDR/WSR USB CDC 和 MQTT 暴露同一套命令面，默认走标准 CLI JSON；在配套的 MCP 固件版本下，也支持 MCP 协议。
 
 CLI 现在默认使用标准 CLI JSON 协议。大多数 MMWK 固件版本也默认内置 CLI 控制协议。部分固件版本还提供 MCP 支持；如需 MCP 版本，请联系我们获取对应固件版本。使用这类固件版本时，请显式指定 `--protocol mcp`。
 
@@ -22,7 +22,7 @@ Raw 转发和录制都是同一个 `radar` 工具的并列 action。请先阅读
 - [快速开始](#快速开始)
 - [核心概念](#核心概念)
 - [通信层](#通信层)
-  - [USB CDC（WDR 本地）](#usb-cdcwdr-本地)
+  - [USB CDC（WDR/WSR 本地）](#usb-cdcwdrwsr-本地)
 - [命令参考](#命令参考)
 - [雷达数据采集](./data-collection.md)
 - [项目文档](#项目文档)
@@ -118,7 +118,7 @@ PowerShell 下参数与 POSIX 示例保持一致，主要差异是 wrapper 名�
 
 ## 设备身份 Claim
 
-`node claim` 从 claim provider 获取设备身份（`cid` / `oid`）和可选 MQTT 凭据。它只能通过本地 UART 或 WDR USB CDC 执行；MQTT transport 会被拒绝。
+`node claim` 从 claim provider 获取设备身份（`cid` / `oid`）和可选 MQTT 凭据。它只能通过本地 UART 或 WDR/WSR USB CDC 执行；MQTT transport 会被拒绝。
 
 ```bash
 ./run.sh node claim --endpoint https://claim.example.com/device --token ONE_TIME_TOKEN -p /dev/cu.usbserial-0001
@@ -189,10 +189,7 @@ PowerShell 下参数与 POSIX 示例保持一致，主要差异是 wrapper 名�
 
 `network priority --pref wifi|4g` 用于设置 Wi-Fi/4G 优先网络。保存 Wi-Fi 凭据不会自动改掉 4G 优先级。4G 失败不会自动回退到 Wi-Fi。如果 `pref=4g` 无法联网，设备仍可能把 Wi-Fi 报告为当前临时承载网络，但保存的首选项仍保持 `4g`；`network status` 会显示 `pref=4g,curr=wifi`，`network diag` 会保留 4G 失败原因。LED 状态约定为闪 1 次 = Wi-Fi，闪 2 次 = 4G。
 
-SDK 硬件验收同样保持显式选择：PRO 设备或带 4G 的 WDR 设备测试时给 runner 传 `--4g`；不传时测试默认仍走 Wi-Fi。
-共享实验台验证时，只有带 SIM 卡的 PRO/WDR 测试才给 runner 传 `--4g`。
-
-配网显示遵循 `PRODUCT-LAST6`，为了现场识别统一显示为大写，不包含 `oid`。`LAST6` 优先取 `cid` 后六位，没有 `cid` 时取 `did` 后六位；topic 中仍然保留配置值原本的大小写。默认 Wi-Fi 为 `MMWK / mmwk123456`。自动 portal 配网可能会临时将测试主机连接到设备 AP，完成后再恢复原 Wi-Fi。在 WSL 下，自动 portal 配网会通过 PowerShell/netsh 控制 Windows Wi-Fi，并从 Windows 侧提交 portal 请求。当环境中同时存在多个配网 AP 时，设置 `TEST_PROVISIONING_AP_SSID`；如需保留旧人工检查点，设置 `TEST_PORTAL_PROVISION_AUTO=false`。
+配网显示遵循 `PRODUCT-LAST6`，为了现场识别统一显示为大写，不包含 `oid`。`LAST6` 优先取 `cid` 后六位，没有 `cid` 时取 `did` 后六位；topic 中仍然保留配置值原本的大小写。默认 Wi-Fi 为 `MMWK / mmwk123456`。自动 portal 配网可能会临时将主机连接到设备 AP，完成后再恢复原 Wi-Fi；同时出现多个设备 AP 时，应明确选择目标设备。
 
 自救 portal 用于 MQTT 服务器配置和诊断，不是 Wi-Fi 配网。出厂配置完成后 portal 仍可见，但是否允许修改 MQTT 由固件策略决定。CLI bridge 固件可以开放 MQTT recovery 编辑；HUB care/rmaker sidecar 只显示状态。只读状态页只暴露 MQTT 状态、最近阶段/错误码、剩余窗口秒数，以及首选 4G 离线时的 4G 诊断；不暴露 MQTT URI、用户名或密码。
 
@@ -204,8 +201,8 @@ SDK 硬件验收同样保持显式选择：PRO 设备或带 4G 的 WDR 设备测
 
 | 场景 | 命令形状 |
 | --- | --- |
-| MINI/PRO UART | `./run.sh collect --transport uart --port PORT --duration 30` |
-| WDR 原生 USB | `./run.sh collect --transport usb --port PORT --duration 30` |
+| MINI/PRO/WSR UART | `./run.sh collect --transport uart --port PORT --duration 30` |
+| WDR/WSR USB | `./run.sh collect --transport usb --port PORT --duration 30` |
 | 远程 MQTT | `./run.sh collect --transport mqtt --broker URI --did DID` |
 | wire/MQTT split | `./run.sh collect --ctrl-transport uart --data-transport mqtt --port PORT --broker URI --did DID` |
 | 应用自有 DATA | `./run.sh collect --transport mqtt --mode auto --attach --broker URI --did DID` |
@@ -249,7 +246,7 @@ canonical topic 示例：
   magic 开始；只有可选 `--wire-output` 是没有分隔符的合并 raw 传输审计。
 - `raw/cmd` 是 host 模式可选的雷达命令入口，与 CLI JSON 的
   `{prod}/{oid}/{cid-or-did}/device/cmd` 不同。
-- `on_cmd_resp`、`on_radar_frame` 属于应用层回调，与 raw capture 不同
+- 业务应用直接订阅 DATA 时需要自行管理路由和数据处理，与 `collect` 的 raw capture 不同
 - 推荐真实应用通过 MQTT 集成，UART 主要用于刷写、bring-up、调试和兜底
 
 ### 启动所有权契约
@@ -303,7 +300,7 @@ flowchart LR
 ```
 
 - **UART**：本地工厂配置、刷写、bring-up、调试
-- **USB CDC**：WDR 原生 Type-C 的本地命令和 raw DATA 路径；host raw 打开后同一物理通道不再输出 parsed 文本
+- **USB CDC**：WDR/WSR 原生 Type-C 的本地命令和 raw DATA 路径；host raw 打开后同一物理通道不再输出 parsed 文本
 - **MQTT CLI JSON**：默认内置控制通道，通过 `network mqtt` 暴露设备控制与状态读取
 - **MQTT RAW**：显式打开的雷达原始透传。auto 模式只有 `raw_data`；host 模式可使用 `raw_cmd`、`raw_resp` 和 `raw_data`
 - **MCPv1**：兼容/参考层，仅在 MCP 客户端明确需要该协议形态时使用
@@ -315,9 +312,9 @@ flowchart LR
 ./run.sh radar fw flash --fw fw.bin -p /dev/cu.usbserial-0001 --baudrate 921600 --reset
 ```
 
-#### WDR UART / USB CDC 控制通道选择
+#### WDR/WSR UART / USB CDC 控制通道选择
 
-标准 WDR bridge 固件启用本地控制 adapter 后先使用 UART，并观察 UART RX
+标准 WDR/WSR bridge 固件启用本地控制 adapter 后先使用 UART，并观察 UART RX
 5000 ms。窗口内有 UART 输入，本次运行保持 UART；窗口持续空闲，则把现有
 CLI/MCP 控制通道切到原生 USB CDC（Linux 为 `/dev/ttyACM*`，macOS 为
 `/dev/cu.usbmodem*`）。
@@ -329,36 +326,35 @@ CLI/MCP 控制通道切到原生 USB CDC（Linux 为 `/dev/ttyACM*`，macOS 为
 ```
 
 `usb_ms` 接受 `0..60000` 的整数毫秒值。键不存在时使用固件出厂策略（标准
-WDR 为 5000 ms）；显式保存 `0` 会关闭 USB 自动接管并保持 UART。保存参数
+WDR/WSR 为 5000 ms）；显式保存 `0` 会关闭 USB 自动接管并保持 UART。保存参数
 不会切断当前连接，而是在下次启动或 4G 释放 USB 后生效。`node agent` 是唯一
-公开读写入口；`node info` 和 `network diag` 不提供该字段。非 WDR 查询省略该
+公开读写入口；`node info` 和 `network diag` 不提供该字段。非 WDR/WSR 查询省略该
 字段，写入返回 `not.supported`。
 
-USB CDC 承载 CLI/MCP 控制；WDR 打开 host raw 路由后还可承载原生雷达
+USB CDC 承载 CLI/MCP 控制；WDR/WSR 打开 host raw 路由后还可承载原生雷达
 DATA。raw 接管该物理通道后不再混入 parsed 文本；如需继续发 parsed 命令，
 请使用另一条路由。
 
-### USB CDC（WDR 本地）
-### USB CDC（WDR 本地）
+### USB CDC（WDR/WSR 本地）
 
-`--transport usb` 只对 WDR 开放，是通过原生 Type-C USB CDC 执行本地命令的
+`--transport usb` 对 WDR 和 WSR 开放，是通过原生 Type-C USB CDC 执行本地命令的
 路径。它固定使用 115200 baud，承载现有的换行分隔 CLI/MCP 文本协议；本次
 不增加二进制 frame。
 
 ```bash
-# 立即扫描一次；自动选择唯一的 Wavvar/WDR CDC 端口
+# 立即扫描一次；自动选择唯一的 Wavvar WDR/WSR CDC 端口
 ./run.sh node info --transport usb --protocol cli
 
-# 最多等待 8 秒枚举，然后用 node info 验证 board=WDR
+# 最多等待 8 秒枚举，然后用 node info 验证 board=WDR/WSR
 ./run.sh node info --transport usb --usb-wait-ms 8000
 
-# 同时存在多个 WDR 候选时，指定精确 CDC 路径
+# 同时存在多个 WDR/WSR 候选时，指定精确 CDC 路径
 ./run.sh radar status --transport usb --port /dev/ttyACM0 --did 1020ba76b404
 ```
 
 未传 `--port` 时，主机先按串口 descriptor 的
-`manufacturer=Wavvar`、`product=WDR` 筛选，或识别原生 ESP32 WDR CDC 的
-VID/PID `303A:4001`，再执行 `node info` 并要求 `board=WDR`。Windows 通用
+`manufacturer=Wavvar`、`product=WDR|WSR` 筛选，或识别原生 ESP32-S3 CDC 的
+VID/PID `303A:4001`，再执行 `node info` 并要求 `board=WDR|WSR`。Windows 通用
 驱动可能把它显示为 `Microsoft` / `USB Serial Device`，因此需要 VID/PID
 兜底。若有多个候选，必须传 `--did` 或精确的 `--port`；DID 依次兼容
 `did`、旧版 `id`、`client_id` 字段，比较不区分大小写。传入 `--port` 后只
@@ -397,11 +393,11 @@ download`）仍使用 UART/MQTT；`collect` 支持 UART/USB 本机 host、远程
 | Command | 说明 |
 |---------|------|
 | `node info` | 读取设备身份与已发布元数据 |
-| `node claim` | 通过 UART 或 WDR USB-local claim 设备身份与凭据 |
+| `node claim` | 通过 UART 或 WDR/WSR USB-local claim 设备身份与凭据 |
 | `node factory-reset` | 触发恢复出厂（清 NVS + 运行期资源，1 秒后重启） |
 | `node reboot` | 重启设备 |
 | `node ota` | 通过 HTTP 或 MQTT stream OTA 升级 ESP 固件 |
-| `node agent` | 配置内置 agent 与 WDR 本地控制启动策略 |
+| `node agent` | 配置内置 agent 与 WDR/WSR 本地控制启动策略 |
 | `node heartbeat` | 配置心跳 |
 | `node key status/set/clear` | 查看、设置、更新或清除 CLI key 保护 |
 | `endpoint list` | 查看当前 profile / effective sensor set 的面向 Matter 的 endpoint 目录 |
@@ -633,9 +629,9 @@ ESP 固件：
   --fw ./app.bin
 ```
 
-ESP MQTT stream OTA 请使用 app-only `.bin`；SDK 构建会把它暂存在 `firmwares/esp/<board>/<firmware>/v<version>/app.bin`。带 assets payload 的完整 MWFB bundle 必须使用 HTTP OTA。
+ESP MQTT stream OTA 请使用 app-only `.bin`。带 assets payload 的完整 MWFB bundle 必须使用 HTTP OTA。
 
-HTTP `node ota --target esp --url` 支持 app-only ESP 镜像、SDK `MWFB` 完整包以及 ERC whole-OTA 包。
+HTTP `node ota --target esp --url` 支持 app-only ESP 镜像、`MWFB` 完整包以及 ERC whole-OTA 包。
 ERC 是一种二进制 whole-OTA 格式：前缀为 32-byte v1 或 256-byte v2 小端 header，后面依次是 ESP app 镜像和 radar payload 条目。受支持的 radar payload 条目由 radar firmware 加 4096-byte radar config 组成。
 
 雷达 firmware + config：
@@ -706,8 +702,8 @@ ERC 是一种二进制 whole-OTA 格式：前缀为 32-byte v1 或 256-byte v2 �
 
 | 场景 | 命令形状 |
 | --- | --- |
-| MINI/PRO UART | `./run.sh collect --transport uart --port PORT --duration 30` |
-| WDR 原生 USB | `./run.sh collect --transport usb --port PORT --duration 30` |
+| MINI/PRO/WSR UART | `./run.sh collect --transport uart --port PORT --duration 30` |
+| WDR/WSR 原生 USB | `./run.sh collect --transport usb --port PORT --duration 30` |
 | 远程 MQTT | `./run.sh collect --transport mqtt --broker URI --did DID` |
 | wire/MQTT split | `./run.sh collect --ctrl-transport uart --data-transport mqtt --port PORT --broker URI --did DID` |
 | 应用自有 DATA | `./run.sh collect --transport mqtt --mode auto --attach --broker URI --did DID` |

@@ -133,6 +133,9 @@ For host-owned MQTT collection, omit `--mode auto --attach` and use
 [Radar DATA collection guide](data-collection.md). The shared engine reserves
 all outputs before mutation and reports cleanup failures separately.
 
+Attached MINI/PRO/WSR devices support the UART path. WDR/WSR also support the
+native USB path without `--raw-baud`; neither local path requires a network.
+
 The engine writes the requested `.sraw`, response log, optional wire audit, and
 summary paths. It prints high-level connection, capture, and cleanup states.
 

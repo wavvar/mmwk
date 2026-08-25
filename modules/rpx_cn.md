@@ -16,6 +16,8 @@
 
 6843 系列是我们的旗舰模块产品线，搭载 TI 的高性能毫米波雷达技术，适用于需要稳定运动跟踪和精确空间测量的高级空间感知场景。
 
+`WSR` 是采用 WDR 式原生 Type-C 接口的 PRO 硬件版本。它的主控、雷达、外围、UART 行为和机械基线按 PRO，原生 USB 与出厂烧录入口按 WDR。详见 [WSR 模组简介](./wsr_cn.md)。
+
 | MINI | RTP | RTL | CFH |
 | --- | --- | --- | --- |
 | <img src="./img/RPX/6843/MINI-module.png" width="200"> | <img src="./img/RPX/6843/RTP_front.png" width="200"> | <img src="./img/RPX/6843/RTL.png" width="200"> | <img src="./img/RPX/6843/CFH.png" width="200"> |
@@ -49,7 +51,7 @@
 |  | 调制方式 | FMCW |
 |  | 发射功率 | 单通道 15 dBm |
 | **连接与集成** | 云端协议 | MQTT、HTTP、HTTPS |
-|  | 本地通信 | 串口 UART（二进制或 JSON 格式；高度可定制） |
+|  | 本地通信 | UART；WSR 另提供原生 USB Type-C |
 | **硬件架构** | MCU 核心 | 双核 + 三核架构 |
 |  | 协处理器 | 硬件加速器（HWA）+ DSP |
 |  | 内存（RAM） | 520 KB + 8 MB（RFC-P02-06 运行于 512KB + 8MB） |
@@ -158,6 +160,8 @@ USB 转 UART V1.3 调试板用于固件烧录和串口控制台访问，提供�
 | --- | --- |
 | **Mini 设备**（A 面与机身正面同向） | <img src="./img/RPX/6843/mini_flasher.png" width="400" alt="Mini Alignment Guide"> |
 | **Pro 设备**（B 面与机身正面同向） | <img src="./img/RPX/6843/pro_flasher.png" width="400" alt="Pro Alignment Guide"> |
+
+WSR 的 Type-C 通信不使用 PRO 的 USB 转 UART 对位方式。请直接连接原生 Type-C，并按[出厂烧录指南](../docs/zh-cn/flash.md)操作。
 
 ### 4.4 烧录调试器上的 Type-C 接口说明
 

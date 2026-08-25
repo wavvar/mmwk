@@ -39,7 +39,7 @@ def _build_node_tool(profile: str) -> dict:
         actions.append("reboot")
     return _tool(
         "node",
-        "Node-level configuration: agent flags, WDR local-control startup policy, "
+        "Node-level configuration: agent flags, WDR/WSR local-control startup policy, "
         "heartbeat, identity probe, and ESP OTA.",
         {
             "action": _action_property(actions, "Operation"),
@@ -53,7 +53,7 @@ def _build_node_tool(profile: str) -> dict:
                 "minimum": 0,
                 "maximum": 60000,
                 "description": (
-                    "WDR UART-to-USB CDC idle window in milliseconds "
+                    "WDR/WSR UART-to-USB CDC idle window in milliseconds "
                     "(0 disables auto-switch)"
                 ),
             },

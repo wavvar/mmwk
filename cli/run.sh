@@ -205,14 +205,14 @@ COMMANDS:
 
 TRANSPORT OPTIONS:
     -p, --port PORT        Serial port
-    -t, --transport TYPE   uart (default), usb (WDR USB CDC), or mqtt
+    -t, --transport TYPE   uart (default), usb (WDR/WSR USB CDC), or mqtt
     --broker HOST          MQTT broker address
     --did DID              DID for MQTT route fallback
     --prod PROD            Product route segment (default: mmwk)
     --oid OID              Organization route segment (default: mmwk)
     --cid CID              Claimed route id; takes precedence over --did
     --baudrate RATE        UART baudrate (USB CDC is fixed at 115200)
-    --usb-wait-ms N        Host USB CDC enumeration budget; default 0 (WDR USB only)
+    --usb-wait-ms N        Host USB CDC enumeration budget; default 0 (WDR/WSR USB only)
     --reset                DTR/RTS reset before connecting (UART only)
     --uart-proxy auto|off  Reuse a persistent local UART proxy (UART only)
     -v, --verbose          Debug logging

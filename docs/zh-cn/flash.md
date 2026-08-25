@@ -9,12 +9,14 @@
 
 本文只使用 `factory.zip` 完成空片或被擦除板卡的首次烧录。`ota.zip` 是后续 ESP OTA 更新用的配套包，详见 [设备 OTA 指南](./ota.md)。
 
+WSR 的主控和雷达能力与 PRO 一致，原生 Type-C 线序和工厂烧录入口与 WDR 一致。发布包仍须按设备实际板型选择：WSR 使用 `<board>=wsr`，不能用 PRO 或 WDR 的发布包替代。
+
 ## 前置条件
 
 - 以下命令假设当前工作目录为 `mmwk` 项目根目录，也就是同时包含 `firmwares/` 和 `cli/` 的那个目录。
 - 你已经拿到了目标板卡和版本对应的 bridge 发布 zip 包。
 - 选择一种烧录路径：
-  - 如果走本地串口擦除加 `factory/flash.sh`，则需要本地已安装 ESP-IDF，且设备串口可用，记为 `<port>`。
+  - 如果走本地串口擦除加 `factory/flash.sh`，则需要本地已安装 ESP-IDF，且设备端口可用，记为 `<port>`。MINI/PRO 通常使用 UART 转 USB，WDR/WSR 可使用原生 Type-C。
   - 如果走 Espressif 官方 `ESP Launchpad` 的 `DIY` 路径，则不需要本地安装 ESP-IDF。
 
 ## 先解压 `factory.zip`
@@ -72,10 +74,14 @@ cd /tmp/mmwk_bridge_factory/factory
 在 `mmwk` 项目根目录下执行：
 
 ```bash
+# MINI/PRO UART
 ./cli/run.sh node info --reset -p <port>
+
+# WDR/WSR 原生 Type-C USB CDC
+./cli/run.sh node info --transport usb --port <native-usb-port>
 ```
 
-`node info` 应返回 bridge 身份信息。请确认其中的 `version` 字段与发布包路径或解压后文件名里携带的版本一致，例如：
+`node info` 应返回 bridge 身份信息。请确认其中的 `board` 和 `version` 字段分别与目标板型、发布包路径或解压后文件名里携带的版本一致，例如：
 
 ```text
 ./firmwares/esp/mini/mmwk_sensor_bridge/v1.2.2/factory.zip

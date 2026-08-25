@@ -161,13 +161,14 @@ pin assignments are board-specific; check the board schematic before wiring.
 When a PC connects to UART on current boards, use an external UART-to-USB
 adapter. A PC USB port cannot communicate directly with bare UART pins.
 
-WDR and new designs are the current exception for normal CLI/control use: they
+WDR and WSR are the current exception for normal CLI/control use: they
 support built-in USB serial through UART and USB multiplexing, so a separate
 UART-to-USB adapter is not required for the normal control interface.
 
 ESP chip-level flashing is separate from the normal control interface. All
-boards still require the appropriate external converter or flashing fixture for
-ESP chip-level flashing.
+WDR/WSR devices can use native Type-C for the matching factory-flash flow;
+UART-only boards still require an external converter or flashing fixture. See
+the [Factory Flash Guide](./flash.md).
 
 The recommended host entry point is:
 
@@ -180,8 +181,8 @@ UART commands use the canonical CLI JSON protocol by default. Protected commands
 ### 6.2 UART and USB Multiplexing
 
 UART and USB multiplexing selects the local control interface between UART and
-USB CDC during the boot or restore idle window. It is currently supported only
-by WDR and new designs.
+USB CDC during the boot or restore idle window. It is currently supported by
+WDR and WSR.
 
 The selection is independent of the preferred network bearer. If UART activity
 is detected during the idle window, the control path remains on UART. If the

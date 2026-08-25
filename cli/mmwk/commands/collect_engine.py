@@ -1058,7 +1058,7 @@ class LocalWireSession:
             return None
         # The firmware only accepts the escape sequence after a full guard
         # interval without host ingress.  Continue reading during both guard
-        # windows so a running WDR lifecycle cannot fill the native USB TX
+        # windows so a running WDR/WSR lifecycle cannot fill the native USB TX
         # queue and turn a clean route close into a dropped DATA chunk.
         self._drain_raw_for(RAW_ESCAPE_GUARD_SECONDS)
         self.write_radar_bytes(escape if escape is not None else self.plan.escape.encode("ascii"))
@@ -3155,9 +3155,9 @@ def collect_local(plan: CollectionPlan, expected_did: str | None = None, serial_
                 "lossy WDR UART capture explicitly allowed; disqualified from "
                 "lossless hardware acceptance"
             )
-        elif summary.identity.board in {"mini", "pro"} and plan.raw_baud == MAX_EXTERNAL_UART_BAUD:
+        elif summary.identity.board in {"mini", "pro", "wsr"} and plan.raw_baud == MAX_EXTERNAL_UART_BAUD:
             summary.warnings.append(
-                "MINI/PRO radar DATA at 921600 baud has only an 8.5% adapter margin at "
+                "MINI/PRO/WSR radar DATA at 921600 baud has only an 8.5% adapter margin at "
                 "1000000; drop counters are mandatory for acceptance"
             )
 

@@ -10,7 +10,7 @@ Bash.
 
 | Radar family | Bridge | Artifact pair |
 | --- | --- | --- |
-| `IWR6843` / `IWR6843AOP` | `mini` or `pro` | `.bin` + `.cfg` under `firmwares/radar/iwr6843/` |
+| `IWR6843` / `IWR6843AOP` | `mini`, `pro`, or `wsr` | `.bin` + `.cfg` under `firmwares/radar/iwr6843/` |
 | `IWRL6432` | `wdr` | `.appimage` + `.cfg` under `firmwares/radar/iwrl6432/` |
 
 Keep the firmware and cfg from the same release. WDR high-rate DATA should use
@@ -32,14 +32,14 @@ from a `/dev/tty*` name; use live `node info` identity.
 
 ## Collect
 
-Attached MINI/PRO UART:
+Attached MINI/PRO/WSR UART:
 
 ```bash
 ./collect.sh --transport uart --port <control-port> --raw-baud 1000000 \
   --duration 30 --data-output ./radar.sraw --resp-output ./radar-cmd.log
 ```
 
-Attached WDR USB:
+Attached WDR/WSR USB:
 
 ```bash
 ./collect.sh --transport usb --port <native-usb-port> --duration 30

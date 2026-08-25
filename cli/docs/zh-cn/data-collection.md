@@ -1,24 +1,72 @@
 # 雷达 DATA 采集
 
-先按设备位置和雷达所有者选择工作流：
+## 数据采集方案
 
-| 场景 | 使用路径 |
-| --- | --- |
-| MINI/PRO 直连本机 | host UART；不需要网络 |
-| WDR 直连本机 | host 原生 USB CDC；不需要网络 |
-| 远程设备 | host MQTT |
-| 本地控制、远程 DATA | split `ctrl=wire,data=mqtt` |
-| 应用已经拥有雷达 | MQTT DATA-only `--mode auto --attach` |
+本节先按用户选择的采集方式进行对比。表格中的“协议”只列用户接入 Bridge
+或业务系统的入口协议；采集到的雷达 DATA 由采集器保存为 `radar.sraw`。
+本节所称“所有”包括 MINI、PRO、WDR 和 WSR[^bridge-devices]。
 
-所有路径共用同一个采集引擎。POSIX 使用 `./run.sh` 或 `./collect.sh`；
-Windows PowerShell 使用 `./run.ps1` 或 `./collect.ps1`，核心参数相同。
+### 通过 Bridge 采集
 
-## 1. MINI/PRO 本机 UART
+Bridge 提供统一的脚本入口。用户只需选择 UART、USB、MQTT、UART 与 MQTT
+分流，或借用已有 MQTT DATA 路由。协议和 DATA 的关系见[^bridge-protocol]，
+分流模式见[^bridge-split]。
 
-这是 MINI/PRO 最简单的工作流。parsed 控制 UART 从 115200 开始，raw DATA
-最高使用 1000000：
+| 方案 | 设备 | 协议 | 优点 | 缺点 |
+| --- | --- | --- | --- | --- |
+| UART | 所有 | JSON | 本地采集、无需网络 | 需要物理连接；受 UART 速率限制 |
+| USB | WDR、WSR | JSON | 本地高速采集、无需网络 | 设备范围有限 |
+| MQTT | 所有 | MQTT | 支持远程和批量设备 | 依赖网络 |
+| UART + MQTT | 所有 | JSON + MQTT | 本地控制、远程传输 DATA | 同时依赖本地串口和 MQTT |
+| MQTT attach | 所有 | MQTT | 不接管已有业务状态 | 必须已有 MQTT DATA 路由 |
+
+[^bridge-devices]: “所有”指 MINI、PRO、WDR 和 WSR。WSR 的 UART 与雷达能力
+按 PRO，原生 Type-C USB 按 WDR。WDR 外部 UART 只能作为有损诊断路径；无损
+DATA 采集使用 USB、MQTT 或 split。
+
+[^bridge-protocol]: 本地采集的控制面使用 CLI JSON，MQTT 方案使用 MQTT
+承载控制和 DATA。协议列不把雷达 DATA 的二进制内容另列为一种控制协议。
+MQTT 的 `raw/data` 使用 QoS 0，远程连续采集需要关注网络丢包。
+
+[^bridge-split]: `UART + MQTT` 对应 `ctrl=UART、data=MQTT` 的分流模式，
+属于 Bridge 原生采集能力。[分流说明](./data-collection.md#4-有线控制与-mqtt-data-split)
+
+### 自定义采集
+
+自定义方案由业务应用负责路由、保存或上传，适合已有业务系统。业务直接订阅
+MQTT DATA 和 Recorder 的边界分别见[^custom-mqtt]和[^custom-recorder]。
+
+| 方案 | 设备 | 协议 | 优点 | 缺点 |
+| --- | --- | --- | --- | --- |
+| 业务订阅 MQTT DATA | 所有 | MQTT | 易接入现有系统 | 业务自行管理路由和文件 |
+| Recorder | 支持录制器的设备 | JSON + HTTP | 适合事件片段采集 | 不是实时连续采集 |
+
+[^custom-mqtt]: 业务应用直接订阅 `raw/data` 时，需要自行管理雷达所有权、DATA
+路由和文件。只需要临时观察已有路由时，优先使用 Bridge 的 `--attach`。
+[Attach 说明](./data-collection.md#5-应用自有-data-与重连采集)
+
+[^custom-recorder]: Recorder 通过 `radar record` 独立控制状态、配置和录制窗口，
+可将 HTTP URI 作为上传目标。是否可用以设备返回的能力为准；它不属于实时 raw
+采集引擎。
+
+UART、USB、MQTT、split 和 attach 共用采集引擎。POSIX 使用 `./run.sh` 或
+`./collect.sh`；Windows PowerShell 使用 `./run.ps1` 或 `./collect.ps1`，核心
+参数相同。Recorder 是独立能力。
+
+### 协议与 DATA 边界
+
+UART/USB 使用 JSON 控制，MQTT 方案通过 MQTT 接入；`radar.sraw` 保存的是原始
+雷达 DATA。raw/parsed 切换期间，同一物理通道可能仍有尾部 DATA，不能把收到的
+所有字节都按 JSON 或文本响应解析。应使用采集器完成分流，并以 DATA magic、有效
+字节、drop/CRC 信息和清理恢复状态判断采集是否成功。
+
+## 1. MINI/PRO/WSR 本机 UART
+
+这是 MINI/PRO/WSR 直连本机的 UART 工作流。三者的 parsed 控制 UART 从
+115200 开始，雷达 DATA 标称 921600，主机 raw UART 最高使用 1000000：
 
 ```bash
+# MINI/PRO/WSR
 ./run.sh collect --transport uart --port /dev/ttyUSB0 \
   --raw-baud 1000000 --duration 30
 ```
@@ -46,12 +94,14 @@ sensorStop；结束后关闭自己打开的路由并核对原有 host 生命周�
 `sensorStop 0` 和 `sensorStart 0 0 0 0`。WDR 的 `baudRate` 只用于启动阶段，
 运行期采集不会重放它；否则会改变雷达串口速率，却不同步桥接侧串口。
 
-## 2. WDR 本机原生 USB
+## 2. WDR/WSR 本机 USB
 
-WDR DATA 是 1250000 baud，因此原生 USB CDC 是本机无损路径：
+WDR DATA 是 1250000 baud，因此原生 USB CDC 是它的本机无损路径。WSR 的
+Type-C 接口采用同类原生 USB 路径。USB 采集不配置或等待 Wi-Fi/MQTT：
 
 ```bash
-./run.sh collect --transport usb --port /dev/ttyACM0 --duration 30
+# WDR/WSR
+./run.sh collect --transport usb --port <native-usb-port> --duration 30
 ```
 
 原生 USB 没有物理 raw 波特率，不要传 `--raw-baud`。依据实时 `node info`
@@ -168,8 +218,8 @@ attach 还应满足 `borrowed_route=true`；这里的成功表示 borrowed 路�
 如果没有完整可恢复的 config 和生命周期快照，也不会替换运行中的 host 会话。每个
 成功 mutation 都会在下一步前登记，清理只逆转本次采集拥有的 mutation。
 
-正常关闭时，采集器会在 escape 前后两个 guard 窗口持续读取，从而排空 WDR 的末尾
-DATA，并在 host ingress 保持静默时避免原生 USB 反压。
+正常关闭时，采集器会在 escape 前后两个 guard 窗口持续读取，从而排空 WDR/WSR
+的末尾 DATA，并在 host ingress 保持静默时避免原生 USB 反压。
 
 第一次 `Ctrl-C` 执行正常清理。若清理本身再次被中断，先让 wire 静默 1 秒，发送
 不带换行的可打印 escape，再静默 1 秒，然后以 115200 恢复 parsed 控制。默认
@@ -181,10 +231,7 @@ escape 是 `+++`；`--escape` 接受 1–16 个可打印字符，但前后 1 秒
 ## 8. UART 限制与证据
 
 - 外部 raw UART 上限为 1000000，不存在默认 2 Mbaud；
-- MINI/PRO DATA 标称 921600，1000000 只有 8.5% adapter margin，因此告警和
+- MINI/PRO/WSR DATA 标称 921600，1000000 只有 8.5% adapter margin，因此告警和
   drop 计数是验收必查证据；
 - WDR DATA 为 1250000，默认拒绝把外部 UART 当作无损路径；请使用原生 USB、
   MQTT 或 split。`--allow-lossy` 只用于诊断，并明确失去无损验收资格。
-
-代码审查、单元测试和本地构建只属于软件证据。硬件证明必须刷入本次会话构建或选择
-的产物，核对实时 DID/board，并运行对应物理设备套件。

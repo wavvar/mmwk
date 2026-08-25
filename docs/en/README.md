@@ -6,6 +6,7 @@ Start here for product-level MMWK workflows and protocol references.
 - [Bridge Reference](./bridge-reference.md): bridge-specific runtime contracts and verification checklist.
 - [Local `server.sh` + `run.sh` Wi-Fi Flash and 5-Minute Collection Example](./collect.md): validated sensor collection workflow.
 - [Factory Flash Guide](./flash.md): first ESP flash for blank or erased devices.
+- [WSR Module Introduction](../../modules/wsr.md): PRO hardware baseline with WDR-style native Type-C USB and factory flashing.
 - [Device OTA Guide](./ota.md): ESP OTA update flow.
 - [CLI README](../../cli/docs/en/README.md): host wrapper entrypoints for macOS/Linux/Git Bash and Windows PowerShell.
 - [Wavvar MMWK Canonical CLI Protocol V1.1](../CLIv1.md): default UART/MQTT control protocol.

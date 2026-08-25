@@ -1,23 +1,54 @@
 # Radar DATA collection
 
-Choose the workflow by where the device is and who owns the radar:
+## Collection options
 
-| Scenario | Use this path |
-| --- | --- |
-| Attached MINI/PRO | Host UART; no network is required |
-| Attached WDR | Host native USB CDC; no network is required |
-| Remote device | Host MQTT |
-| Local control, remote DATA | Split `ctrl=wire,data=mqtt` |
-| Application already owns the radar | MQTT DATA-only `--mode auto --attach` |
+The protocol column describes the user-facing control or integration protocol.
+The collected radar DATA is stored in `radar.sraw`. “All” means MINI, PRO, WDR,
+and WSR.[^bridge-devices]
 
-All paths use the same collection engine. POSIX users run `./run.sh` or
-`./collect.sh`; Windows PowerShell users run `./run.ps1` or `./collect.ps1`
-with the same core options.
+### Bridge collection
 
-## 1. MINI/PRO attached UART
+| Option | Devices | Protocol | Advantages | Limitations |
+| --- | --- | --- | --- | --- |
+| UART | All | JSON | Local; no network required | Physical connection and UART rate limit |
+| USB | WDR, WSR | JSON | Local high-rate path; no network required | Limited device range |
+| MQTT | All | MQTT | Remote and multi-device collection | Requires network access |
+| UART + MQTT | All | JSON + MQTT | Local control and remote DATA | Requires both UART and MQTT |
+| MQTT attach | All | MQTT | Does not take over existing application state | Requires an active MQTT DATA route |
 
-This is the simplest MINI/PRO workflow. The parsed control UART starts at
-115200; raw DATA uses at most 1000000:
+[^bridge-devices]: WSR uses the PRO UART/radar behavior and the WDR-style native
+Type-C USB path. WDR external UART is a lossy diagnostic path; use USB, MQTT, or
+split for lossless DATA collection.
+
+### Custom collection
+
+| Option | Devices | Protocol | Advantages | Limitations |
+| --- | --- | --- | --- | --- |
+| Application MQTT DATA subscriber | All | MQTT | Fits existing systems | Application owns routing and files |
+| Recorder | Devices with recorder support | JSON + HTTP | Event-oriented clips | Not a continuous real-time stream |
+
+An application that subscribes to `raw/data` directly must manage radar
+ownership, the DATA route, and files. Use Bridge `--attach` when the requirement
+is only to observe an existing route. Recorder is controlled independently with
+`radar record`; availability is determined by the live device response.
+
+UART, USB, MQTT, split, and attach use the shared collection engine. POSIX users
+run `./run.sh` or `./collect.sh`; Windows PowerShell users run `./run.ps1` or
+`./collect.ps1` with the same core options. Recorder is independent.
+
+### Protocol and DATA boundary
+
+JSON over UART/USB and MQTT are control or integration protocols; `radar.sraw`
+contains raw radar DATA. Tail DATA may still be present on the same physical
+channel during raw/parsed transitions, so do not parse every received byte as
+JSON or a text response. Use the collector to separate the streams, and judge a
+run by DATA magic, valid bytes, drop/CRC evidence, and cleanup restoration.
+
+## 1. MINI/PRO/WSR attached UART
+
+MINI, PRO, and WSR use the same local UART collection behavior. Parsed control
+starts at 115200, radar DATA is nominally 921600, and host raw UART uses at most
+1000000:
 
 ```bash
 ./run.sh collect --transport uart --port /dev/ttyUSB0 \
@@ -53,12 +84,13 @@ arguments such as WDR's `sensorStop 0` and `sensorStart 0 0 0 0`. WDR's
 collection window; replaying it would change the radar UART without changing
 the bridge-side UART.
 
-## 2. WDR attached native USB
+## 2. WDR/WSR attached native USB
 
-WDR DATA is 1250000 baud, so native USB CDC is the attached lossless path:
+WDR DATA is 1250000 baud, so native USB CDC is its attached lossless path. WSR
+uses the same class of native Type-C USB path:
 
 ```bash
-./run.sh collect --transport usb --port /dev/ttyACM0 --duration 30
+./run.sh collect --transport usb --port <native-usb-port> --duration 30
 ```
 
 Native USB has no physical raw baud; do not pass `--raw-baud`. Select the board
@@ -194,8 +226,8 @@ successful mutation is recorded before the next step, and cleanup reverses only
 mutations owned by this run.
 
 During a normal close, the collector keeps reading through both escape guard
-windows. This drains final WDR DATA and prevents native USB backpressure while
-host ingress remains silent.
+windows. This drains final WDR/WSR DATA and prevents native USB backpressure
+while host ingress remains silent.
 
 The first `Ctrl-C` runs normal cleanup. If cleanup itself is interrupted, keep
 the wire silent for one second, send the configured printable escape with no
@@ -210,13 +242,9 @@ session.
 ## 8. UART limits and evidence
 
 - External raw UART is capped at 1000000; there is no default 2 Mbaud mode.
-- MINI/PRO DATA is nominally 921600. The 1000000 setting has only an 8.5%
+- MINI/PRO/WSR DATA is nominally 921600. The 1000000 setting has only an 8.5%
   adapter margin, so the warning and drop counters are mandatory acceptance
   evidence.
 - WDR DATA is 1250000. External UART is refused as lossless by default; use
   native USB, MQTT, or split routing. `--allow-lossy` is diagnostic-only and
   explicitly disqualifies the result from lossless acceptance.
-
-Code inspection, unit tests, and local builds are software evidence. Hardware
-proof requires flashing the artifact built or selected in the current session,
-checking the live DID/board, and running the matching physical-device suite.

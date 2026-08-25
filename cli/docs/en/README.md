@@ -1,6 +1,6 @@
 # MMWK CLI Wrapper
 
-This document covers the host-side MMWK CLI wrappers for controlling and managing MMWK bridge/hub devices. The POSIX entrypoint is [`./run.sh`](../../run.sh) on macOS/Linux/Git Bash, and the PowerShell entrypoint is [`.\run.ps1`](../../run.ps1) on Windows. Both wrappers call the Python CLI in [`mmwk/`](../../mmwk/) and expose the same command surface over UART, WDR USB CDC, and MQTT, defaulting to canonical CLI JSON while also supporting MCP when paired with an MCP-enabled firmware build.
+This document covers the host-side MMWK CLI wrappers for controlling and managing MMWK bridge/hub devices. The POSIX entrypoint is [`./run.sh`](../../run.sh) on macOS/Linux/Git Bash, and the PowerShell entrypoint is [`.\run.ps1`](../../run.ps1) on Windows. Both wrappers call the Python CLI in [`mmwk/`](../../mmwk/) and expose the same command surface over UART, WDR/WSR USB CDC, and MQTT, defaulting to canonical CLI JSON while also supporting MCP when paired with an MCP-enabled firmware build.
 
 The CLI now defaults to the canonical CLI JSON protocol. Most MMWK firmware builds also ship with CLI as the built-in control protocol. Some firmware versions additionally provide MCP support; contact us if you need an MCP-enabled firmware version. When using such a firmware version, select `--protocol mcp`.
 
@@ -28,7 +28,7 @@ Raw forwarding and recording are sibling actions of the single `radar` tool. See
 - [Communication Layers](#communication-layers)
   - [Recommended Architecture](#recommended-architecture)
   - [UART (Local)](#uart-local)
-  - [USB CDC (WDR Local)](#usb-cdc-wdr-local)
+  - [USB CDC (WDR/WSR Local)](#usb-cdc-wdrwsr-local)
   - [MQTT (Remote)](#mqtt-remote)
 - [Command Reference](#command-reference)
 - [Radar Data Collection](./data-collection.md)
@@ -42,7 +42,7 @@ Raw forwarding and recording are sibling actions of the single `radar` tool. See
 
 ### Prerequisites
 - Python 3.10 or higher
-- USB serial access to the device (when using UART or WDR USB CDC)
+- USB serial access to the device (when using UART or WDR/WSR USB CDC)
 - For POSIX workflows: macOS/Linux with `bash`, or Windows with Git Bash
 - For Windows PowerShell workflows: PowerShell plus Python dependencies installed with `pip install -r requirements.txt`
 
@@ -123,7 +123,7 @@ Factory or empty-key devices remain open for bring-up. After you set a key, prot
 
 ## Device Claim
 
-`node claim` obtains the route identity (`cid` and `oid`) and optional MQTT credentials from a claim provider. It is local only and may use UART or WDR USB CDC; MQTT transport is rejected.
+`node claim` obtains the route identity (`cid` and `oid`) and optional MQTT credentials from a claim provider. It is local only and may use UART or WDR/WSR USB CDC; MQTT transport is rejected.
 
 ```bash
 ./run.sh node claim --endpoint https://claim.example.com/device --token ONE_TIME_TOKEN -p /dev/cu.usbserial-0001
@@ -202,10 +202,7 @@ For PRO devices and 4G-equipped WDR devices, store the mobile profile and then c
 
 `network priority --pref wifi|4g` controls the preferred network. Saving Wi-Fi credentials does not automatically change a 4G preference. 4G failure does not automatically fall back to Wi-Fi. If `pref=4g` cannot connect, the device may still report Wi-Fi as the current temporary bearer while the saved preference remains `4g`; `network status` reports this as `pref=4g,curr=wifi`, and `network diag` keeps the 4G failure reason. LED status uses one blink = Wi-Fi, two blinks = 4G.
 
-For SDK hardware acceptance runs, 4G is also explicit: pass the runner's `--4g` for PRO devices or 4G-equipped WDR devices; omit it to keep Wi-Fi as the test default.
-For shared lab validation, pass the runner's `--4g` only for SIM-equipped PRO/WDR devices.
-
-Provisioning AP display follows `PRODUCT-LAST6`, uppercase for readability, and does not include `oid`. `LAST6` uses `cid` when set, otherwise `did`; topic casing still preserves the configured values. Factory default Wi-Fi is `MMWK / mmwk123456`. Automated portal provisioning may temporarily connect the test host to the device AP and then restore the previous Wi-Fi network. On WSL, automated portal provisioning controls Windows Wi-Fi through PowerShell/netsh and submits the portal request from Windows. Set `TEST_PROVISIONING_AP_SSID` when multiple provisioning APs are visible, or set `TEST_PORTAL_PROVISION_AUTO=false` to use the old manual checkpoint.
+Provisioning AP display follows `PRODUCT-LAST6`, uppercase for readability, and does not include `oid`. `LAST6` uses `cid` when set, otherwise `did`; topic casing still preserves the configured values. Factory default Wi-Fi is `MMWK / mmwk123456`. Automated portal provisioning may temporarily connect the host to the device AP and then restore the previous Wi-Fi network. Select the target explicitly when multiple device APs are visible.
 
 The recovery portal is a self-help portal for MQTT broker configuration and diagnostics; it is not Wi-Fi provisioning. The portal remains visible after factory onboarding, but firmware policy controls whether MQTT fields are editable. CLI bridge firmware may expose editable MQTT recovery fields; HUB care/rmaker sidecars expose status only. Status-only portal pages expose MQTT state, last phase/code, remaining window seconds, and 4G diagnostics when preferred 4G is offline; they do not expose MQTT URI, user, or password.
 
@@ -215,8 +212,8 @@ On a fresh bridge device, configure Wi-Fi, run `network mqtt`, reboot, and then 
 
 | Scenario | Command shape |
 | --- | --- |
-| MINI/PRO UART | `./run.sh collect --transport uart --port PORT --duration 30` |
-| WDR native USB | `./run.sh collect --transport usb --port PORT --duration 30` |
+| MINI/PRO/WSR UART | `./run.sh collect --transport uart --port PORT --duration 30` |
+| WDR/WSR native USB | `./run.sh collect --transport usb --port PORT --duration 30` |
 | Remote MQTT | `./run.sh collect --transport mqtt --broker URI --did DID` |
 | Split wire/MQTT | `./run.sh collect --ctrl-transport uart --data-transport mqtt --port PORT --broker URI --did DID` |
 | Application-owned DATA | `./run.sh collect --transport mqtt --mode auto --attach --broker URI --did DID` |
@@ -258,7 +255,7 @@ When using `--transport mqtt`, pass the same route fields with `--did`, `--prod`
 - MQTT `raw/data` contains DATA-only payloads. The collector phase-segments a
   local host run so `radar.sraw` starts at DATA magic; only optional
   `--wire-output` is a delimiter-free merged raw-transport audit.
-- `on_cmd_resp` and `on_radar_frame` are application-layer callbacks and are different from raw capture outputs.
+- Applications that subscribe to DATA directly must manage routing and processing; this is different from `collect` raw capture.
 - `raw/cmd` is an optional host-mode MQTT ingress for radar CMD passthrough and
   is distinct from the CLI JSON command topic `{prod}/{oid}/{cid-or-did}/device/cmd`.
 - Recommended practice: real applications, services, dashboards, and agents should integrate through MQTT. UART is mainly for factory setup, initial flashing, bring-up, bench debugging, and emergency fallback.
@@ -320,7 +317,7 @@ flowchart LR
 
 This is the recommended communication model:
 - **UART** is the local service path. Use it for factory provisioning, initial flashing, low-level bring-up, bench debugging, and rescue access when the device is not yet on the network.
-- **USB CDC** is an additional local service path for WDR command control and native raw DATA after the firmware pins the USB route.
+- **USB CDC** is an additional local service path for WDR/WSR command control and native raw DATA after the firmware pins the USB route.
 - **MQTT CLI JSON** is the builtin device interaction channel configured by `network mqtt`. It is the right path for real applications to send commands, read status, and manage devices remotely.
 - **MQTT RAW** is the explicitly opened `radar raw` route. Auto mode is DATA-only; host mode can expose command, response, and DATA topics.
 - **Radar recording** is the sibling `radar record` action and is independent of raw forwarding.
@@ -334,9 +331,9 @@ Primary transport for factory setup, local debugging, and recovery. Ordinary UAR
 ./run.sh radar fw flash --fw fw.bin -p /dev/cu.usbserial-0001 --baudrate 921600 --reset
 ```
 
-#### WDR UART / USB CDC control selection
+#### WDR/WSR UART / USB CDC control selection
 
-On standard WDR bridge firmware, the enabled local control adapter starts on
+On standard WDR/WSR bridge firmware, the enabled local control adapter starts on
 UART and watches for UART RX for 5000 ms. UART input during that window keeps
 control on UART; an idle window switches the existing CLI/MCP control channel
 to native USB CDC (`/dev/ttyACM*` on Linux or `/dev/cu.usbmodem*` on macOS).
@@ -348,40 +345,39 @@ to native USB CDC (`/dev/ttyACM*` on Linux or `/dev/cu.usbmodem*` on macOS).
 ```
 
 `usb_ms` accepts integer milliseconds from `0` through `60000`. A missing value
-uses the firmware factory policy (5000 ms on standard WDR); explicit `0`
+uses the firmware factory policy (5000 ms on standard WDR/WSR); explicit `0`
 disables automatic USB takeover and stays on UART. Saving a value does not
 switch the current connection: it applies on the next boot or after 4G releases
 USB. `node agent` is the only public read/write surface; `node info` and
-`network diag` do not expose this field. Non-WDR queries omit it, and non-WDR
+`network diag` do not expose this field. Non-WDR/WSR queries omit it, and non-WDR/WSR
 writes return `not.supported`.
 
-USB CDC carries CLI/MCP control and, on WDR, native raw radar DATA after a host
+USB CDC carries CLI/MCP control and, on WDR/WSR, native raw radar DATA after a host
 raw route is opened. Once raw owns that physical channel, parsed text is no
 longer interleaved on it; use another route for parsed control if needed.
 
-### USB CDC (WDR Local)
-### USB CDC (WDR Local)
+### USB CDC (WDR/WSR Local)
 
-`--transport usb` is a WDR-only local control path. It uses the native Type-C
+`--transport usb` is a WDR/WSR local control path. It uses the native Type-C
 USB CDC serial interface at 115200 baud and carries the existing newline-
 delimited CLI/MCP text protocol. It does not add binary framing.
 
 ```bash
-# One immediate descriptor scan; auto-select a single Wavvar/WDR CDC port
+# One immediate descriptor scan; auto-select a single Wavvar WDR/WSR CDC port
 ./run.sh node info --transport usb --protocol cli
 
-# Wait up to 8 seconds for enumeration, then validate board=WDR
+# Wait up to 8 seconds for enumeration, then validate board=WDR/WSR
 ./run.sh node info --transport usb --usb-wait-ms 8000
 
-# Pin one exact CDC path when more than one WDR candidate is attached
+# Pin one exact CDC path when more than one WDR/WSR candidate is attached
 ./run.sh radar status --transport usb --port /dev/ttyACM0 --did 1020ba76b404
 ```
 
 Without `--port`, the host first filters serial descriptors with
-`manufacturer=Wavvar` and `product=WDR`, or the native ESP32 WDR CDC VID/PID
+`manufacturer=Wavvar` and `product=WDR|WSR`, or the native ESP32-S3 CDC VID/PID
 `303A:4001`. Windows may expose that CDC through its generic driver as
 `Microsoft` / `USB Serial Device`, so the VID/PID fallback is intentional. The
-host then probes `node info` and requires `board=WDR`. If more than one
+host then probes `node info` and requires `board=WDR|WSR`. If more than one
 candidate remains, provide `--did` or an exact `--port`; DID matching uses
 `did`, then the legacy `id` or `client_id` fields, case-insensitively. An
 explicit `--port` never scans another path.
@@ -425,11 +421,11 @@ Recommended transport for real applications, dashboards, automation, and fleet/d
 | Command | Action Description |
 |---------|---------------------|
 | `node info` | Handshake: identify model, version, and published metadata |
-| `node claim` | Claim route identity and credentials over UART or WDR USB-local transport |
+| `node claim` | Claim route identity and credentials over UART or WDR/WSR USB-local transport |
 | `node factory-reset` | Trigger factory reset (clear NVS + runtime assets, reboot after 1s) |
 | `node reboot` | Reboot the device |
 | `node ota` | Update the ESP firmware via HTTP or MQTT stream OTA |
-| `node agent` | Configure built-in agents and WDR local-control startup policy |
+| `node agent` | Configure built-in agents and WDR/WSR local-control startup policy |
 | `node heartbeat` | Configure system heartbeat packets |
 | `node key status/set/clear` | Inspect, set, update, or clear CLI key protection |
 | `endpoint list` | Show the active Matter-oriented endpoint directory for the current profile / effective sensor set |
@@ -706,9 +702,9 @@ ESP firmware:
   --fw ./app.bin
 ```
 
-For ESP MQTT stream OTA, use an app-only `.bin`; SDK builds stage this as `firmwares/esp/<board>/<firmware>/v<version>/app.bin`. Full MWFB bundles with an assets payload must use HTTP OTA.
+For ESP MQTT stream OTA, use an app-only `.bin`. Full MWFB bundles with an assets payload must use HTTP OTA.
 
-HTTP `node ota --target esp --url` accepts app-only ESP images, SDK `MWFB` full bundles, and ERC whole-OTA packages.
+HTTP `node ota --target esp --url` accepts app-only ESP images, `MWFB` full bundles, and ERC whole-OTA packages.
 An ERC package is a binary whole-OTA format with a 32-byte v1 or 256-byte v2 little-endian header, followed by an ESP app image and radar payload entries. Supported radar payload entries store radar firmware followed by a 4096-byte radar config.
 
 Radar firmware plus config:
@@ -782,8 +778,8 @@ then follow the standalone [Radar DATA collection guide](./data-collection.md):
 
 | Scenario | Command shape |
 | --- | --- |
-| MINI/PRO attached UART | `./run.sh collect --transport uart --port PORT --duration 30` |
-| WDR attached native USB | `./run.sh collect --transport usb --port PORT --duration 30` |
+| MINI/PRO/WSR attached UART | `./run.sh collect --transport uart --port PORT --duration 30` |
+| WDR/WSR attached native USB | `./run.sh collect --transport usb --port PORT --duration 30` |
 | Remote host MQTT | `./run.sh collect --transport mqtt --broker URI --did DID` |
 | Split control/DATA | `./run.sh collect --ctrl-transport uart --data-transport mqtt --port PORT --broker URI --did DID` |
 | Application-owned DATA | `./run.sh collect --transport mqtt --mode auto --attach --broker URI --did DID` |

@@ -16,6 +16,8 @@ This document covers the `RPX` series modules, including the `6843` series produ
 
 The 6843 series represents our flagship line of modules, equipped with TI's high-performance mmWave radar technology. Designed for advanced spatial sensing, they are ideal for environments that demand robust motion tracking and precise spatial measurement.
 
+`WSR` is the PRO hardware variant with a WDR-style native Type-C interface. Its controller, radar, peripherals, UART behavior, and mechanical baseline follow PRO, while native USB and factory flashing follow WDR. See the [WSR module document](./wsr.md).
+
 | MINI | RTP | RTL | CFH |
 | --- | --- | --- | --- |
 | <img src="./img/RPX/6843/MINI-module.png" width="200"> | <img src="./img/RPX/6843/RTP_front.png" width="200"> | <img src="./img/RPX/6843/RTL.png" width="200"> | <img src="./img/RPX/6843/CFH.png" width="200"> |
@@ -49,7 +51,7 @@ The 6843 series represents our flagship line of modules, equipped with TI's high
 |  | Modulation Scheme | FMCW |
 |  | Transmission Power | 15 dBm per channel |
 | **Connectivity & Integration** | Cloud Protocols | MQTT, HTTP, HTTPS |
-|  | Local Communication | Serial UART (Binary or JSON format; highly customizable) |
+|  | Local Communication | UART; WSR also provides native USB Type-C |
 | **Hardware Architecture** | MCU Core | Dual-core + Tri-core Architecture |
 |  | Co-processor | Hardware Accelerator (HWA) + DSP |
 |  | Memory (RAM) | 520 KB + 8 MB (RFC-P02-06 operates on 512KB + 8MB) |
@@ -158,6 +160,8 @@ To ensure successful flashing and serial communication, please observe the side-
 | --- | --- |
 | **Mini Device** (A-side alignment with chassis front) | <img src="./img/RPX/6843/mini_flasher.png" width="400" alt="Mini Alignment Guide"> |
 | **Pro Device** (B-side alignment with chassis front) | <img src="./img/RPX/6843/pro_flasher.png" width="400" alt="Pro Alignment Guide"> |
+
+WSR does not use the PRO USB-to-UART orientation for its Type-C communication path. Connect its native Type-C interface and follow the [Factory Flash Guide](../docs/en/flash.md).
 
 ### 4.4 Type-C Interface on the Flashing Debugger
 

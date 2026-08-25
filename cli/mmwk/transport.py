@@ -988,7 +988,7 @@ def create_transport(
         args: Namespace with transport configuration attributes.
         retries: Number of connection attempts (default: 1 for CLI, use 3 for tests).
         retry_delay: Seconds between retries.
-        usb_probe: Optional node-info callback used to validate a WDR USB port.
+        usb_probe: Optional node-info callback used to validate a WDR/WSR USB port.
 
     Returns:
         A connected RadarTransport instance.
