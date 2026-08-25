@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-import time
 from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Mapping, Sequence
@@ -13,11 +12,12 @@ from typing import Mapping, Sequence
 from mmwk._logging import logger
 from mmwk.commands.collect import (
     CollectCommand,
-    _MqttRawCaptureSession,
-    _build_raw_restore_args_for_trigger_none,
     _create_mqtt_client,
     _parse_broker_endpoint,
-    _unwrap_tool_data,
+)
+from mmwk.commands.collect_engine import (
+    CollectionPlan,
+    collect_reconnect_mqtt,
 )
 from mmwk.mcp_client import McpClient
 from mmwk.mqtt_topics import build_mqtt_topics
@@ -56,6 +56,7 @@ class CollectRawConfig:
     data_output: str
     resp_output: str
     resp_optional: bool
+    overwrite: bool = False
 
 
 def _topic_defaults(*, did: str, prod: str, oid: str, cid: str) -> dict[str, str]:
@@ -131,7 +132,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--resp-optional",
         action="store_true",
-        help="Allow resp capture to be optional for trigger=none only",
+        help=(
+            "Deprecated and rejected; use run.sh collect --mode auto --attach "
+            "for a borrowed DATA-only route"
+        ),
+    )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Replace existing capture outputs instead of rejecting collisions",
     )
     return parser
 
@@ -193,8 +202,11 @@ def resolve_collect_raw_config(
     if os.path.abspath(data_output) == os.path.abspath(resp_output):
         raise ValueError("data-output and resp-output must be different paths")
 
-    if getattr(args, "resp_optional", False) and getattr(args, "trigger", "") != "none":
-        raise ValueError("--resp-optional is only valid with --trigger none")
+    if getattr(args, "resp_optional", False):
+        raise ValueError(
+            "--resp-optional is not supported by --trigger; use "
+            "run.sh collect --mode auto --attach"
+        )
 
     return CollectRawConfig(
         trigger=args.trigger,
@@ -212,6 +224,7 @@ def resolve_collect_raw_config(
         data_output=data_output,
         resp_output=resp_output,
         resp_optional=bool(getattr(args, "resp_optional", False)),
+        overwrite=bool(getattr(args, "overwrite", False)),
     )
 
 
@@ -234,10 +247,12 @@ def resolve_collect_raw_runtime_topics(
 
 
 def _build_transport_args(config: CollectRawConfig) -> SimpleNamespace:
-    host, port = _parse_broker_endpoint(config.broker, 1883)
+    _, port = _parse_broker_endpoint(config.broker, 1883)
     return SimpleNamespace(
         transport="mqtt",
-        broker=host,
+        # Preserve the URI so MqttTransport can reuse mqtts, URI credentials,
+        # and its explicit port for the parsed control connection.
+        broker=config.broker,
         mqtt_port=port,
         did=config.did,
         prod=config.prod,
@@ -273,197 +288,37 @@ def _resolve_startup_trigger_topics(
     return raw_data, raw_resp
 
 
-def _connect_capture_client(
-    capture_session: _MqttRawCaptureSession,
-    host: str,
-    port: int,
-    timeout: float,
-) -> object | None:
-    wait_timeout = max(float(timeout), 20.0)
-
-    for attempt in range(3):
-        capture_session.subscribed.clear()
-        capture_session.connect_error["rc"] = None
-        capture_session.subscribe_error["message"] = None
-        capture_session.subscribe_state["acks"] = 0
-
-        client = _create_mqtt_client(client_id=f"mmwk_collect_{int(time.time())}_{attempt}")
-        capture_session.bind_client(client)
-
-        try:
-            client.connect(host, port, 60)
-        except Exception as exc:
-            logger.warning(
-                "Failed to connect MQTT broker %s:%s on attempt %s/3: %s",
-                host,
-                port,
-                attempt + 1,
-                exc,
-            )
-            client = None
-        else:
-            client.loop_start()
-            wait_deadline = time.time() + wait_timeout
-            while not capture_session.subscribed.is_set() and time.time() < wait_deadline:
-                if capture_session.connect_error["rc"] is not None or capture_session.subscribe_error["message"] is not None:
-                    break
-                time.sleep(0.1)
-
-            if capture_session.subscribed.is_set():
-                return client
-
-            if capture_session.connect_error["rc"] is not None:
-                logger.warning(
-                    "MQTT connect failed with rc=%s on attempt %s/3",
-                    capture_session.connect_error["rc"],
-                    attempt + 1,
-                )
-            elif capture_session.subscribe_error["message"] is not None:
-                logger.warning(
-                    "MQTT subscribe failed on attempt %s/3: %s",
-                    attempt + 1,
-                    capture_session.subscribe_error["message"],
-                )
-            else:
-                logger.warning("MQTT subscribe-ready timeout on attempt %s/3", attempt + 1)
-
-            try:
-                client.loop_stop()
-            except Exception:
-                pass
-            try:
-                client.disconnect()
-            except Exception:
-                pass
-            client = None
-
-        if attempt < 2:
-            time.sleep(2.0)
-
-    return None
-
-
 def _execute_trigger_radar_restart(
     config: CollectRawConfig,
     mcp: McpClient,
     argv: Sequence[str],
     environ: Mapping[str, str],
 ) -> bool:
-    collector = CollectCommand(mcp)
-
-    try:
-        raw_state = _unwrap_tool_data(
-            collector._required_tool_json("radar", {"action": "raw"}, timeout=config.timeout)
-        )
-    except Exception as exc:
-        logger.error(f"Failed to query radar raw route for trigger=radar-restart: {exc}")
-        return False
-
-    hi = collector._load_hi(timeout=config.timeout)
-    restore_raw_args = _build_raw_restore_args_for_trigger_none(raw_state)
+    """Map the legacy restart trigger to the shared host lifecycle engine."""
     data_topic, resp_topic = _resolve_startup_trigger_topics(
         argv=argv,
         environ=environ,
         config=config,
-        raw_state=raw_state,
-        hi=hi,
+        raw_state={},
+        hi={},
     )
-    host, port = _parse_broker_endpoint(config.broker, 1883)
-
-    for out_path in (config.data_output, config.resp_output):
-        out_dir = os.path.dirname(os.path.abspath(out_path))
-        if out_dir:
-            os.makedirs(out_dir, exist_ok=True)
-
-    logger.info(
-        "Collect config: broker=%s:%s, data_topic=%s, resp_topic=%s, duration=%ss, "
-        "data_output=%s, resp_output=%s",
-        host,
-        port,
-        data_topic,
-        "",
-        config.duration,
-        config.data_output,
-        config.resp_output,
+    return CollectCommand(mcp).execute(
+        duration=config.duration,
+        data_output=config.data_output,
+        resp_output=config.resp_output,
+        broker=config.broker,
+        mqtt_port=_parse_broker_endpoint(config.broker, 1883)[1],
+        did=config.did,
+        prod=config.prod,
+        oid=config.oid,
+        cid=config.cid,
+        data_topic=data_topic,
+        resp_topic=resp_topic,
+        mode="host",
+        attach=False,
+        overwrite=config.overwrite,
+        timeout=config.timeout,
     )
-
-    raw_args = {"action": "raw", "mode": "runtime", "channel": "mqtt"}
-
-    result_ok = False
-    client = None
-    raw_enable_ok = False
-    status_stop_ok = False
-    status_start_ok = False
-
-    with open(config.data_output, "wb") as data_fout, open(config.resp_output, "wb") as resp_fout:
-        capture_session = _MqttRawCaptureSession(
-            data_topic,
-            "",
-            data_fout,
-            resp_fout,
-        )
-        try:
-            client = _connect_capture_client(capture_session, host=host, port=port, timeout=config.timeout)
-
-            if client is None:
-                logger.error("MQTT connect timeout while waiting for subscribe-ready state")
-            else:
-                try:
-                    raw_result = mcp.call_tool("radar", raw_args, timeout=config.timeout)
-                    raw_payload = mcp.extract_text(raw_result)
-                    if raw_payload and raw_payload.strip():
-                        logger.info("Radar raw forwarding armed: %s", raw_payload)
-                    raw_enable_ok = True
-                except Exception as exc:
-                    logger.error(f"Failed to enable radar raw forwarding for trigger=radar-restart: {exc}")
-
-                if raw_enable_ok:
-                    try:
-                        mcp.call_tool("radar", {"action": "stop"}, timeout=config.timeout)
-                        status_stop_ok = True
-                    except Exception as exc:
-                        logger.error(f"Failed to stop radar service for trigger=radar-restart: {exc}")
-
-                    time.sleep(1.0)
-
-                    try:
-                        mcp.call_tool(
-                            "radar",
-                            {"action": "start", "mode": "auto"},
-                            timeout=config.timeout,
-                        )
-                        status_start_ok = True
-                    except Exception as exc:
-                        logger.error(f"Failed to restart radar service for trigger=radar-restart: {exc}")
-
-                    if status_stop_ok and status_start_ok:
-                        try:
-                            time.sleep(max(0.0, float(config.duration)))
-                        except KeyboardInterrupt:
-                            logger.info("Collection interrupted by user")
-
-                        collector._print_summary(capture_session.stats, config.data_output, config.resp_output)
-                        if capture_session.stats["data_messages"] <= 0:
-                            logger.error("No raw DATA payload captured after radar restart")
-                        else:
-                            result_ok = True
-        finally:
-            if client is not None:
-                try:
-                    client.loop_stop()
-                except Exception:
-                    pass
-                try:
-                    client.disconnect()
-                except Exception:
-                    pass
-            try:
-                mcp.call_tool("radar", restore_raw_args, timeout=config.timeout)
-            except Exception as exc:
-                logger.error(f"Failed to restore radar raw route after collect: {exc}")
-                result_ok = False
-
-    return result_ok and raw_enable_ok and status_stop_ok and status_start_ok
 
 
 def _execute_trigger_device_reboot(
@@ -472,157 +327,41 @@ def _execute_trigger_device_reboot(
     argv: Sequence[str],
     environ: Mapping[str, str],
 ) -> bool:
-    collector = CollectCommand(mcp)
-
+    """Compatibility wrapper for the shared reconnect collection backend."""
     try:
-        raw_state = _unwrap_tool_data(
-            collector._required_tool_json("radar", {"action": "raw"}, timeout=config.timeout)
+        data_topic, _ = _resolve_startup_trigger_topics(
+            argv=argv,
+            environ=environ,
+            config=config,
+            raw_state={},
+            hi={},
         )
+        collect_reconnect_mqtt(
+            CollectionPlan(
+                transport="mqtt",
+                mode="auto",
+                duration=config.duration,
+                data_output=config.data_output,
+                resp_output=config.resp_output,
+                overwrite=config.overwrite,
+                data_ready_timeout=config.timeout,
+                control_timeout=config.timeout,
+            ),
+            control=mcp,
+            broker=config.broker,
+            # CID selects the MQTT topic route; it is not the hardware DID
+            # returned by node info.
+            expected_did=config.did or None,
+            data_topic=data_topic or None,
+            prod=config.prod,
+            oid=config.oid,
+            cid=config.cid,
+            client_factory=_create_mqtt_client,
+        )
+        return True
     except Exception as exc:
-        logger.error(f"Failed to query radar raw route for trigger=device-reboot: {exc}")
+        logger.error("Reconnect collection failed: %s", exc)
         return False
-
-    try:
-        hi_payload = collector._required_tool_json("node", {"action": "info"}, timeout=config.timeout)
-    except Exception as exc:
-        logger.error(f"Failed to query node info for trigger=device-reboot: {exc}")
-        return False
-
-    hi = _unwrap_tool_data(hi_payload)
-    if not isinstance(hi, dict):
-        logger.error("device-reboot requires node info to return an object payload")
-        return False
-
-    hi_did = _choose(_value_from_hi(hi, "did"))
-    hi_cid = _choose(_value_from_hi(hi, "cid"))
-    if not (hi_did or hi_cid):
-        logger.error("device-reboot requires node info to confirm did or cid")
-        return False
-    expected_identity = config.cid or config.did
-    observed_identity = hi_cid or hi_did
-    if observed_identity != expected_identity:
-        logger.error(
-            "device-reboot node info route mismatch: expected %s, got %s",
-            expected_identity,
-            observed_identity,
-        )
-        return False
-
-    hi_cmd_topic = _choose(_value_from_hi(hi, "cmd"))
-    hi_resp_topic = _choose(_value_from_hi(hi, "resp"))
-    if hi_cmd_topic and hi_cmd_topic != config.cmd:
-        logger.error(
-            "device-reboot node info route mismatch: expected cmd %s, got %s",
-            config.cmd,
-            hi_cmd_topic,
-        )
-        return False
-    if hi_resp_topic and hi_resp_topic != config.resp:
-        logger.error(
-            "device-reboot node info route mismatch: expected resp %s, got %s",
-            config.resp,
-            hi_resp_topic,
-        )
-        return False
-
-    data_topic, resp_topic = _resolve_startup_trigger_topics(
-        argv=argv,
-        environ=environ,
-        config=config,
-        raw_state=raw_state,
-        hi=hi,
-    )
-    host, port = _parse_broker_endpoint(config.broker, 1883)
-
-    for out_path in (config.data_output, config.resp_output):
-        out_dir = os.path.dirname(os.path.abspath(out_path))
-        if out_dir:
-            os.makedirs(out_dir, exist_ok=True)
-
-    logger.info(
-        "Collect config: broker=%s:%s, data_topic=%s, resp_topic=%s, duration=%ss, "
-        "data_output=%s, resp_output=%s",
-        host,
-        port,
-        data_topic,
-        "",
-        config.duration,
-        config.data_output,
-        config.resp_output,
-    )
-
-    raw_args = {"action": "raw", "mode": "reconnect", "channel": "mqtt"}
-
-    result_ok = False
-    client = None
-    raw_enable_ok = False
-    reboot_ok = False
-    post_reboot_seen = False
-
-    with open(config.data_output, "wb") as data_fout, open(config.resp_output, "wb") as resp_fout:
-        capture_session = _MqttRawCaptureSession(
-            data_topic,
-            "",
-            data_fout,
-            resp_fout,
-        )
-        try:
-            client = _connect_capture_client(capture_session, host=host, port=port, timeout=config.timeout)
-
-            if client is None:
-                logger.error("MQTT connect timeout while waiting for subscribe-ready state")
-            else:
-                try:
-                    raw_result = mcp.call_tool("radar", raw_args, timeout=config.timeout)
-                    raw_payload = mcp.extract_text(raw_result)
-                    if raw_payload and raw_payload.strip():
-                        logger.info("Radar raw forwarding armed for reboot capture: %s", raw_payload)
-                    raw_enable_ok = True
-                except Exception as exc:
-                    logger.error(f"Failed to enable radar raw forwarding for trigger=device-reboot: {exc}")
-
-                if raw_enable_ok:
-                    baseline_messages = int(capture_session.stats["messages"])
-                    try:
-                        reboot_result = mcp.call_tool("node", {"action": "reboot"}, timeout=max(config.timeout, 15.0))
-                        reboot_payload = mcp.extract_text(reboot_result)
-                        if reboot_payload and reboot_payload.strip():
-                            logger.info("Device reboot requested: %s", reboot_payload)
-                        reboot_ok = True
-                    except Exception as exc:
-                        logger.error(f"Failed to request device reboot for trigger=device-reboot: {exc}")
-
-                    if reboot_ok:
-                        wait_deadline = time.time() + max(0.1, float(config.timeout))
-                        while capture_session.stats["messages"] <= baseline_messages and time.time() < wait_deadline:
-                            time.sleep(0.1)
-
-                        if capture_session.stats["messages"] <= baseline_messages:
-                            logger.error("No post-reboot raw payload captured before timeout")
-                        else:
-                            post_reboot_seen = True
-                            try:
-                                time.sleep(max(0.0, float(config.duration)))
-                            except KeyboardInterrupt:
-                                logger.info("Collection interrupted by user")
-
-                            collector._print_summary(capture_session.stats, config.data_output, config.resp_output)
-                            if capture_session.stats["data_messages"] <= 0:
-                                logger.error("No raw DATA payload captured on the reconnected route")
-                            else:
-                                result_ok = True
-        finally:
-            if client is not None:
-                try:
-                    client.loop_stop()
-                except Exception:
-                    pass
-                try:
-                    client.disconnect()
-                except Exception:
-                    pass
-
-    return result_ok and raw_enable_ok and reboot_ok and post_reboot_seen
 
 
 def execute_collect_raw(
@@ -651,6 +390,7 @@ def execute_collect_raw(
                 data_topic=data_topic,
                 resp_topic=resp_topic,
                 resp_optional=config.resp_optional,
+                overwrite=config.overwrite,
                 timeout=config.timeout,
             )
         if config.trigger == "radar-restart":

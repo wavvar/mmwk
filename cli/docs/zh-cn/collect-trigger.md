@@ -1,80 +1,58 @@
 # 采集触发助手
 
-`collect.sh --trigger` 是一个 Pure-MQTT raw 数据采集工具，适合那些你明确要求控制面和 raw 采集都不要碰 UART 的场景。
+`collect.sh --trigger` 是高级 pure-MQTT 助手，适合明确要求控制和采集都不
+经过 UART 的场景。普通本机、远程、split 和 attach 工作流请使用共用的
+`run.sh collect` 引擎。
 
-工作目录应为 `cli` 目录：
+该助手直接运行 Python；`collect.ps1 --trigger` 不需要 Bash。请在发布包的
+`cli` 目录执行：
 
 ```bash
-cd ./cli
+./collect.sh --trigger none --broker mqtt://broker.example:1883 --did DEVICE_ID
 ```
 
-下面示例使用 POSIX shell 写法。Windows PowerShell 下使用 `.\collect.ps1 --trigger ...`；这个 pure-MQTT trigger 模式不需要 Bash，只要求已安装 Python 3.10+ 依赖。如果本机有 Bash，`collect.ps1` 会转调 `collect.sh` 以获得完整 wrapper 行为。
+支持 `none`、`radar-restart` 和 `device-reboot`。它订阅 `raw/data`，host
+自有流程还订阅 `raw/resp`；DATA 与响应字节都会保留，但文件不编码 MQTT payload
+边界。账号、设备 key 不会写入 summary 或事件日志。
 
-## 它负责什么
-
-- 把 `raw_data` 写到 `data_resp.sraw`
-- 把启动 trim 后的命令口原始字节写到 `cmd_resp.log`
-- 保持运行期控制和 raw 采集都只走 MQTT
-- 支持 `trigger=none`、`trigger=radar-restart` 和 `trigger=device-reboot`
-
-它不是严格启动期 `collect -p` 路径的替代品。
-
-## Broker 解析
-
-除非 broker 明确要求其他端口，默认 MQTT 端口应视为 `1883`。
-
-如果没有显式传 `--broker`，同时 `MMWK_SERVER_MQTT_URI` 也没设置，`collect.sh --trigger` 会自动从 server.sh state 里读取 broker。默认读取 `./build_output/local_server/server.env`，也可以用 `--server-state-dir` 指到别的 state dir。
-
-`collect.sh --trigger` 仍然需要 MQTT 路由身份。未 claim 设备传 `--did`；已 claim 路由传 `--prod --oid --cid`。环境变量 fallback 是 `MMWK_DID`、`MMWK_PROD`、`MMWK_OID` 和 `MMWK_CID`。
-
-## 示例
-
-### 1. 中途 late-attach 稳态采集
+## 不重启的 host 采集
 
 ```bash
 ./collect.sh --trigger none \
-  --broker mqtt://192.168.1.100:1883 \
-  --did dc5475c879c0 \
-  --data-output ./data_resp.sraw \
-  --resp-output ./cmd_resp.log \
-  --resp-optional
+  --broker mqtt://broker.example:1883 --did DEVICE_ID \
+  --data-output ./data.sraw --resp-output ./resp.log
 ```
 
-### 2. 复用本地 `server.sh` state
+这个兼容 trigger 委托给自有 host MQTT 引擎，不是 attach 窗口，并且必须收到响应。
+应用自有 DATA-only 路由应使用
+`run.sh collect --transport mqtt --mode auto --attach`。旧的 `--resp-optional`
+行为会被拒绝，不能把缺少生命周期响应当作成功。
 
-```bash
-./config.sh set --server-local \
-  --ssid "MyWiFi" \
-  --password "MyPass" \
-  --port /dev/cu.usbserial-0001 \
-  --reboot
-
-./collect.sh --server-state-dir ./build_output/local_server \
-  --trigger device-reboot \
-  --did dc5475c879c0
-```
-
-### 3. 通过 MQTT 触发一段新的启动窗口
+## 重连触发采集
 
 ```bash
 ./collect.sh --trigger device-reboot \
-  --did dc5475c879c0 \
-  --resp-output ./cmd_resp.log \
-  --data-output ./data_resp.sraw
+  --broker mqtt://broker.example:1883 --did DEVICE_ID \
+  --data-output ./data.sraw --resp-output ./resp.log
 ```
 
-## 关键参数
+助手先订阅，再 arm `mode=reconnect`，等待结构化确认后请求重启，并且只接受新的
+设备代际消费 arm 后的 DATA。单次 arm 只消费一次，第二次重启必须重新 arm。
+`radar-restart` 保留为共用自有 host 生命周期采集的兼容名称；它不使用 reconnect
+arm，也不重启设备。
 
-- `--did`：DID 路由回退值；除非已经传了 `--cid` 或导出了 `MMWK_CID`，否则必须提供。
-- `--prod` / `--oid` / `--cid`：product、租户和 claimed 路由段；`cid` 优先于 `did`。
-- `--raw-data` / `--raw-resp`：直接覆盖 raw topic。不传时，`collect.sh --trigger` 会按 `prod/oid/cid/did` 推导；对于 restart/reboot 触发流程，也会优先读取运行时上报的 raw topic。
-- `--duration`：采集时长，默认 `10` 秒。
-- `--timeout`：MQTT 订阅和控制面准备超时，默认 `10` 秒。
-- `--resp-optional`：只允许和 `--trigger none` 搭配，用于 late-attach 稳态窗口里“这次不强求 fresh startup `raw_resp`”的场景。
-- `--server-state-dir`：默认是 `./build_output/local_server`；当你没有显式传 broker 时，wrapper 会去读取其中的 `server.env`。
+## 参数与安全
 
-## Trigger 说明
+- `--did` 或 `--prod --oid --cid` 用于选择 MQTT 路由；环境变量回退为
+  `MMWK_DID`、`MMWK_PROD`、`MMWK_OID`、`MMWK_CID`；
+- 需要时可用 `--raw-data`、`--raw-resp` 覆盖 topic，但实时 DID 或 claimed CID
+  必须仍是一个完整 topic 段；ACL 应只开放 `raw/cmd`、`raw/resp`、`raw/data`；
+- 完整 `mqtts://` broker URI（包括 URI 凭据）会同时用于 control 和 raw 连接，
+  密码不会被渲染；
+- `--duration` 默认 10 秒，`--timeout` 默认 10 秒；
+- `--server-state-dir` 可从 `server.env` 提供本地 broker URI；
+- 设备状态改变前会预留互不相同的输出路径；只有明确需要替换时才使用
+  `--overwrite`。
 
-- `trigger=none`：中途 late-attach 的稳态采集；只有这里允许 `--resp-optional`
-- `trigger=radar-restart`：先订阅，再通过派生出的 `cmd` / `resp` 控制 topic 重启雷达
-- `trigger=device-reboot`：先订阅，执行 `radar raw mode=reconnect`，再通过 MQTT 发送 `node reboot`；要求 MQTT 控制链路已经可用
+本机 UART/USB 采集请阅读[雷达 DATA 采集](data-collection.md)，其中包含身份校验、
+路由所有权、清理、QoS 和速率限制说明。

@@ -9,108 +9,61 @@ Set-StrictMode -Version Latest
 
 $invokePwd = (Get-Location).Path
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$collectSh = Join-Path $scriptDir "collect.sh"
+$pathSeparator = [System.IO.Path]::PathSeparator
+if ([string]::IsNullOrWhiteSpace($env:PYTHONPATH)) {
+    $env:PYTHONPATH = $scriptDir
+} elseif (($env:PYTHONPATH -split [regex]::Escape([string]$pathSeparator)) -notcontains $scriptDir) {
+    $env:PYTHONPATH = "$scriptDir$pathSeparator$env:PYTHONPATH"
+}
 
 function Resolve-Python {
-    param()
-    $pythonCandidates = @(
+    foreach ($candidate in @(
         (Get-Command python -ErrorAction SilentlyContinue),
         (Get-Command py -ErrorAction SilentlyContinue)
-    )
-
-    foreach ($c in $pythonCandidates) {
-        if ($null -eq $c) { continue }
+    )) {
+        if ($null -eq $candidate) { continue }
         try {
-            $ver = & $c.Source -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"
-            if ($ver -match '^(\d+)\.(\d+)') {
+            $version = & $candidate.Source -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"
+            if ($version -match '^(\d+)\.(\d+)') {
                 $major = [int]$Matches[1]
                 $minor = [int]$Matches[2]
                 if ($major -gt 3 -or ($major -eq 3 -and $minor -ge 10)) {
-                    return $c.Source
+                    return $candidate.Source
                 }
             }
         } catch {
             continue
         }
     }
-
     return $null
 }
 
-function Resolve-Bash {
-    param()
-    $bashCandidates = @(
-        (Get-Command bash.exe -ErrorAction SilentlyContinue),
-        (Get-Command bash -ErrorAction SilentlyContinue)
-    )
-    foreach ($candidate in $bashCandidates) {
-        if ($null -eq $candidate) { continue }
-        return $candidate.Source
-    }
-    return $null
-}
-
-function Resolve-AbsPath {
-    param([string]$Path, [string]$Base)
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        return ""
-    }
-    if ([System.IO.Path]::IsPathRooted($Path)) {
-        return [System.IO.Path]::GetFullPath($Path)
-    }
-    return [System.IO.Path]::GetFullPath((Join-Path $Base $Path))
-}
-
-function Resolve-WorkingDir {
-    param([string]$Requested)
-    if (-not [string]::IsNullOrWhiteSpace($Requested)) {
-        $candidate = Resolve-AbsPath -Path $Requested -Base $invokePwd
-        New-Item -ItemType Directory -Force -Path $candidate | Out-Null
-        return $candidate
-    }
-
-    $collectInPwd = Resolve-AbsPath -Path "./collect" -Base $invokePwd
-    if (Test-Path $collectInPwd) {
-        return $collectInPwd
-    }
-
-    if (-not [string]::IsNullOrWhiteSpace($env:HOME)) {
-        $collectInHome = Resolve-AbsPath -Path ".mmwk/collect" -Base $env:HOME
-        if (Test-Path $collectInHome) {
-            return $collectInHome
-        }
-    }
-
-    New-Item -ItemType Directory -Force -Path $collectInPwd | Out-Null
-    return $collectInPwd
-}
-
-function Extract-EnvValue {
-    param([string]$FilePath, [string]$Key)
-    if (-not (Test-Path $FilePath)) {
-        return ""
-    }
-    foreach ($line in Get-Content $FilePath) {
-        if (-not $line.Contains("=")) { continue }
-        $parts = $line.Split("=", 2)
-        if ($parts[0] -eq $Key) {
-            return $parts[1]
-        }
-    }
-    return ""
+$python = Resolve-Python
+if ($null -eq $python) {
+    Write-Error 'Python 3.10+ not found.'
+    exit 1
 }
 
 $directMode = $false
 $localEngineMode = $false
 $hasBroker = $false
 $serverStateDir = ""
+$did = ""
+$duration = ""
+$working = ""
+$reboot = $false
+$mode = "host"
+$attach = $false
+
 for ($i = 0; $i -lt $Args.Length; $i++) {
     $arg = $Args[$i]
     if ($arg -eq "--trigger" -or $arg.StartsWith("--trigger=")) {
         $directMode = $true
         continue
     }
-
+    if ($arg -eq "--broker" -or $arg.StartsWith("--broker=")) {
+        $hasBroker = $true
+    }
     if ($arg -eq "--transport" -or $arg.StartsWith("--transport=") -or
         $arg -eq "--port" -or $arg.StartsWith("--port=") -or
         $arg -eq "--raw-baud" -or $arg.StartsWith("--raw-baud=") -or
@@ -119,163 +72,114 @@ for ($i = 0; $i -lt $Args.Length; $i++) {
         $localEngineMode = $true
         continue
     }
-
+    if ($arg -eq "--broker" -or $arg.StartsWith("--broker=") -or
+        $arg -eq "--mqtt-port" -or $arg.StartsWith("--mqtt-port=") -or
+        $arg -eq "--mqtt-user" -or $arg.StartsWith("--mqtt-user=") -or
+        $arg -eq "--mqtt-password" -or $arg.StartsWith("--mqtt-password=") -or
+        $arg -eq "--mqtt-ca" -or $arg.StartsWith("--mqtt-ca=") -or
+        $arg -eq "--cfg" -or $arg.StartsWith("--cfg=") -or
+        $arg -eq "--data-output" -or $arg.StartsWith("--data-output=") -or
+        $arg -eq "--resp-output" -or $arg.StartsWith("--resp-output=") -or
+        $arg -eq "--wire-output" -or $arg.StartsWith("--wire-output=") -or
+        $arg -eq "--summary-output" -or $arg.StartsWith("--summary-output=") -or
+        $arg -eq "--events-output" -or $arg.StartsWith("--events-output=") -or
+        $arg -eq "--allow-lossy" -or $arg -eq "--overwrite") {
+        $localEngineMode = $true
+        continue
+    }
     if ($arg -eq "--broker" -or $arg.StartsWith("--broker=")) {
         $hasBroker = $true
         continue
     }
-
     if ($arg -eq "--server-state-dir") {
-        if ($i + 1 -ge $Args.Length) {
-            Write-Error "Missing value for --server-state-dir"
-            exit 1
-        }
+        if ($i + 1 -ge $Args.Length) { Write-Error "Missing value for --server-state-dir"; exit 1 }
         $serverStateDir = $Args[$i + 1]
         $i++
         continue
     }
 }
 
-if ($localEngineMode) {
-    $python = Resolve-Python
-    if ($null -eq $python) {
-        Write-Error 'Python 3.10+ not found.'
-        exit 1
-    }
-    Set-Location $scriptDir
-    & $python -m mmwk.cli collect @Args
-    exit $LASTEXITCODE
-}
-
+# The main collection surface is the same Python engine used by run.ps1. The
+# trigger helper remains an explicit advanced MQTT entrypoint, and both paths
+# run directly under Python without requiring Git Bash.
 if ($directMode) {
-    $python = Resolve-Python
-    if ($null -eq $python) {
-        Write-Error 'Python 3.10+ not found.'
-        exit 1
-    }
-
     if (-not $hasBroker -and [string]::IsNullOrWhiteSpace($env:MMWK_SERVER_MQTT_URI)) {
-        $defaultStateDir = Resolve-AbsPath -Path "./build_output/local_server" -Base $invokePwd
         if ([string]::IsNullOrWhiteSpace($serverStateDir)) {
-            $serverStateDir = $defaultStateDir
-        } else {
-            $serverStateDir = Resolve-AbsPath -Path $serverStateDir -Base $invokePwd
+            $serverStateDir = Join-Path $invokePwd "build_output/local_server"
+        } elseif (-not [System.IO.Path]::IsPathRooted($serverStateDir)) {
+            $serverStateDir = Join-Path $invokePwd $serverStateDir
         }
-        $serverEnvFile = Join-Path $serverStateDir "server.env"
-        $mqttUri = Extract-EnvValue -FilePath $serverEnvFile -Key "MMWK_SERVER_MQTT_URI"
-        if (-not [string]::IsNullOrWhiteSpace($mqttUri)) {
-            $env:MMWK_SERVER_MQTT_URI = $mqttUri
+        $serverEnvFile = Join-Path ([System.IO.Path]::GetFullPath($serverStateDir)) "server.env"
+        if (Test-Path $serverEnvFile) {
+            foreach ($line in Get-Content $serverEnvFile) {
+                if ($line -match '^MMWK_SERVER_MQTT_URI=(.*)$') {
+                    $env:MMWK_SERVER_MQTT_URI = $Matches[1]
+                    break
+                }
+            }
         }
     }
-
     Set-Location $invokePwd
     & $python -m mmwk.tools.collect_raw @Args
     exit $LASTEXITCODE
 }
 
-$bash = Resolve-Bash
-if ($null -ne $bash) {
-    & $bash $collectSh @Args
+if ($localEngineMode -or (($Args -contains "--help") -or ($Args -contains "-h"))) {
+    Set-Location $invokePwd
+    & $python -m mmwk collect @Args
     exit $LASTEXITCODE
 }
 
-if (($Args -contains "-h") -or ($Args -contains "--help")) {
-    Write-Host "collect.ps1 -- registry-backed raw collection helper"
-    Write-Host "Usage:"
-    Write-Host "  ./collect.ps1 --transport uart|usb --port PORT [local host options]"
-    Write-Host "  ./collect.ps1 --transport mqtt --did DID [remote options]"
-    Write-Host "  ./collect.ps1 --did DID [--duration SEC] [--working DIR] [--reboot]"
-    Write-Host "  ./collect.ps1 --trigger none|radar-restart|device-reboot [forward-options]"
-    Write-Host "Local host UART/USB collection does not require Wi-Fi, MQTT, or device.yml."
-    Write-Host "Install Git Bash for full collect.sh compatibility or run with --trigger for pure-MQTT mode."
-    exit 0
-}
-
-# Minimal Windows fallback for non-trigger mode when bash is unavailable.
-$did = ""
-$duration = ""
-$working = ""
-$reboot = $false
-$mode = "host"
-$attach = $false
+# Preserve the registry-backed helper mode without a Bash dependency.
 for ($i = 0; $i -lt $Args.Length; $i++) {
     switch ($Args[$i]) {
         "--did" {
-            if ($i + 1 -ge $Args.Length) {
-                Write-Error "Missing value for --did"
-                exit 1
-            }
-            $did = $Args[$i + 1]
-            $i++
+            if ($i + 1 -ge $Args.Length) { Write-Error "Missing value for --did"; exit 1 }
+            $did = $Args[$i + 1]; $i++
         }
         "--duration" {
-            if ($i + 1 -ge $Args.Length) {
-                Write-Error "Missing value for --duration"
-                exit 1
-            }
-            $duration = $Args[$i + 1]
-            $i++
+            if ($i + 1 -ge $Args.Length) { Write-Error "Missing value for --duration"; exit 1 }
+            $duration = $Args[$i + 1]; $i++
         }
         "--working" {
-            if ($i + 1 -ge $Args.Length) {
-                Write-Error "Missing value for --working"
-                exit 1
-            }
-            $working = $Args[$i + 1]
-            $i++
+            if ($i + 1 -ge $Args.Length) { Write-Error "Missing value for --working"; exit 1 }
+            $working = $Args[$i + 1]; $i++
         }
-        "--reboot" {
-            $reboot = $true
-        }
+        "--reboot" { $reboot = $true }
         "--mode" {
-            if ($i + 1 -ge $Args.Length) {
-                Write-Error "Missing value for --mode"
-                exit 1
-            }
-            $mode = $Args[$i + 1]
-            $i++
+            if ($i + 1 -ge $Args.Length) { Write-Error "Missing value for --mode"; exit 1 }
+            $mode = $Args[$i + 1]; $i++
         }
-        "--attach" {
-            $attach = $true
-        }
-        default {
-            Write-Error "Unsupported argument in non-bash fallback mode: $($Args[$i])"
-            exit 1
-        }
+        "--attach" { $attach = $true }
+        default { Write-Error "Unsupported argument in registry mode: $($Args[$i])"; exit 1 }
     }
 }
 
 if ([string]::IsNullOrWhiteSpace($did)) {
-    Write-Error "--did is required"
+    Write-Error "--did is required for registry-backed collection"
     exit 1
 }
 
-$workingDir = Resolve-WorkingDir -Requested $working
-$registryPath = Join-Path $workingDir "device.yml"
-if (-not (Test-Path $registryPath)) {
-    Write-Error "device registry not found: $registryPath"
-    exit 1
+if ([string]::IsNullOrWhiteSpace($working)) {
+    $workingDir = Join-Path $invokePwd "collect"
+} elseif ([System.IO.Path]::IsPathRooted($working)) {
+    $workingDir = $working
+} else {
+    $workingDir = Join-Path $invokePwd $working
 }
+$workingDir = [System.IO.Path]::GetFullPath($workingDir)
+New-Item -ItemType Directory -Force -Path $workingDir | Out-Null
+$registryPath = Join-Path $workingDir "device.yml"
+if (-not (Test-Path $registryPath)) { Write-Error "device registry not found: $registryPath"; exit 1 }
 
 try {
-    $recordRoot = Get-Content $registryPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+    $registry = Get-Content $registryPath -Raw | ConvertFrom-Json
+    $deviceRecord = $registry.devices.$did
 } catch {
     Write-Error "invalid device registry JSON: $registryPath"
     exit 1
 }
-
-if (-not $recordRoot.PSObject.Properties.Name.Contains("devices")) {
-    Write-Error "device registry 'devices' missing: $registryPath"
-    exit 1
-}
-
-$devices = $recordRoot.devices
-if (-not $devices.PSObject.Properties.Name.Contains($did)) {
-    Write-Error "DID not found in registry: $did"
-    exit 1
-}
-
-$deviceRecord = $devices.$did
+if ($null -eq $deviceRecord) { Write-Error "DID not found in registry: $did"; exit 1 }
 $mqttServer = [string]$deviceRecord.mqtt_server
 $mqttPort = [string]$deviceRecord.mqtt_port
 if ([string]::IsNullOrWhiteSpace($mqttServer) -or [string]::IsNullOrWhiteSpace($mqttPort)) {
@@ -285,39 +189,21 @@ if ([string]::IsNullOrWhiteSpace($mqttServer) -or [string]::IsNullOrWhiteSpace($
 
 $timestamp = if ([string]::IsNullOrWhiteSpace($env:MMWK_TEST_COLLECT_TIMESTAMP)) {
     (Get-Date).ToString("yyyyMMdd-HHmmss")
-} else {
-    $env:MMWK_TEST_COLLECT_TIMESTAMP
-}
-$outputPrefix = "${timestamp}_"
+} else { $env:MMWK_TEST_COLLECT_TIMESTAMP }
 $outputDir = Join-Path (Join-Path $workingDir "data") $did
 New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
-
-$python = Resolve-Python
-if ($null -eq $python) {
-    Write-Error 'Python 3.10+ not found.'
-    exit 1
-}
-
 $liveArgs = @(
     "--did", $did,
     "--mqtt-server", $mqttServer,
     "--mqtt-port", $mqttPort,
     "--output-dir", $outputDir,
-    "--output-prefix", $outputPrefix
+    "--output-prefix", "${timestamp}_"
 )
+if (-not [string]::IsNullOrWhiteSpace($duration)) { $liveArgs += @("--duration", $duration) }
+if ($reboot) { $liveArgs += @("--reboot") }
+if ($mode -ne "host") { $liveArgs += @("--mode", $mode) }
+if ($attach) { $liveArgs += @("--attach") }
 
-if (-not [string]::IsNullOrWhiteSpace($duration)) {
-    $liveArgs += @("--duration", $duration)
-}
-if ($reboot) {
-    $liveArgs += @("--reboot")
-}
-if ($mode -ne "host") {
-    $liveArgs += @("--mode", $mode)
-}
-if ($attach) {
-    $liveArgs += @("--attach")
-}
-
+Set-Location $invokePwd
 & $python -m mmwk.tools.collect_live @liveArgs
 exit $LASTEXITCODE

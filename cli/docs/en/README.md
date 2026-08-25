@@ -7,7 +7,7 @@ The CLI now defaults to the canonical CLI JSON protocol. Most MMWK firmware buil
 ## Raw Semantics Contract
 
 Raw forwarding and recording are sibling actions of the single `radar` tool. See
-[Radar data collection](./radar-data-collection.md) for the user workflow.
+[Radar data collection](./data-collection.md) for the user workflow.
 
 - `radar raw` controls `mode=off|runtime|reconnect` and `channel=wire|mqtt|both`.
 - `radar record` controls recorder status, configuration, and lifecycle.
@@ -31,7 +31,7 @@ Raw forwarding and recording are sibling actions of the single `radar` tool. See
   - [USB CDC (WDR Local)](#usb-cdc-wdr-local)
   - [MQTT (Remote)](#mqtt-remote)
 - [Command Reference](#command-reference)
-- [Radar Data Collection](./radar-data-collection.md)
+- [Radar Data Collection](./data-collection.md)
 - [Project Documentation](#project-documentation)
 - [Hardware Interaction](#hardware-interaction)
 - [Troubleshooting](#troubleshooting)
@@ -77,7 +77,7 @@ pip install -r requirements.txt
 |---|---|---|---|
 | Main CLI | `./run.sh ...` | `.\run.ps1 ...` | Both resolve relative file arguments from the directory where you invoke the wrapper. `run.sh` manages `./venv`; `run.ps1` uses the active/system Python 3.10+ environment. |
 | Local MQTT + HTTP server | `./server.sh ...` | `.\server.ps1 ...` | Both wrappers use the Python dependencies from `requirements.txt`; no system Mosquitto install is required. |
-| Registry task helpers | `./config.sh`, `./collect.sh` | `.\config.ps1`, `.\collect.ps1` | `config.ps1` delegates to `config.sh` and requires Bash, for example Git Bash. `collect.ps1` delegates to Bash when available; without Bash, `--trigger` pure-MQTT mode and a limited registry collection fallback remain available. |
+| Registry/config helpers | `./config.sh`, `./collect.sh` | `.\config.ps1`, `.\collect.ps1` | `config.ps1` requires Bash for registry tasks; `collect.ps1` invokes the Python collection engine directly. |
 | Direct Python | `python3 -m mmwk ...` | `py -m mmwk ...` or `python -m mmwk ...` | Use only when intentionally bypassing wrappers. |
 
 PowerShell command arguments are the same as the POSIX examples except for the wrapper name and serial-port spelling. Use the long `--port` form for serial ports in PowerShell.
@@ -180,7 +180,7 @@ Use the results as follows:
 
 ### 4. Configure Wi-Fi + MQTT for Remote Collection
 Directly attached collection does not need Wi-Fi or MQTT: use host UART or native
-USB as described in [Radar data collection](./radar-data-collection.md). For a
+USB as described in [Radar data collection](./data-collection.md). For a
 remote host or application-owned auto stream, configure Wi-Fi, optionally claim
 the device route identity, and then configure MQTT. `node claim` is the step that
 assigns tenant/product routing metadata. It stores `prod`, `oid`, and `cid`; `cid`
@@ -211,37 +211,19 @@ The recovery portal is a self-help portal for MQTT broker configuration and diag
 
 On a fresh bridge device, configure Wi-Fi, run `network mqtt`, reboot, and then verify with `node info` or `network status`. Treat `state=connected && ready=true` as the network-ready contract, and `mqtt_state=connected` as the MQTT-ready contract for MQTT-dependent flows. `node info` remains useful for identity and published metadata, but it is not the primary runtime readiness signal. Raw collection is opened explicitly with `radar raw`; there is no boot-time raw agent switch.
 
-### 5. Collect Data and Verify Both Paths
-The simplest host-side smoke test is:
-```bash
-./run.sh collect --transport uart --port /dev/cu.usbserial-0001 --duration 12 \
-  --data-output ./data_resp.sraw \
-  --resp-output ./cmd_resp.log
-```
+### 5. Choose a Data Collection Path
 
-In local host mode, `data_resp.sraw` is the merged raw wire stream (command
-responses and DATA chunks); `cmd_resp.log` contains the parsed setup/close
-acknowledgements. Use `--transport usb` for native WDR CDC, or
-`--ctrl-transport uart --data-transport mqtt` when the local wire should carry
-commands while MQTT carries the high-rate DATA stream.
+| Scenario | Command shape |
+| --- | --- |
+| MINI/PRO UART | `./run.sh collect --transport uart --port PORT --duration 30` |
+| WDR native USB | `./run.sh collect --transport usb --port PORT --duration 30` |
+| Remote MQTT | `./run.sh collect --transport mqtt --broker URI --did DID` |
+| Split wire/MQTT | `./run.sh collect --ctrl-transport uart --data-transport mqtt --port PORT --broker URI --did DID` |
+| Application-owned DATA | `./run.sh collect --transport mqtt --mode auto --attach --broker URI --did DID` |
 
-For remote host collection, use `--transport mqtt --broker ... --did ...`. For an
-application-owned stream that is already open, use `--transport mqtt --mode auto
---attach`; it subscribes to MQTT DATA only and does not send radar commands.
-
-After `radar fw flash`, `radar fw ota`, `radar config apply`, or the first boot
-after factory/baseline recovery, wait for `radar status = running` before a
-remote MQTT late-attach window. The standalone guide defines the mode-specific
-success criteria and cleanup checks.
-
-At the end, `collect` prints a JSON summary. For local host mode, require a
-non-empty raw capture and cleanup showing that the raw route closed and parsed
-control was restored. For MQTT mode, require at least one DATA payload; split
-`data=mqtt` and auto MQTT outputs are DATA-only, while a local `.sraw` file is a
-merged wire stream.
-
-If the DATA count is zero, re-check `radar status`, the selected transport, the
-`radar raw` route, and whether the flashed `.cfg` matches the `.bin`.
+See the standalone [Radar DATA collection guide](./data-collection.md) for
+identity checks, default outputs, DATA-magic success criteria, QoS/ACL policy,
+attach safety, rate limits, and cleanup. Local UART/USB needs no network.
 
 ---
 
@@ -272,10 +254,10 @@ When using `--transport mqtt`, pass the same route fields with `--did`, `--prod`
 - `network mqtt` configures the broker connection and auth. Route identity is configured separately by `node claim`.
 - The built-in control plane subscribes to `{prod}/{oid}/{cid-or-did}/device/cmd` and publishes to `{prod}/{oid}/{cid-or-did}/device/resp`.
 - The MQTT raw plane follows the selected `radar raw` route. Auto mode publishes only `{prod}/{oid}/{cid-or-did}/raw/data`; host mode may expose `raw/cmd`, `raw/resp`, and `raw/data`.
-- Use `collect` for the shared host/auto collection engine; see [Radar data collection](./radar-data-collection.md).
-- MQTT `raw/data` contains DATA-only payloads. A local host wire has no separate
-  command/data framing, so its `.sraw` file is a merged byte stream; the split
-  `data=mqtt` route and auto MQTT collection remain DATA-only.
+- Use `collect` for the shared host/auto collection engine; see [Radar data collection](./data-collection.md).
+- MQTT `raw/data` contains DATA-only payloads. The collector phase-segments a
+  local host run so `radar.sraw` starts at DATA magic; only optional
+  `--wire-output` is a delimiter-free merged raw-transport audit.
 - `on_cmd_resp` and `on_radar_frame` are application-layer callbacks and are different from raw capture outputs.
 - `raw/cmd` is an optional host-mode MQTT ingress for radar CMD passthrough and
   is distinct from the CLI JSON command topic `{prod}/{oid}/{cid-or-did}/device/cmd`.
@@ -511,7 +493,7 @@ Recommended transport for real applications, dashboards, automation, and fleet/d
 ./run.sh radar record start --uri http://192.168.1.100:8080/upload -p /dev/cu.usbserial-0001
 ./run.sh radar record stop -p /dev/cu.usbserial-0001
 ./run.sh radar record trigger --event MANUAL --duration-s 10 -p /dev/cu.usbserial-0001
-./run.sh collect --duration 12 --data-output ./data_resp.sraw --resp-output ./cmd_resp.log -p /dev/cu.usbserial-0001
+./run.sh collect --transport uart --port /dev/cu.usbserial-0001 --duration 12
 
 # --- Endpoints ---
 ./run.sh endpoint list -p /dev/cu.usbserial-0001
@@ -795,136 +777,27 @@ Both methods also work over MQTT instead of UART. Add `--transport mqtt` and pro
 
 ## Data Collection Workflow
 
-### Method A: Choose a `collect` Mode
+`collect` is the single collection entrypoint. Choose the matching scenario and
+then follow the standalone [Radar DATA collection guide](./data-collection.md):
 
-The `collect` command is the shared host/remote collection entrypoint. Use host
-UART or native USB when the radar is attached to this computer:
+| Scenario | Command shape |
+| --- | --- |
+| MINI/PRO attached UART | `./run.sh collect --transport uart --port PORT --duration 30` |
+| WDR attached native USB | `./run.sh collect --transport usb --port PORT --duration 30` |
+| Remote host MQTT | `./run.sh collect --transport mqtt --broker URI --did DID` |
+| Split control/DATA | `./run.sh collect --ctrl-transport uart --data-transport mqtt --port PORT --broker URI --did DID` |
+| Application-owned DATA | `./run.sh collect --transport mqtt --mode auto --attach --broker URI --did DID` |
 
-```bash
-./run.sh collect --transport uart --port /dev/cu.usbserial-0001 \
-  --duration 12 --data-output ./radar.sraw --resp-output ./radar-cmd.log
-```
+`run.ps1`, `collect.sh`, and `collect.ps1` forward these same options. The
+standalone guide covers identity checks, raw/parsed exclusivity, QoS, output
+reservation, baud limits, attach safety, and cleanup. Use
+[Radar Task Tools](radar-task-tools.md) only for surrounding registry/config
+tasks and [Collect Trigger Helper](collect-trigger.md) for its explicit
+advanced reconnect workflow.
 
-Use MQTT host mode for a remote device, or attach read-only to an application-owned
-auto stream:
-
-```bash
-./run.sh collect --transport mqtt --broker mqtt://192.168.1.100:1883 \
-  --did dc5475c879c0 --duration 30
-./run.sh collect --transport mqtt --mode auto --attach \
-  --broker mqtt://192.168.1.100:1883 --did dc5475c879c0 --duration 30
-```
-
-For high-rate streams, split command/control and DATA explicitly:
-
-```bash
-./run.sh collect --ctrl-transport uart --data-transport mqtt \
-  --port /dev/ttyUSB0 --broker mqtt://192.168.1.100:1883 \
-  --did dc5475c879c0 --duration 30
-```
-
-The standalone [Radar data collection guide](./radar-data-collection.md) defines
-identity checks, raw/parsed exclusivity, QoS, baud limits, and cleanup criteria.
-After firmware/config recovery, wait for `radar status = running` before remote
-MQTT late-attach collection.
-
-If you need end-to-end evidence for the OTA/config stage itself, use `radar fw ota` with raw capture enabled before the OTA command is sent:
-
-```bash
-./run.sh radar fw ota --fw ./radar.bin --cfg ./radar.cfg \
-  --raw-resp-output ./ota_cmd_resp.log \
-  -p /dev/cu.usbserial-0001
-```
-
-That mode arms the `raw_resp` capture before OTA starts, so welcome output, cfg-line responses, and later command-port bytes can all land in the same capture session.
-
-You can also provide explicit MQTT parameters to skip auto-discovery:
-
-```bash
-./run.sh collect --duration 30 \
-  --broker mqtt://192.168.1.100:1883 \
-  --did dc5475c879c0 \
-  --data-topic mmwk/mmwk/dc5475c879c0/raw/data \
-  --resp-topic mmwk/mmwk/dc5475c879c0/raw/resp \
-  --data-output ./data_resp.sraw --resp-output ./cmd_resp.log
-```
-
-If the radar has already been running for a while and you are only attaching late for a steady-state observation window, add `--resp-optional` to the pure-MQTT form above. Only do that after `radar status` already reports `running`. That late-attach mode does not restart the radar to force startup text, so do not use it as startup/welcome proof.
-
-### External Tools
-
-`collect` remains the official command. The helper scripts below stay outside the main CLI wrapper, and the working directory is the `cli` directory. POSIX examples use `*.sh`; on Windows PowerShell use the matching `*.ps1` wrapper where available, with the parity notes in [Host Platform Entry Points](#host-platform-entry-points).
-
-- [Radar Task Tools](radar-task-tools.md): use `./config.sh init|update|list` plus `./collect.sh` when you want registry-backed UART setup, network update, and MQTT raw collection.
-- [Develop Radar With Bridge](bridge-ti-radar-debug.md): end-to-end bridge-development guide for choosing the right board and running `config.sh init|update|list` plus `collect.sh` on 6843- and 6432-series radar.
-- [Config Helper](config.md): use `./config.sh set` when you need to push Wi-Fi/MQTT settings over UART or an existing MQTT control path, and `./config.sh search` when you need to find device `did` values over mDNS.
-- [Collect Trigger Helper](collect-trigger.md): use `./collect.sh --trigger ...` when you intentionally need pure MQTT for both control and raw capture.
-
-Do not treat these helpers as a replacement for the strict startup-aware `collect -p` flow.
-
-### Method B: Manual MQTT Subscription
-
-If you prefer direct MQTT subscriptions, configure the device first via UART and then subscribe using any MQTT client.
-
-**Step 1: Configure WiFi and MQTT** (if not already done)
-```bash
-./run.sh network wifi --ssid YOUR_SSID --pass YOUR_PASSWORD -p /dev/cu.usbserial-0001
-./run.sh network mqtt --uri mqtt://192.168.1.100:1883 -p /dev/cu.usbserial-0001
-./run.sh node reboot -p /dev/cu.usbserial-0001
-```
-
-On fresh bridge devices this is enough to bring up MQTT control. Open an explicit `radar raw` route only for the collection window; the route is runtime state, not a persisted agent switch.
-
-**Step 2: Open an explicit MQTT raw route**
-```bash
-./run.sh radar raw runtime --channel mqtt --transport mqtt --did dc5475c879c0
-```
-
-**Step 3: Subscribe with Mosquitto (or any MQTT client)**
-```bash
-# Subscribe to all MMWK topics
-mosquitto_sub -h 192.168.1.100 -t 'mmwk/#' -v
-
-# Or subscribe to specific topics
-mosquitto_sub -h 192.168.1.100 -t 'mmwk/mmwk/dc5475c879c0/raw/data'
-mosquitto_sub -h 192.168.1.100 -t 'mmwk/mmwk/dc5475c879c0/raw/resp'
-```
-
-### Method C: Device-Side Recording
-
-For on-device recording (writes to SD card / flash and uploads via HTTP):
-
-```bash
-# 1) Query current radar status
-./run.sh radar status -p /dev/cu.usbserial-0001
-
-# 2) Start recording (uri must be a reachable HTTP URL)
-./run.sh radar record start --uri http://192.168.1.100:8080/upload -p /dev/cu.usbserial-0001
-
-# 3) (Optional) Trigger an event snippet
-./run.sh radar record trigger --event MANUAL --duration-s 10 -p /dev/cu.usbserial-0001
-
-# 4) Stop recording
-./run.sh radar record stop -p /dev/cu.usbserial-0001
-```
-
-### Radar Raw Recorder
-
-Use the public `radar record` surface for recorder state/config and recording triggers:
-
-```bash
-# Show recorder state
-./run.sh radar record status -p /dev/cu.usbserial-0001
-
-# Read or update recorder config
-./run.sh radar record config get -p /dev/cu.usbserial-0001
-./run.sh radar record config set --json '{"auto_upload": true, "max_duration_sec": 30}' -p /dev/cu.usbserial-0001
-
-# Manage recorder lifecycle
-./run.sh radar record start --uri http://192.168.1.100:8080/upload -p /dev/cu.usbserial-0001
-./run.sh radar record trigger --event MANUAL --duration-s 10 -p /dev/cu.usbserial-0001
-./run.sh radar record stop -p /dev/cu.usbserial-0001
-```
+Device-side `radar record` is independent of raw collection. See
+[Radar Task Tools](radar-task-tools.md) for its status, config, start, trigger,
+and stop commands.
 
 ---
 
@@ -963,7 +836,7 @@ This is usually a radar-side configuration problem, not an ESP-side UART/MQTT tr
 ### FAQ: `welcome=true` but No Welcome Text Ever Appears
 When the target firmware is declared with `welcome=true`, the startup CLI/welcome text is the runtime proof that the radar firmware really booted. Here "welcome text" means any non-empty startup output from the radar CLI, and it may be multi-line rather than a fixed banner string.
 
-The driver trims startup junk before the first printable ASCII byte, so host-visible command-port capture should begin with readable startup text in `cmd_resp.log` or `ota_cmd_resp.log`.
+The driver trims startup junk before the first printable ASCII byte, so host-visible command-port capture should begin with readable startup text in `commands.log` or `ota_cmd_resp.log`.
 
 If no welcome text appears before timeout:
 - Treat it as a radar startup failure, not as a silent success.

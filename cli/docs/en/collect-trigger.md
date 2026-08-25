@@ -1,82 +1,64 @@
 # Collect Trigger Helper
 
-`collect.sh --trigger` is a pure-MQTT raw capture helper for cases where you intentionally want both control and raw capture to stay off UART.
+`collect.sh --trigger` is an advanced pure-MQTT helper for workflows that keep
+both control and capture off UART. Normal local, remote, split, and attach
+workflows should use the shared `run.sh collect` engine.
 
-Pure-MQTT raw capture helper for external MQTT-only workflows.
-
-The working directory is the `cli` directory:
+The helper runs directly under Python; `collect.ps1 --trigger` does not require
+Bash. Run it from the published `cli` directory:
 
 ```bash
-cd ./cli
+./collect.sh --trigger none --broker mqtt://broker.example:1883 --did DEVICE_ID
 ```
 
-Examples below use POSIX shell syntax. On Windows PowerShell, use `.\collect.ps1 --trigger ...`; this pure-MQTT trigger mode runs without Bash as long as Python 3.10+ dependencies are installed. If Bash is installed, `collect.ps1` delegates to `collect.sh` for full wrapper behavior.
+It supports `none`, `radar-restart`, and `device-reboot` triggers. It subscribes
+to `raw/data` and, for host-owned flows, `raw/resp`; DATA and response bytes are
+preserved, but MQTT payload boundaries are not encoded in the files. MQTT
+credentials and device keys are not printed into summaries or event logs.
 
-## What It Does
-
-- Captures `raw_data` into `data_resp.sraw`
-- Captures startup-trimmed command-port bytes into `cmd_resp.log`
-- Keeps runtime control and raw capture on MQTT only
-- Supports `trigger=none`, `trigger=radar-restart`, and `trigger=device-reboot`
-
-This helper is not a replacement for the strict startup-aware `collect -p` path.
-
-## Broker Resolution
-
-Unless a specific broker override is required, the default MQTT port is `1883`.
-
-If `--broker` is absent and `MMWK_SERVER_MQTT_URI` is unset, `collect.sh --trigger` auto-loads the broker from server.sh state. By default it checks `./build_output/local_server/server.env`, or you can point it somewhere else with `--server-state-dir`.
-
-`collect.sh --trigger` still needs the MQTT route identity. Pass `--did` for an unclaimed device, or `--prod --oid --cid` for a claimed route. Environment fallbacks are `MMWK_DID`, `MMWK_PROD`, `MMWK_OID`, and `MMWK_CID`.
-
-## Examples
-
-### 1. Late-attach steady-state capture
+## No-reboot host collection
 
 ```bash
 ./collect.sh --trigger none \
-  --broker mqtt://192.168.1.100:1883 \
-  --did dc5475c879c0 \
-  --data-output ./data_resp.sraw \
-  --resp-output ./cmd_resp.log \
-  --resp-optional
+  --broker mqtt://broker.example:1883 --did DEVICE_ID \
+  --data-output ./data.sraw --resp-output ./resp.log
 ```
 
-### 2. Reuse local `server.sh` state
+This compatibility trigger delegates to the owned host MQTT engine; it is not
+an attach window, and responses are required. For an application-owned DATA-only
+route, use `run.sh collect --transport mqtt --mode auto --attach`. The legacy
+`--resp-optional` behavior is rejected rather than treating missing lifecycle
+responses as success.
 
-```bash
-./config.sh set --server-local \
-  --ssid "MyWiFi" \
-  --password "MyPass" \
-  --port /dev/cu.usbserial-0001 \
-  --reboot
-
-./collect.sh --server-state-dir ./build_output/local_server \
-  --trigger device-reboot \
-  --did dc5475c879c0
-```
-
-### 3. Trigger a fresh startup window over MQTT
+## Reconnect-triggered capture
 
 ```bash
 ./collect.sh --trigger device-reboot \
-  --did dc5475c879c0 \
-  --resp-output ./cmd_resp.log \
-  --data-output ./data_resp.sraw
+  --broker mqtt://broker.example:1883 --did DEVICE_ID \
+  --data-output ./data.sraw --resp-output ./resp.log
 ```
 
-## Key Options
+The helper subscribes before arming `mode=reconnect`, waits for the structured
+acknowledgement, requests the reboot, and accepts DATA only after the new device
+generation has consumed the arm. The one-shot arm is consumed once; a second
+reboot requires a new arm. `radar-restart` is retained as a compatibility name
+for the shared owned host lifecycle collection; it does not use the reconnect
+arm or reboot the device.
 
-- `--did`: DID route fallback; required unless `--cid` or `MMWK_CID` is set.
-- `--prod` / `--oid` / `--cid`: product, tenant, and claimed route segments; `cid` takes precedence over `did`.
-- `--raw-data` / `--raw-resp`: override raw topics directly. If omitted, `collect.sh --trigger` derives them from `prod/oid/cid/did`, and for restart/reboot triggers it can also fall back to runtime-reported topics.
-- `--duration`: capture length in seconds (default: `10`).
-- `--timeout`: MQTT subscribe/control setup timeout in seconds (default: `10`).
-- `--resp-optional`: valid only with `--trigger none`, for late-attach steady-state windows where no fresh startup `raw_resp` is expected.
-- `--server-state-dir`: default is `./build_output/local_server`; the wrapper reads `server.env` there when broker settings are not passed explicitly.
+## Options and safety
 
-## Trigger Notes
+- `--did`, or `--prod --oid --cid`, selects the MQTT route; environment fallbacks
+  are `MMWK_DID`, `MMWK_PROD`, `MMWK_OID`, and `MMWK_CID`.
+- `--raw-data` and `--raw-resp` override topics when needed; the live DID or
+  claimed CID must remain an exact topic segment. Prefer explicit ACLs for
+  `raw/cmd`, `raw/resp`, and `raw/data`.
+- A full `mqtts://` broker URI, including URI credentials when used, is reused
+  by both control and raw connections without rendering its password.
+- `--duration` defaults to 10 seconds; `--timeout` defaults to 10 seconds.
+- `--server-state-dir` may provide a local broker URI from `server.env`.
+- Reserve distinct output paths before the device is changed; use
+  `--overwrite` only when replacing an existing set is intentional.
 
-- `trigger=none`: late-attach steady-state collection; `--resp-optional` is valid only here.
-- `trigger=radar-restart`: subscribe first, then restart the radar over MQTT using the derived `cmd` / `resp` control topics.
-- `trigger=device-reboot`: subscribe first, arm `radar raw mode=reconnect`, then send `node reboot` over MQTT. This requires working MQTT control.
+For host-local UART/USB collection, use the [Radar DATA collection guide](data-collection.md)
+instead. It documents identity checks, route ownership, cleanup, QoS, and rate
+limits.

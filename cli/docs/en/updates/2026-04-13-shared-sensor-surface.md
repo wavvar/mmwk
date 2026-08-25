@@ -21,6 +21,11 @@ Current public surfaces:
 - unified `radar` raw/record actions
 - `scene` as a hub-only surface
 
+For current raw routing and collection semantics, use the standalone
+[Radar DATA collection guide](../data-collection.md). It is the source for
+host UART/USB, MQTT, split, attach, QoS, and cleanup behavior; this page only
+records the historical surface migration.
+
 Current meanings:
 
 - `proto list|status|manifest` is the node public protocol directory.

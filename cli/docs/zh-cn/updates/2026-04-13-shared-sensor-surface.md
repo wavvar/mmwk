@@ -21,6 +21,9 @@
 - 统一 `radar` raw/record action
 - `scene`（仅 hub）
 
+当前 raw 路由和采集语义请以独立的[雷达 DATA 采集指南](../data-collection.md)
+为准；本页只保留历史 surface 迁移记录。
+
 当前含义：
 
 - `proto list|status|manifest` 表示节点公开协议目录。

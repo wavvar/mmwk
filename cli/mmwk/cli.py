@@ -20,7 +20,6 @@ from mmwk.commands.collect_engine import (
     CollectionPlan,
     collect_local,
     collect_split_wire_mqtt,
-    write_summary,
 )
 from mmwk.commands.cfg import CfgCommand
 
@@ -885,8 +884,44 @@ def cmd_fw_download(args):
 def cmd_radar_raw(args):
     """Handle: mmwk radar raw ..."""
     payload = {"action": "raw"}
-    if args.raw_action != "status":
-        payload["mode"] = args.raw_action
+    action = args.raw_action
+    if action == "status":
+        _call_tool_and_print_json(args, "radar", payload)
+        return
+
+    channel = getattr(args, "channel", None)
+    ctrl = getattr(args, "ctrl", None)
+    data = getattr(args, "data", None)
+    baud = getattr(args, "baud", None)
+    escape = getattr(args, "escape", None)
+    if channel is not None and (ctrl is not None or data is not None):
+        print("Error: --channel cannot be combined with --ctrl/--data")
+        raise SystemExit(2)
+    if (ctrl is None) != (data is None):
+        print("Error: --ctrl and --data must be supplied together")
+        raise SystemExit(2)
+    if channel is None and ctrl is None and action != "off":
+        print("Error: state-changing raw commands require --channel or --ctrl/--data")
+        raise SystemExit(2)
+    if action == "reconnect":
+        if channel != "mqtt" or ctrl is not None or data is not None:
+            print("Error: reconnect requires --channel mqtt and no explicit ctrl/data")
+            raise SystemExit(2)
+        if baud is not None or escape is not None:
+            print("Error: reconnect does not accept --baud or --escape")
+            raise SystemExit(2)
+    if action == "off" and baud is not None:
+        print("Error: --baud is only valid for raw runtime")
+        raise SystemExit(2)
+    if action != "runtime" and escape is not None:
+        print("Error: --escape is only valid for raw runtime")
+        raise SystemExit(2)
+    data_route = data or channel
+    if baud is not None and data_route not in {"wire", "both"}:
+        print("Error: --baud requires a wire DATA route")
+        raise SystemExit(2)
+
+    payload["mode"] = action
     for name in ("channel", "ctrl", "data", "baud", "escape"):
         value = getattr(args, name, None)
         if value is not None:
@@ -899,7 +934,10 @@ def cmd_radar_record(args):
     payload = {"action": "record", "op": args.record_action}
     if args.record_action == "config_set":
         payload["config"] = _load_json_object_arg(args.json)
-    elif args.record_action == "start" and getattr(args, "uri", None):
+    elif args.record_action == "start":
+        if not getattr(args, "uri", None):
+            print("Error: radar record start requires --uri")
+            raise SystemExit(2)
         payload["uri"] = args.uri
     elif args.record_action == "trigger":
         if getattr(args, "event", None):
@@ -911,6 +949,20 @@ def cmd_radar_record(args):
 
 def cmd_collect(args):
     """Handle: mmwk collect ..."""
+    summary_output = getattr(args, "summary_output", None)
+    explicit_output_values = [
+        value for value in (
+            getattr(args, "data_output", None),
+            getattr(args, "resp_output", None),
+            getattr(args, "wire_output", None),
+            summary_output,
+            getattr(args, "events_output", None),
+        ) if value
+    ]
+    resolved_outputs = [Path(value).expanduser().resolve() for value in explicit_output_values]
+    if len(set(resolved_outputs)) != len(resolved_outputs):
+        print("Error: collection output paths must be distinct")
+        sys.exit(1)
     transport_name = getattr(args, "transport", None)
     ctrl_transport = getattr(args, "ctrl_transport", None)
     data_transport = getattr(args, "data_transport", None)
@@ -945,10 +997,15 @@ def cmd_collect(args):
                 data_output=args.data_output,
                 resp_output=args.resp_output,
                 wire_output=getattr(args, "wire_output", None),
+                summary_output=summary_output,
+                events_output=getattr(args, "events_output", None),
+                overwrite=getattr(args, "overwrite", False),
                 attach=getattr(args, "attach", False),
                 allow_lossy=getattr(args, "allow_lossy", False),
                 ctrl_transport=ctrl_transport,
                 data_transport=data_transport,
+                data_ready_timeout=getattr(args, "data_ready_timeout", 10.0),
+                control_timeout=args.timeout,
             )
             if ctrl_transport is not None:
                 summary = collect_split_wire_mqtt(
@@ -960,13 +1017,12 @@ def cmd_collect(args):
                     prod=args.prod,
                     oid=args.oid,
                     cid=args.cid,
+                    mqtt_username=getattr(args, "mqtt_user", "") or "",
+                    mqtt_password=getattr(args, "mqtt_password", "") or "",
+                    mqtt_ca=getattr(args, "mqtt_ca", None),
                 )
             else:
                 summary = collect_local(plan, expected_did=args.did)
-            Path(args.resp_output).parent.mkdir(parents=True, exist_ok=True)
-            Path(args.resp_output).touch()
-            if getattr(args, "summary_output", None):
-                write_summary(args.summary_output, summary)
             print(json.dumps(summary.as_dict(), indent=2))
             return
         except Exception as exc:
@@ -977,10 +1033,10 @@ def cmd_collect(args):
     mcp = None
 
     try:
-        if args.port:
-            transport = _cli_create_transport(args)
-            mcp = McpClient(transport)
-            mcp.initialize(timeout=args.timeout)
+        args.transport = "mqtt"
+        transport = _cli_create_transport(args)
+        mcp = McpClient(transport)
+        mcp.initialize(timeout=args.timeout)
 
         collector = CollectCommand(mcp)
         ok = collector.execute(
@@ -998,7 +1054,15 @@ def cmd_collect(args):
             resp_optional=getattr(args, "resp_optional", False),
             mode=mode,
             attach=getattr(args, "attach", False),
+            overwrite=getattr(args, "overwrite", False),
             timeout=args.timeout,
+            cfg_path=getattr(args, "cfg", None),
+            summary_output=summary_output,
+            events_output=getattr(args, "events_output", None),
+            wire_output=getattr(args, "wire_output", None),
+            mqtt_username=getattr(args, "mqtt_user", "") or "",
+            mqtt_password=getattr(args, "mqtt_password", "") or "",
+            mqtt_ca=getattr(args, "mqtt_ca", None),
         )
         sys.exit(0 if ok else 1)
     finally:
@@ -1392,17 +1456,17 @@ def main():
         raw_mode_parser = radar_raw_sub.add_parser(raw_mode, help=mode_help)
         raw_mode_parser.add_argument(
             "--channel",
-            choices=["wire", "mqtt", "both", "off"],
+            choices=["wire", "mqtt", "both"],
             help="Raw route shorthand for command and data paths",
         )
         raw_mode_parser.add_argument(
             "--ctrl",
-            choices=["wire", "mqtt", "both", "off"],
+            choices=["wire", "mqtt", "both"],
             help="Raw command/response route (runtime host only)",
         )
         raw_mode_parser.add_argument(
             "--data",
-            choices=["wire", "mqtt", "both", "off"],
+            choices=["wire", "mqtt", "both"],
             help="Raw radar-data route (runtime host only)",
         )
         raw_mode_parser.add_argument(
@@ -1440,7 +1504,7 @@ def main():
     radar_record_config_set_parser.add_argument(
         "--json",
         required=True,
-        help="JSON object string, @file, or file path containing the record config patch",
+        help="JSON object string, @file, or file path containing the record config",
     )
     add_transport_args(radar_record_config_set_parser)
     radar_record_config_set_parser.set_defaults(record_action="config_set", func=cmd_radar_record)
@@ -1629,35 +1693,46 @@ def main():
     collect_parser.add_argument("--allow-lossy", action="store_true",
                                 help="Allow explicitly lossy local UART capture (never claims lossless output)")
     collect_parser.add_argument("--wire-output",
-                                help="Optional complete merged wire audit output")
+                                help="Optional complete merged raw-wire audit output")
+    collect_parser.add_argument("--events-output",
+                                help="Optional JSON-lines phase and cleanup event log")
+    collect_parser.add_argument("--overwrite", action="store_true",
+                                help="Atomically replace existing collection outputs")
     collect_parser.add_argument("--summary-output",
                                 help="Optional JSON summary output path")
     collect_parser.add_argument("--protocol", choices=["mcp", "cli"],
                                 help="Control protocol for optional device discovery (default: cli)")
     collect_parser.add_argument(
         "--data-output",
-        default="data_resp.sraw",
-        help=("Output file for raw DATA payloads; local host captures the merged raw wire, "
-              "while auto/split MQTT captures DATA-only payloads (default: data_resp.sraw)"),
+        default=None,
+        help=("Output file for validated radar DATA bytes; MQTT and split routes are DATA-only "
+              "(default: collections/<did>/<timestamp>/radar.sraw)"),
     )
     collect_parser.add_argument(
         "--resp-output",
-        default="cmd_resp.log",
+        default=None,
         help=("Output file for parsed setup/close acknowledgements in local host mode, "
-              "or MQTT raw/resp payloads in remote host mode (default: cmd_resp.log)"),
+              "or MQTT raw/resp payloads in remote host mode "
+              "(default: collections/<did>/<timestamp>/commands.log)"),
     )
     collect_parser.add_argument(
         "--resp-optional",
         action="store_true",
         help=(
-            "Allow late-attach collect to succeed when no raw_resp payload is captured during "
-            "this window; do not use for startup/welcome proof"
+            "Compatibility flag accepted only with --attach; borrowed auto DATA never requires "
+            "a raw/resp topic"
         ),
     )
     collect_parser.add_argument("--broker",
                                 help="MQTT broker URI/host for collection (e.g. mqtt://127.0.0.1:1883)")
     collect_parser.add_argument("--mqtt-port", type=int, default=1883,
                                 help="MQTT broker port (default: 1883)")
+    collect_parser.add_argument("--mqtt-user",
+                                help="MQTT username (defaults to broker URI/device profile)")
+    collect_parser.add_argument("--mqtt-password",
+                                help="MQTT password (never written to summaries or event logs)")
+    collect_parser.add_argument("--mqtt-ca",
+                                help="CA certificate path for mqtts:// broker verification")
     collect_parser.add_argument("--did",
                                 help="DID for MQTT route fallback")
     collect_parser.add_argument("--prod", default="mmwk",
@@ -1678,6 +1753,8 @@ def main():
                                 help="Reset device before auto-discovery when --port is used")
     collect_parser.add_argument("--timeout", type=float, default=10.0,
                                 help="Timeout for auto-discovery in seconds (default: 10)")
+    collect_parser.add_argument("--data-ready-timeout", type=float, default=10.0,
+                                help="Seconds to wait for the first radar DATA frame (default: 10)")
     collect_parser.add_argument("-v", "--verbose", action="store_true",
                                 help="Enable debug logging")
     collect_parser.set_defaults(func=cmd_collect, transport=None)

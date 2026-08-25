@@ -354,12 +354,30 @@ def _ensure_uart_proxy(port: str, baudrate: int, timeout: float):
     raise RuntimeError(f"UART proxy did not become ready for {port}; see {log_file}")
 
 
-def _shutdown_uart_proxy(port: str, baudrate: int) -> None:
+def shutdown_uart_proxy(port: str, baudrate: int, timeout: float = 3.0) -> None:
+    """Stop the persistent owner and wait until it releases the UART."""
     state_dir = _uart_proxy_state_dir(port, baudrate)
     env_file = state_dir / "proxy.env"
     endpoints = _read_uart_proxy_env(env_file)
-    if endpoints:
-        _send_uart_proxy_control(endpoints[1], "shutdown", timeout=1.0)
+    if not endpoints:
+        return
+
+    ctrl_endpoint = endpoints[1]
+    if not _send_uart_proxy_control(ctrl_endpoint, "shutdown", timeout=1.0):
+        if _ping_uart_proxy(ctrl_endpoint):
+            raise RuntimeError(f"UART proxy refused to stop for {port}")
+        return
+
+    deadline = time.monotonic() + max(0.1, timeout)
+    while _ping_uart_proxy(ctrl_endpoint):
+        if time.monotonic() >= deadline:
+            raise RuntimeError(f"Timed out waiting for UART proxy to stop for {port}")
+        time.sleep(0.05)
+
+
+def _shutdown_uart_proxy(port: str, baudrate: int) -> None:
+    """Compatibility wrapper for older internal callers."""
+    shutdown_uart_proxy(port, baudrate)
 
 
 class _SocketSerialAdapter:
@@ -456,7 +474,7 @@ class UartTransport(RadarTransport):
             raise ValueError("--uart-proxy must be auto or off")
 
         if proxy_mode == "off":
-            _shutdown_uart_proxy(port, baudrate)
+            shutdown_uart_proxy(port, baudrate)
             self._proxy_data_endpoint = None
             self._proxy_ctrl_endpoint = None
         elif not os.getenv("MMWK_CLI_UART_PROXY_DATA", "").strip():
@@ -836,6 +854,7 @@ class MqttTransport(RadarTransport):
     def __init__(self, broker: str, port: int = 1883,
                  did: str = None, prod: str = "mmwk", oid: str = "mmwk", cid: str = None,
                  username: str = None, password: str = None,
+                 ca_certs: str = None,
                  qos: int = 1, inter_chunk_delay: float = 0.05):
         super().__init__()
         import paho.mqtt.client as mqtt
@@ -859,12 +878,19 @@ class MqttTransport(RadarTransport):
         self.qos = qos
         self.inter_chunk_delay = inter_chunk_delay
         broker_host, broker_port, use_tls = self._resolve_broker_endpoint(broker, port)
+        parsed_broker = urlparse(str(broker or "")) if "://" in str(broker or "") else None
+        if parsed_broker is not None:
+            username = username or parsed_broker.username
+            password = password or parsed_broker.password
 
         self.client = mqtt.Client()
         if username:
             self.client.username_pw_set(username, password)
         if use_tls:
-            self.client.tls_set()
+            if ca_certs:
+                self.client.tls_set(ca_certs=ca_certs)
+            else:
+                self.client.tls_set()
         self.client.on_connect = self._on_connect
         self.client.on_message = self._on_message
         self.client.on_subscribe = self._on_subscribe
@@ -1012,6 +1038,9 @@ def create_transport(
                     prod=getattr(args, 'prod', 'mmwk'),
                     oid=getattr(args, 'oid', 'mmwk'),
                     cid=cid,
+                    username=getattr(args, 'mqtt_user', None),
+                    password=getattr(args, 'mqtt_password', None),
+                    ca_certs=getattr(args, 'mqtt_ca', None),
                     qos=getattr(args, 'mqtt_qos', 1),
                     inter_chunk_delay=getattr(args, 'mqtt_delay', 0.05),
                 )
