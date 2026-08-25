@@ -40,6 +40,13 @@ radar cfg. Pass `--cfg FILE` to use another cfg for this run. It is validated
 before takeover, is not persisted, and its path appears as `config_source` in
 the summary. Without `--cfg`, the source is `device:radar.config`.
 
+When the target firmware and config are already running in host mode, use
+`--mode host --attach`. This path opens only a temporary raw route and captures
+the existing DATA; it does not send cfg or run sensorStart/sensorStop. Cleanup
+closes the route it opened and verifies that the original host lifecycle is
+still running. `--attach` cannot be combined with `--cfg` and cannot take over
+an already-open local raw route.
+
 The lifecycle commands are taken from the selected cfg, including profile
 arguments such as WDR's `sensorStop 0` and `sensorStart 0 0 0 0`. WDR's
 `baudRate` line is a boot-time setting and is not replayed through the runtime

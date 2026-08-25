@@ -37,6 +37,11 @@ Windows 下命令形状相同：
 可仅为本次采集换用另一份 cfg；它在接管前校验，不会持久化，summary 的
 `config_source` 记录其路径。不传时来源为 `device:radar.config`。
 
+目标固件和配置已经在 host 模式运行时，可使用 `--mode host --attach`。该路径只为
+本次会话打开临时 raw 路由并采集现有 DATA，不发送 cfg，也不执行 sensorStart/
+sensorStop；结束后关闭自己打开的路由并核对原有 host 生命周期仍在运行。`--attach`
+不能与 `--cfg` 同时使用，也不能接管已经打开的本地 raw 路由。
+
 采集器会从所选 cfg 保留生命周期命令及其参数，包括 WDR 的
 `sensorStop 0` 和 `sensorStart 0 0 0 0`。WDR 的 `baudRate` 只用于启动阶段，
 运行期采集不会重放它；否则会改变雷达串口速率，却不同步桥接侧串口。

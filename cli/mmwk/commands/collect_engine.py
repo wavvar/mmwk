@@ -341,6 +341,8 @@ class CollectionPlan:
             raise ValueError("escape must be 1-16 printable characters")
         if self.mode == "auto" and self.transport in {"uart", "usb"}:
             raise ValueError("auto raw is MQTT DATA-only; use --transport mqtt --attach")
+        if self.attach and self.cfg_path:
+            raise ValueError("--attach cannot be combined with --cfg")
         for value in (self.ctrl_transport, self.data_transport):
             if value is not None and value not in {"uart", "usb", "mqtt"}:
                 raise ValueError("ctrl/data transport must be uart, usb, or mqtt")
@@ -2898,7 +2900,7 @@ def collect_local(plan: CollectionPlan, expected_did: str | None = None, serial_
     """Collect one local host session with snapshot-driven restoration."""
 
     plan.validate()
-    summary = CollectionSummary(transport=plan.transport)
+    summary = CollectionSummary(transport=plan.transport, borrowed_route=plan.attach)
     session = LocalWireSession(plan, serial_factory=serial_factory)
     ledger = MutationLedger()
     total_started = time.monotonic()
@@ -3103,38 +3105,47 @@ def collect_local(plan: CollectionPlan, expected_did: str | None = None, serial_
                 "on a supported borrowed MQTT DATA route"
             )
 
-        try:
-            prior_cfg_raw, _ = session.read_config()
-            prior_sensor_stop, prior_sensor_start = _radar_lifecycle_commands(
-                prior_cfg_raw, "device:radar.config"
+        if plan.attach and (raw_before.radar != "host" or not radar_before.running):
+            raise ValueError(
+                "local host --attach requires an already-running host radar lifecycle"
             )
-            prior_cfg = _prepare_config(prior_cfg_raw, "device:radar.config")
-        except Exception:
-            if explicit_cfg is None or (raw_before.radar == "host" and radar_before.running):
-                raise ValueError(
-                    "a complete restorable radar config snapshot is unavailable; "
-                    "provide --cfg or use --attach without replacing the running host"
-                )
-            prior_cfg = None
 
-        if explicit_cfg is not None:
-            explicit_cfg = _prepare_runtime_config(
-                explicit_cfg, explicit_source, summary.identity.board
-            )
-        if prior_cfg is not None:
-            prior_cfg = _prepare_runtime_config(
-                prior_cfg, "device:radar.config", summary.identity.board
-            )
-        if explicit_cfg is not None:
-            collection_cfg = explicit_cfg
-            collection_sensor_stop = explicit_sensor_stop
-            collection_sensor_start = explicit_sensor_start
-            summary.config_source = explicit_source
+        if plan.attach:
+            summary.config_source = "borrowed:running-host"
         else:
-            collection_cfg = prior_cfg
-            collection_sensor_stop = prior_sensor_stop
-            collection_sensor_start = prior_sensor_start
-            summary.config_source = "device:radar.config"
+            try:
+                prior_cfg_raw, _ = session.read_config()
+                prior_sensor_stop, prior_sensor_start = _radar_lifecycle_commands(
+                    prior_cfg_raw, "device:radar.config"
+                )
+                prior_cfg = _prepare_config(prior_cfg_raw, "device:radar.config")
+            except Exception:
+                if explicit_cfg is None or (raw_before.radar == "host" and radar_before.running):
+                    raise ValueError(
+                        "a complete restorable radar config snapshot is unavailable; "
+                        "provide --cfg or use --attach without replacing the running host"
+                    )
+                prior_cfg = None
+
+        if not plan.attach:
+            if explicit_cfg is not None:
+                explicit_cfg = _prepare_runtime_config(
+                    explicit_cfg, explicit_source, summary.identity.board
+                )
+            if prior_cfg is not None:
+                prior_cfg = _prepare_runtime_config(
+                    prior_cfg, "device:radar.config", summary.identity.board
+                )
+            if explicit_cfg is not None:
+                collection_cfg = explicit_cfg
+                collection_sensor_stop = explicit_sensor_stop
+                collection_sensor_start = explicit_sensor_start
+                summary.config_source = explicit_source
+            else:
+                collection_cfg = prior_cfg
+                collection_sensor_stop = prior_sensor_stop
+                collection_sensor_start = prior_sensor_start
+                summary.config_source = "device:radar.config"
 
         if summary.identity.board == "wdr" and plan.transport == "uart" and plan.raw_baud is not None:
             warning = "WDR DATA is 1250000 baud; current 1000000-baud UART adapters are not lossless"
@@ -3209,24 +3220,27 @@ def collect_local(plan: CollectionPlan, expected_did: str | None = None, serial_
                 baud_restored = plan.transport == "usb"
                 flush_responses()
 
-                if collection_cfg is None:
-                    raise ValueError("no validated radar cfg is available for host collection")
-                # ``radar status=running`` proves the host service is live, but
-                # does not prove that a sensorStart command is currently
-                # producing DATA. Own the lifecycle explicitly for this
-                # window, while preserving the prior cfg/running snapshot.
-                send_radar_command(collection_sensor_stop, "collection sensorStop")
-                ledger.record("sensor_stopped_for_collection")
-                if radar_before.running:
-                    lifecycle_restored = False
-                if raw_before.radar == "host" and radar_before.running:
-                    ledger.record("config_displaced")
-                    config_restored = False
-                send_radar_config(collection_cfg, "collection cfg")
-                session.write_radar_bytes(collection_sensor_start)
-                ledger.record("sensor_started")
-                sensor_stopped = False
-                record_event("radar", operation="sensorStop_cfg_sensorStart")
+                if plan.attach:
+                    record_event("radar", operation="borrow_running_host")
+                else:
+                    if collection_cfg is None:
+                        raise ValueError("no validated radar cfg is available for host collection")
+                    # ``radar status=running`` proves the host service is live, but
+                    # does not prove that a sensorStart command is currently
+                    # producing DATA. Own the lifecycle explicitly for this
+                    # window, while preserving the prior cfg/running snapshot.
+                    send_radar_command(collection_sensor_stop, "collection sensorStop")
+                    ledger.record("sensor_stopped_for_collection")
+                    if radar_before.running:
+                        lifecycle_restored = False
+                    if raw_before.radar == "host" and radar_before.running:
+                        ledger.record("config_displaced")
+                        config_restored = False
+                    send_radar_config(collection_cfg, "collection cfg")
+                    session.write_radar_bytes(collection_sensor_start)
+                    ledger.record("sensor_started")
+                    sensor_stopped = False
+                    record_event("radar", operation="sensorStop_cfg_sensorStart")
                 capture_started = wait_for_data_magic("DATA-ready", capture=True)
 
                 capture_deadline = capture_started + plan.duration
@@ -3301,6 +3315,23 @@ def collect_local(plan: CollectionPlan, expected_did: str | None = None, serial_
                     flush_responses()
                 else:
                     parsed_restored = False
+
+                if plan.attach and session.parsed:
+                    def verify_borrowed_lifecycle() -> None:
+                        snapshot, _ = session.query_radar()
+                        if snapshot.mode != radar_before.mode or snapshot.running != radar_before.running:
+                            raise RuntimeError(
+                                "borrowed radar lifecycle changed during collection: "
+                                f"expected {radar_before.mode}/{radar_before.state}, got "
+                                f"{snapshot.mode}/{snapshot.state}"
+                            )
+
+                    lifecycle_restored = cleanup_action(
+                        "borrowed lifecycle verification",
+                        verify_borrowed_lifecycle,
+                    )
+                    ownership_restored = lifecycle_restored
+                    flush_responses()
 
                 if ledger.owns("radar_started") and session.parsed:
                     if raw_before.radar != "host":

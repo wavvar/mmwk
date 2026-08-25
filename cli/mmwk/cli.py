@@ -1685,7 +1685,8 @@ def main():
                                 help="Wire raw escape sequence (1-16 printable characters; default: +++)")
     collect_parser.add_argument("--cfg", help="Radar cfg file for a local host collection")
     collect_parser.add_argument("--attach", action="store_true",
-                                help="Attach to an existing auto MQTT DATA route without changing ownership")
+                                help=("Borrow an existing radar lifecycle without reconfiguring it; "
+                                      "auto mode requires an active MQTT DATA route"))
     collect_parser.add_argument("--ctrl-transport", choices=["uart", "usb", "mqtt"],
                                 help="Split-session command transport (requires --data-transport)")
     collect_parser.add_argument("--data-transport", choices=["uart", "usb", "mqtt"],
