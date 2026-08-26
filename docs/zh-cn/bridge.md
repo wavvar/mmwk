@@ -12,4 +12,4 @@ Bridge 是面向雷达固件开发和 raw capture 的基础透明透传 profile�
 - 用 `./cli/collect.sh` 执行基于注册表的任务采集。
 - 只有在明确需要 external pure-MQTT 启动期 helper 时，才使用 `./cli/collect.sh --trigger none|radar-restart|device-reboot`。
 
-详细 bridge 契约、命令顺序和运行态确认说明见 [Bridge 参考](./bridge-reference.md)。完整的已验证 bring-up 与 5 分钟 raw 采集流程见 [本地 `server.sh` + `run.sh` Wi-Fi 刷机与 5 分钟采集示例](./collect.md)。
+详细 bridge 契约、命令顺序和运行态确认说明见 [Bridge 参考](./bridge-reference.md)。完整的 bring-up 与 5 分钟 raw 采集流程见 [本地 MQTT/HTTP 完整采集示例](../../cli/docs/zh-cn/data-collection.md#9-本地-mqtthttp-完整采集示例)。

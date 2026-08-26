@@ -12,4 +12,4 @@ The helper scripts remain available when you need a published task wrapper inste
 - Use `./cli/collect.sh` for registry-backed task collection.
 - Use `./cli/collect.sh --trigger none|radar-restart|device-reboot` only when you intentionally want the external pure-MQTT startup helper.
 
-For the detailed bridge contract, command sequence, and runtime verification notes, see [Bridge Reference](./bridge-reference.md). For a complete validated bring-up and 5-minute raw capture walkthrough, see [Local `server.sh` + `run.sh` Wi-Fi Flash and 5-Minute Collection Example](./collect.md).
+For the detailed bridge contract, command sequence, and runtime verification notes, see [Bridge Reference](./bridge-reference.md). For the complete bring-up and five-minute raw capture walkthrough, see the [Local MQTT/HTTP End-to-End Collection Example](../../cli/docs/en/data-collection.md#9-local-mqtthttp-end-to-end-collection-example).

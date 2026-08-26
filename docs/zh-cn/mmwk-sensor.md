@@ -78,10 +78,10 @@ Hub 内部实现、算法、私有模块和具体产品行为不属于这份公�
 推荐顺序：
 
 1. POSIX shell 下用 `./cli/run.sh node info -p <port>`，Windows PowerShell 下用 `.\cli\run.ps1 node info --port COM3`，确认设备可通过 UART 访问。
-2. 如果 Wi-Fi 和 MQTT 还没配置好，按 [本地 `server.sh` + `run.sh` Wi-Fi 刷机与 5 分钟采集示例](./collect.md) 里的 bring-up 主线继续。
-3. 用 [本地 `server.sh` + `run.sh` Wi-Fi 刷机与 5 分钟采集示例](./collect.md) 完成经过验证的雷达刷写加 5 分钟数据采集流程。
+2. 如果 Wi-Fi 和 MQTT 还没配置好，按 [本地 MQTT/HTTP 完整采集示例](../../cli/docs/zh-cn/data-collection.md#9-本地-mqtthttp-完整采集示例)里的 bring-up 主线继续。
+3. 用同一份[采集示例](../../cli/docs/zh-cn/data-collection.md#9-本地-mqtthttp-完整采集示例)完成雷达刷写加 5 分钟数据采集流程。
 
-`collect.md` 负责完整的详细步骤。参数契约、welcome/version 语义、topic split、raw capture 细节和启动模式边界都已并入本文后续章节。
+[雷达 DATA 采集指南](../../cli/docs/zh-cn/data-collection.md)统一负责完整操作步骤、传输方案、topic split、raw capture 和验收边界；本文保留 sensor 平台能力与固件 profile 说明。
 
 ### 3.3 路径 C：仅做 ESP OTA
 
@@ -520,12 +520,12 @@ ESP 侧 KEY 与 LED 行为默认在所有受支持板型上一致。上电后按
 | `details.kind=startup_failed` | 固件大概率没有真正启动到雷达 CLI。 |
 | 雷达配置文件已经发出，但始终没有数据返回 | 大概率是 `.cfg` 和当前运行的雷达固件不匹配，导致雷达固件在应用配置后进入异常/死机状态。请重新核对固件 demo、板型/AOP 变体、CLI 指令是否匹配，并且先在雷达开发板上确认同一份固件 + 配置本身能够正确跑起来。 |
 
-如果你要看完整的 bring-up 主线，请回到 [mmWave Sensor Development Kit](./mmwk-sensor.md)，再继续进入 [本地 `server.sh` + `run.sh` Wi-Fi 刷机与 5 分钟采集示例](./collect.md)。
+如果你要看完整的 bring-up 主线，请回到 [mmWave Sensor Development Kit](./mmwk-sensor.md)，再继续进入 [本地 MQTT/HTTP 完整采集示例](../../cli/docs/zh-cn/data-collection.md#9-本地-mqtthttp-完整采集示例)。
 
 ## 12. 相关文档
 
 - [出厂刷机指南](./flash.md)
-- [本地 `server.sh` + `run.sh` Wi-Fi 刷机与 5 分钟采集示例](./collect.md)
+- [雷达 DATA 采集指南](../../cli/docs/zh-cn/data-collection.md)
 - [设备 OTA 指南](./ota.md)
 - [CLI README](../../cli/docs/zh-cn/README.md)
 - [Radar Task Tools](../../cli/docs/zh-cn/radar-task-tools.md)

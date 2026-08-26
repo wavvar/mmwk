@@ -106,7 +106,7 @@ MMWK 支持你把自己的软件和硬件带入生态：
 
 ### 3.2 应用场景
 
-**采集雷达数据：** 如果设备已经运行某个 [`mmwk_sensor`](./docs/zh-cn/mmwk-sensor.md) 固件 profile，而你要采集 raw 雷达数据、验证点云/数据或建立可复现采集流程，请走这条路径。先完成 Wi-Fi 或 4G 联网，确认 MQTT 可达，再阅读 [mmWave Sensor Development Kit](./docs/zh-cn/mmwk-sensor.md) 和 [本地 `server.sh` + `run.sh` Wi-Fi 刷机与 5 分钟采集示例](./docs/zh-cn/collect.md)。如果你要使用任务导向 wrapper，请看 [Radar Task Tools](./cli/docs/zh-cn/radar-task-tools.md) 和 [通过 Bridge 开发雷达](./cli/docs/zh-cn/bridge-ti-radar-debug.md)。
+**采集雷达数据：** 如果设备已经运行某个 [`mmwk_sensor`](./docs/zh-cn/mmwk-sensor.md) 固件 profile，而你要采集 raw 雷达数据、验证点云/数据或建立可复现采集流程，请走这条路径。先完成 Wi-Fi 或 4G 联网，确认 MQTT 可达，再阅读 [mmWave Sensor Development Kit](./docs/zh-cn/mmwk-sensor.md) 和 [本地 MQTT/HTTP 完整采集示例](./cli/docs/zh-cn/data-collection.md#9-本地-mqtthttp-完整采集示例)。如果你要使用任务导向 wrapper，请看 [Radar Task Tools](./cli/docs/zh-cn/radar-task-tools.md) 和 [通过 Bridge 开发雷达](./cli/docs/zh-cn/bridge-ti-radar-debug.md)。
 
 **刷自己的雷达固件：** 如果你已经有自己开发或选择的雷达 firmware/config 配对，请走这条路径。尽量先在雷达开发板上验证 `.bin` / `.appimage` 与 `.cfg` 是否匹配，再使用 MMWK 的 bridge 能力完成刷写、配置和采集验证。主要入口是 [雷达固件](#5-雷达固件)、[通过 Bridge 开发雷达](./cli/docs/zh-cn/bridge-ti-radar-debug.md)，以及 CLI 的 [固件刷写流程](./cli/docs/zh-cn/README.md#固件刷写流程)。需要网络 OTA 下载时使用 HTTP；台架场景也可以根据需要选择 UART 或 MQTT 分块传输。
 

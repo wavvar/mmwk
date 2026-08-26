@@ -235,3 +235,212 @@ escape 是 `+++`；`--escape` 接受 1–16 个可打印字符，但前后 1 秒
   drop 计数是验收必查证据；
 - WDR DATA 为 1250000，默认拒绝把外部 UART 当作无损路径；请使用原生 USB、
   MQTT 或 split。`--allow-lossy` 只用于诊断，并明确失去无损验收资格。
+
+## 9. 本地 MQTT/HTTP 完整采集示例
+
+本节给出从 fresh bridge 到 5 分钟 MQTT DATA 采集的完整本地开发流程。主机用
+`server.sh` 启动本地 aMQTT broker 和 HTTP 文件服务，设备与主机采集器连接同一个
+broker。这里的“本地”是指 broker 运行在开发主机上；设备必须使用主机在设备可达
+网络中的 IP，不能把设备侧 MQTT URI 写成 `mqtt://localhost:1883`。
+
+以下命令从同时包含 `cli/` 和 `firmwares/` 的项目根目录执行。Windows PowerShell
+使用对应的 `server.ps1`、`run.ps1` 和 `collect.ps1`，并把串口名替换为 `COM3`
+这类 Windows 端口。
+
+### 9.1 示例参数
+
+请按实际环境替换这些值：
+
+- `<artifact-dir>`：雷达固件和 cfg 所在目录，例如
+  `./firmwares/radar/iwr6843/vital_signs`；
+- `<output-dir>`：日志和采集结果目录；
+- `<port>`：设备 UART，例如 `/dev/ttyUSB0`；
+- `<host-ip>`：设备可访问的主机 IP，例如 `192.168.4.9`；
+- `<device-id>`：未 claim 时使用设备 `did`，claim 后优先使用 `cid`；
+- MQTT URI：`mqtt://<host-ip>:1883`；
+- HTTP Base URL：`http://<host-ip>:8380/`。
+
+默认 topic 由设备身份派生：
+
+```text
+mmwk/mmwk/<device-id>/device/cmd
+mmwk/mmwk/<device-id>/device/resp
+mmwk/mmwk/<device-id>/raw/cmd
+mmwk/mmwk/<device-id>/raw/resp
+mmwk/mmwk/<device-id>/raw/data
+```
+
+不要直接复制示例身份。设备重启并接入 MQTT 后，应以 `node info` 返回的 `prod`、
+`oid`、`cid`、`did`、`cmd`、`resp`、`raw_cmd`、`raw_resp` 和 `raw_data` 为准。
+
+### 9.2 启动本地 MQTT 和 HTTP
+
+在终端 A 前台运行：
+
+```bash
+./cli/server.sh run \
+  --state-dir <output-dir>/local_server \
+  --serve-dir <artifact-dir> \
+  --host-ip <host-ip> \
+  --mqtt-port 1883 \
+  --http-port 8380
+```
+
+也可以使用 `start` 在后台运行。用相同的 `--state-dir` 检查状态和导出端点：
+
+```bash
+./cli/server.sh status --state-dir <output-dir>/local_server
+./cli/server.sh env --state-dir <output-dir>/local_server
+```
+
+继续之前应确认：
+
+- `MQTT Up   : yes`；
+- `HTTP Up   : yes`；
+- `MMWK_SERVER_MQTT_URI=mqtt://<host-ip>:1883`；
+- `MMWK_SERVER_HTTP_BASE_URL=http://<host-ip>:8380/`。
+
+### 9.3 配置设备网络和本地 broker
+
+先通过 UART 读取基线并写入 Wi-Fi 与 MQTT 设置：
+
+```bash
+./cli/run.sh node info --reset -p <port>
+./cli/run.sh network status --reset -p <port>
+./cli/run.sh network wifi --ssid <ssid> --pass <password> -p <port>
+./cli/run.sh network mqtt --uri mqtt://<host-ip>:1883 -p <port>
+./cli/run.sh node reboot -p <port>
+```
+
+fresh bridge 通常已经启用 MQTT agent 和自动 raw DATA。只有设备保留了较旧的持久化
+设置，或者排障确认 MQTT agent 被关闭时，才在重启前执行：
+
+```bash
+./cli/run.sh node agent --mqtt 1 --uart 1 --raw-auto 1 --reset -p <port>
+```
+
+重启后通过本地 broker 握手：
+
+```bash
+./cli/run.sh node info \
+  --transport mqtt \
+  --broker mqtt://<host-ip>:1883 \
+  --did <device-id>
+
+./cli/run.sh network status \
+  --transport mqtt \
+  --broker mqtt://<host-ip>:1883 \
+  --did <device-id>
+```
+
+继续之前，`network status` 应满足 `state=connected && ready=true`，MQTT 状态应为
+`connected`。如果设备已 claim，同时传入实际的 `--prod`、`--oid` 和 `--cid`。
+
+### 9.4 可选：通过本地 HTTP 更新雷达固件和配置
+
+如果目标雷达固件和 cfg 尚未运行，可让设备从本地 HTTP 服务下载：
+
+```bash
+./cli/run.sh radar fw ota \
+  --fw <artifact-dir>/<radar-firmware>.bin \
+  --cfg <artifact-dir>/<radar-config>.cfg \
+  --welcome \
+  --no-verify \
+  --ota-timeout 300 \
+  --progress-interval 5 \
+  --raw-resp-output <output-dir>/ota_cmd_resp.log \
+  --transport mqtt \
+  --broker mqtt://<host-ip>:1883 \
+  --did <device-id> \
+  --base-url http://<host-ip>:8380/
+```
+
+`<artifact-dir>` 必须与 `server.sh --serve-dir` 指向同一组文件。HTTP 日志中应出现
+固件和 cfg 的成功 `GET` 请求。OTA 命令超时不等于刷写失败；不要立即重复刷写，
+而应继续通过 MQTT 查询：
+
+```bash
+./cli/run.sh radar status \
+  --transport mqtt \
+  --broker mqtt://<host-ip>:1883 \
+  --did <device-id>
+```
+
+对 `radar fw ota`、`radar fw flash`、`radar config apply` 和恢复后的第一次启动，
+都应重复查询直到返回 `state=running`，不要用固定 sleep 代替这个 ready gate。
+`--raw-resp-output` 是 best-effort 启动窗口，可能为空；可靠的就绪依据是
+`radar status=running`，随后再用采集到的 `raw_resp` 检查启动输出。
+
+### 9.5 采集 300 秒 MQTT DATA
+
+host-owned MQTT 采集使用设备返回的实际身份和 topic：
+
+```bash
+./cli/run.sh collect \
+  --transport mqtt \
+  --duration 300 \
+  --broker mqtt://<host-ip>:1883 \
+  --did <device-id> \
+  --data-topic mmwk/mmwk/<device-id>/raw/data \
+  --resp-topic mmwk/mmwk/<device-id>/raw/resp \
+  --data-output <output-dir>/radar_300s.sraw \
+  --resp-output <output-dir>/commands_300s.log \
+  --summary-output <output-dir>/summary.json \
+  --events-output <output-dir>/events.jsonl
+```
+
+如果应用已经拥有 auto MQTT DATA 路由，只观察、不接管时改用：
+
+```bash
+./cli/collect.sh \
+  --transport mqtt \
+  --mode auto \
+  --attach \
+  --duration 300 \
+  --broker mqtt://<host-ip>:1883 \
+  --did <device-id> \
+  --data-output <output-dir>/radar_300s.sraw \
+  --resp-output <output-dir>/commands_300s.log
+```
+
+需要跨设备重启捕获一次 DATA 窗口时，使用第 5 节所述的
+`./cli/collect.sh --trigger device-reboot`。`collect.sh` 可以通过
+`--server-state-dir <output-dir>/local_server` 复用 `server.sh` 导出的 broker URI。
+
+本地 MQTT 仍使用 QoS 0 传输高速 DATA，因此“本地 broker”不代表网络链路天然无损。
+验收时至少确认：
+
+- `radar.sraw` 从 DATA magic 开始且 `data_bytes > 0`；
+- 300 秒计时从 DATA ready 后开始，不包含 setup 和 cleanup；
+- summary 中的 drop、CRC 和队列指标满足目标要求；
+- `cleanup.state_restored=true`；
+- 采集后 `radar status` 仍为 `running`。
+
+### 9.6 日志、排障和停止服务
+
+需要保留的主要产物包括采集文件、summary、events，以及：
+
+```text
+<output-dir>/local_server/mqtt.log
+<output-dir>/local_server/http.log
+<output-dir>/ota_cmd_resp.log
+```
+
+常见问题：
+
+- 设备无法连接本地 broker：确认 MQTT URI 使用主机可达 IP、防火墙允许 `1883`，
+  且设备与主机之间可路由；
+- MQTT topic 身份不匹配：重新读取 `node info`，不要混用旧 `did` 与 claim 后的
+  `cid`；
+- 重启后 UART JSON 损坏：运行日志可能与命令响应重叠，不要并发访问同一串口，
+  可用 `--reset` 重试或等待 MQTT 可用后切换到 MQTT；
+- OTA 长时间显示 `updating`：继续使用 `radar status` ready gate，不要因单次 CLI
+  timeout 立即重刷；
+- `raw_resp` 较短：截断 banner 可以正常出现，但把启动采集作为启动证明时仍应看到
+  非空的可打印命令口输出。
+
+完成后停止本地服务：
+
+```bash
+./cli/server.sh stop --state-dir <output-dir>/local_server
+```

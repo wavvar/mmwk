@@ -248,3 +248,227 @@ session.
 - WDR DATA is 1250000. External UART is refused as lossless by default; use
   native USB, MQTT, or split routing. `--allow-lossy` is diagnostic-only and
   explicitly disqualifies the result from lossless acceptance.
+
+## 9. Local MQTT/HTTP end-to-end collection example
+
+This section covers the complete local-development path from a fresh bridge to
+a five-minute MQTT DATA capture. The host runs a local aMQTT broker and HTTP
+file server through `server.sh`; both the device and host collector connect to
+that broker. “Local” means that the broker runs on the development host. The
+device must use an address of that host reachable from the device network, not
+`mqtt://localhost:1883` in the device MQTT configuration.
+
+Run these commands from the project root that contains both `cli/` and
+`firmwares/`. On Windows PowerShell, use the corresponding `server.ps1`,
+`run.ps1`, and `collect.ps1` wrappers and a Windows port such as `COM3`.
+
+### 9.1 Example parameters
+
+Replace these values for the local environment:
+
+- `<artifact-dir>`: directory containing the radar firmware and cfg, for
+  example `./firmwares/radar/iwr6843/vital_signs`;
+- `<output-dir>`: directory for logs and collection output;
+- `<port>`: device UART, for example `/dev/ttyUSB0`;
+- `<host-ip>`: host address reachable by the device, for example
+  `192.168.4.9`;
+- `<device-id>`: the device `did` before claim, or preferably its `cid` after
+  claim;
+- MQTT URI: `mqtt://<host-ip>:1883`;
+- HTTP base URL: `http://<host-ip>:8380/`.
+
+Default topics are derived from device identity:
+
+```text
+mmwk/mmwk/<device-id>/device/cmd
+mmwk/mmwk/<device-id>/device/resp
+mmwk/mmwk/<device-id>/raw/cmd
+mmwk/mmwk/<device-id>/raw/resp
+mmwk/mmwk/<device-id>/raw/data
+```
+
+Do not copy the example identity literally. After the device reconnects to
+MQTT, use the `prod`, `oid`, `cid`, `did`, `cmd`, `resp`, `raw_cmd`, `raw_resp`,
+and `raw_data` values returned by `node info`.
+
+### 9.2 Start local MQTT and HTTP
+
+Run the services in terminal A:
+
+```bash
+./cli/server.sh run \
+  --state-dir <output-dir>/local_server \
+  --serve-dir <artifact-dir> \
+  --host-ip <host-ip> \
+  --mqtt-port 1883 \
+  --http-port 8380
+```
+
+Use `start` instead for detached operation. Inspect the same state directory:
+
+```bash
+./cli/server.sh status --state-dir <output-dir>/local_server
+./cli/server.sh env --state-dir <output-dir>/local_server
+```
+
+Before continuing, confirm:
+
+- `MQTT Up   : yes`;
+- `HTTP Up   : yes`;
+- `MMWK_SERVER_MQTT_URI=mqtt://<host-ip>:1883`;
+- `MMWK_SERVER_HTTP_BASE_URL=http://<host-ip>:8380/`.
+
+### 9.3 Configure device networking and the local broker
+
+Read the baseline and write Wi-Fi and MQTT settings over UART:
+
+```bash
+./cli/run.sh node info --reset -p <port>
+./cli/run.sh network status --reset -p <port>
+./cli/run.sh network wifi --ssid <ssid> --pass <password> -p <port>
+./cli/run.sh network mqtt --uri mqtt://<host-ip>:1883 -p <port>
+./cli/run.sh node reboot -p <port>
+```
+
+A fresh bridge normally has the MQTT agent and automatic raw DATA enabled. Run
+this before reboot only when the device carries older persisted settings or
+troubleshooting confirms that the MQTT agent is disabled:
+
+```bash
+./cli/run.sh node agent --mqtt 1 --uart 1 --raw-auto 1 --reset -p <port>
+```
+
+After reboot, handshake through the local broker:
+
+```bash
+./cli/run.sh node info \
+  --transport mqtt \
+  --broker mqtt://<host-ip>:1883 \
+  --did <device-id>
+
+./cli/run.sh network status \
+  --transport mqtt \
+  --broker mqtt://<host-ip>:1883 \
+  --did <device-id>
+```
+
+Before continuing, `network status` should satisfy
+`state=connected && ready=true`, and MQTT state should be `connected`. For a
+claimed device, also pass its actual `--prod`, `--oid`, and `--cid`.
+
+### 9.4 Optional: update radar firmware and config over local HTTP
+
+If the target radar firmware and cfg are not already running, let the device
+download them from the local HTTP service:
+
+```bash
+./cli/run.sh radar fw ota \
+  --fw <artifact-dir>/<radar-firmware>.bin \
+  --cfg <artifact-dir>/<radar-config>.cfg \
+  --welcome \
+  --no-verify \
+  --ota-timeout 300 \
+  --progress-interval 5 \
+  --raw-resp-output <output-dir>/ota_cmd_resp.log \
+  --transport mqtt \
+  --broker mqtt://<host-ip>:1883 \
+  --did <device-id> \
+  --base-url http://<host-ip>:8380/
+```
+
+`<artifact-dir>` must identify the same files served by
+`server.sh --serve-dir`. Successful firmware and cfg `GET` requests should
+appear in the HTTP log. An OTA command timeout does not prove that flashing
+failed. Do not immediately retry the flash; continue polling over MQTT:
+
+```bash
+./cli/run.sh radar status \
+  --transport mqtt \
+  --broker mqtt://<host-ip>:1883 \
+  --did <device-id>
+```
+
+After `radar fw ota`, `radar fw flash`, `radar config apply`, and the first boot
+after recovery, repeat the query until it returns `state=running`; do not
+replace this ready gate with a fixed sleep. `--raw-resp-output` is a best-effort
+startup window and may remain empty. Reliable readiness evidence is
+`radar status=running`, followed by startup output observed in a later
+`raw_resp` capture.
+
+### 9.5 Capture 300 seconds of MQTT DATA
+
+Use the live identity and topics for host-owned MQTT collection:
+
+```bash
+./cli/run.sh collect \
+  --transport mqtt \
+  --duration 300 \
+  --broker mqtt://<host-ip>:1883 \
+  --did <device-id> \
+  --data-topic mmwk/mmwk/<device-id>/raw/data \
+  --resp-topic mmwk/mmwk/<device-id>/raw/resp \
+  --data-output <output-dir>/radar_300s.sraw \
+  --resp-output <output-dir>/commands_300s.log \
+  --summary-output <output-dir>/summary.json \
+  --events-output <output-dir>/events.jsonl
+```
+
+If the application already owns an auto MQTT DATA route and the collector must
+only observe it, use:
+
+```bash
+./cli/collect.sh \
+  --transport mqtt \
+  --mode auto \
+  --attach \
+  --duration 300 \
+  --broker mqtt://<host-ip>:1883 \
+  --did <device-id> \
+  --data-output <output-dir>/radar_300s.sraw \
+  --resp-output <output-dir>/commands_300s.log
+```
+
+For one capture window across a device reboot, use the
+`./cli/collect.sh --trigger device-reboot` flow from Section 5. `collect.sh` can
+reuse the broker URI exported by `server.sh` through
+`--server-state-dir <output-dir>/local_server`.
+
+High-rate DATA still uses QoS 0 with a local MQTT broker, so “local broker” does
+not make the network path inherently lossless. At minimum, confirm:
+
+- `radar.sraw` begins at DATA magic and `data_bytes > 0`;
+- the 300-second timer starts after DATA ready and excludes setup and cleanup;
+- summary drop, CRC, and queue metrics meet the target requirements;
+- `cleanup.state_restored=true`;
+- `radar status` remains `running` after collection.
+
+### 9.6 Logs, troubleshooting, and shutdown
+
+Retain the collection files, summary, events, and these main service artifacts:
+
+```text
+<output-dir>/local_server/mqtt.log
+<output-dir>/local_server/http.log
+<output-dir>/ota_cmd_resp.log
+```
+
+Common problems:
+
+- The device cannot connect to the local broker: verify that the MQTT URI uses
+  a host address reachable by the device, the firewall allows `1883`, and the
+  network routes between device and host.
+- MQTT topic identity mismatch: read `node info` again; do not mix an old `did`
+  with the `cid` used after claim.
+- Corrupt UART JSON immediately after reboot: runtime logs may overlap command
+  responses. Do not access one UART concurrently; retry with `--reset` or move
+  to MQTT after it becomes available.
+- OTA remains `updating`: keep using the `radar status` ready gate; do not
+  immediately reflash because one CLI call timed out.
+- Short `raw_resp`: a partial banner is normal, but a startup-proof capture
+  should still contain non-empty printable command-port output.
+
+Stop the local services when finished:
+
+```bash
+./cli/server.sh stop --state-dir <output-dir>/local_server
+```
