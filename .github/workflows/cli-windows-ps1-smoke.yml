@@ -44,6 +44,19 @@ jobs:
           Set-StrictMode -Version Latest
           $ErrorActionPreference = "Stop"
 
+          # Verify caller-relative cfg paths before touching a real device.
+          # COM999 is intentionally absent; a serial-open error proves that
+          # the cfg was resolved from the repository root first.
+          $pathCheck = & .\cli\collect.ps1 --transport uart --port COM999 --protocol cli --cfg .\firmwares\radar\iwr6843\oob\out_of_box_6843_aop.cfg --duration 1 2>&1
+          if ($LASTEXITCODE -eq 0) { throw "collect.ps1 path smoke unexpectedly succeeded" }
+          $pathCheckText = $pathCheck -join "`n"
+          if ($pathCheckText -match "Config file not found|configuration.*not found") {
+            throw "collect.ps1 did not resolve the caller-relative cfg path: $pathCheckText"
+          }
+          if ($pathCheckText -notmatch "COM999|could not open port|could not open serial") {
+            throw "collect.ps1 path smoke failed before serial open: $pathCheckText"
+          }
+
           Set-Location cli
 
           # run.ps1 / server.ps1 should always provide CLI help without requiring external devices.

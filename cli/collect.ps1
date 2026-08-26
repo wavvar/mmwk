@@ -7,8 +7,8 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-$invokePwd = (Get-Location).Path
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$invokePwd = (Get-Location).ProviderPath
+$scriptDir = [System.IO.Path]::GetFullPath($PSScriptRoot)
 $pathSeparator = [System.IO.Path]::PathSeparator
 if ([string]::IsNullOrWhiteSpace($env:PYTHONPATH)) {
     $env:PYTHONPATH = $scriptDir
@@ -66,9 +66,22 @@ for ($i = 0; $i -lt $Args.Length; $i++) {
     }
     if ($arg -eq "--transport" -or $arg.StartsWith("--transport=") -or
         $arg -eq "--port" -or $arg.StartsWith("--port=") -or
+        $arg -eq "-p" -or $arg.StartsWith("-p=") -or
+        $arg -eq "--baudrate" -or $arg.StartsWith("--baudrate=") -or
+        $arg -eq "-b" -or $arg.StartsWith("-b=") -or
         $arg -eq "--raw-baud" -or $arg.StartsWith("--raw-baud=") -or
+        $arg -eq "--escape" -or $arg.StartsWith("--escape=") -or
         $arg -eq "--ctrl-transport" -or $arg.StartsWith("--ctrl-transport=") -or
-        $arg -eq "--data-transport" -or $arg.StartsWith("--data-transport=")) {
+        $arg -eq "--data-transport" -or $arg.StartsWith("--data-transport=") -or
+        $arg -eq "--data-topic" -or $arg.StartsWith("--data-topic=") -or
+        $arg -eq "--resp-topic" -or $arg.StartsWith("--resp-topic=") -or
+        $arg -eq "--prod" -or $arg.StartsWith("--prod=") -or
+        $arg -eq "--oid" -or $arg.StartsWith("--oid=") -or
+        $arg -eq "--cid" -or $arg.StartsWith("--cid=") -or
+        $arg -eq "--protocol" -or $arg.StartsWith("--protocol=") -or
+        $arg -eq "--reset" -or $arg -eq "--timeout" -or $arg.StartsWith("--timeout=") -or
+        $arg -eq "--data-ready-timeout" -or $arg.StartsWith("--data-ready-timeout=") -or
+        $arg -eq "--resp-optional" -or $arg -eq "--verbose" -or $arg -eq "-v") {
         $localEngineMode = $true
         continue
     }
@@ -119,13 +132,13 @@ if ($directMode) {
             }
         }
     }
-    Set-Location $invokePwd
+    Set-Location -LiteralPath $invokePwd
     & $python -m mmwk.tools.collect_raw @Args
     exit $LASTEXITCODE
 }
 
 if ($localEngineMode -or (($Args -contains "--help") -or ($Args -contains "-h"))) {
-    Set-Location $invokePwd
+    Set-Location -LiteralPath $invokePwd
     & $python -m mmwk collect @Args
     exit $LASTEXITCODE
 }
@@ -204,6 +217,6 @@ if ($reboot) { $liveArgs += @("--reboot") }
 if ($mode -ne "host") { $liveArgs += @("--mode", $mode) }
 if ($attach) { $liveArgs += @("--attach") }
 
-Set-Location $invokePwd
+Set-Location -LiteralPath $invokePwd
 & $python -m mmwk.tools.collect_live @liveArgs
 exit $LASTEXITCODE

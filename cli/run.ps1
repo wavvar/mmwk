@@ -7,8 +7,8 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-$invokePwd = (Get-Location).Path
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$invokePwd = (Get-Location).ProviderPath
+$scriptDir = [System.IO.Path]::GetFullPath($PSScriptRoot)
 $pathSeparator = [System.IO.Path]::PathSeparator
 if ([string]::IsNullOrWhiteSpace($env:PYTHONPATH)) {
     $env:PYTHONPATH = $scriptDir
@@ -45,7 +45,7 @@ if (-not $python) {
 }
 
 $runner = $python
-Set-Location $invokePwd
+Set-Location -LiteralPath $invokePwd
 & $runner -m mmwk @Args
 $exitCode = $LASTEXITCODE
 if ($exitCode -ne 0) { exit $exitCode }

@@ -32,7 +32,7 @@ EOF_USAGE
 local_engine_mode=false
 for arg in "$@"; do
     case "$arg" in
-        --transport|--transport=*|--port|--port=*|--raw-baud|--raw-baud=*|--ctrl-transport|--ctrl-transport=*|--data-transport|--data-transport=*|--broker|--broker=*|--mqtt-port|--mqtt-port=*|--mqtt-user|--mqtt-user=*|--mqtt-password|--mqtt-password=*|--mqtt-ca|--mqtt-ca=*|--cfg|--cfg=*|--data-output|--data-output=*|--resp-output|--resp-output=*|--wire-output|--wire-output=*|--summary-output|--summary-output=*|--events-output|--events-output=*|--allow-lossy|--overwrite)
+        --transport|--transport=*|--port|--port=*|-p|-p=*|--baudrate|--baudrate=*|-b|-b=*|--raw-baud|--raw-baud=*|--escape|--escape=*|--ctrl-transport|--ctrl-transport=*|--data-transport|--data-transport=*|--data-topic|--data-topic=*|--resp-topic|--resp-topic=*|--prod|--prod=*|--oid|--oid=*|--cid|--cid=*|--protocol|--protocol=*|--reset|--timeout|--timeout=*|--data-ready-timeout|--data-ready-timeout=*|--resp-optional|--verbose|-v|--broker|--broker=*|--mqtt-port|--mqtt-port=*|--mqtt-user|--mqtt-user=*|--mqtt-password|--mqtt-password=*|--mqtt-ca|--mqtt-ca=*|--cfg|--cfg=*|--data-output|--data-output=*|--resp-output|--resp-output=*|--wire-output|--wire-output=*|--summary-output|--summary-output=*|--events-output|--events-output=*|--allow-lossy|--overwrite)
             local_engine_mode=true
             break
             ;;

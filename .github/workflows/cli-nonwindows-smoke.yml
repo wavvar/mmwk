@@ -73,6 +73,25 @@ jobs:
             fi
           done
 
+          set +e
+          path_check="$(./cli/collect.sh --transport uart --port /dev/mmwk-no-such-port --protocol cli --cfg ./firmwares/radar/iwr6843/oob/out_of_box_6843_aop.cfg --duration 1 2>&1)"
+          path_check_rc=$?
+          set -e
+          if [ "$path_check_rc" -eq 0 ]; then
+            echo "collect.sh path smoke unexpectedly succeeded"
+            exit 1
+          fi
+          if printf '%s\n' "$path_check" | grep -Eiq 'config file not found|configuration.*not found'; then
+            echo "collect.sh did not resolve the caller-relative cfg path"
+            printf '%s\n' "$path_check"
+            exit 1
+          fi
+          if ! printf '%s\n' "$path_check" | grep -Eiq '/dev/mmwk-no-such-port|could not open port|could not open serial'; then
+            echo "collect.sh path smoke failed before serial open"
+            printf '%s\n' "$path_check"
+            exit 1
+          fi
+
       - name: Run SDK contract test
         run: |
           set -euo pipefail
