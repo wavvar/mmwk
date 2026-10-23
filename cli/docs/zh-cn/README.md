@@ -18,6 +18,7 @@ Raw 转发和录制都是同一个 `radar` 工具的并列 action。请先阅读
 ## 目录
 
 - [安装](#安装)
+- [CLI 验证](#cli-验证)
 - [主机平台入口](#主机平台入口)
 - [快速开始](#快速开始)
 - [核心概念](#核心概念)
@@ -67,6 +68,35 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
+## CLI 验证
+
+CLI 工作流会在 Linux、macOS 和 Windows 上使用 Python 3.10、3.12 运行仓库内
+的同一套测试。Linux、macOS 使用 `/bin/bash`，包含 macOS 系统自带的 Bash 3.2；
+Windows 验证 PowerShell 脚本，并用 Git Bash 执行 `config.ps1` 委托的任务。
+检查包括所有 CLI Python 模块的编译、脚本语法、帮助、参数转发、错误退出码、
+调用目录下带空格的相对路径，以及本地 MQTT/HTTP 服务的 start/status/env/stop。
+测试使用临时文件和本地服务，不需要雷达设备、外部 MQTT broker、Mosquitto
+或旁边的 SDK 仓库。
+
+Linux/macOS 从仓库根目录运行：
+
+```bash
+python3 -m venv cli/venv
+cli/venv/bin/python -m pip install -r cli/requirements.txt
+touch cli/venv/.deps_installed
+cli/venv/bin/python -m unittest discover -s cli/tests -v
+```
+
+Windows 先安装 PowerShell 7（`pwsh`）和 Git Bash，并把 Git Bash 的 `bin` 目录
+放到 `PATH` 前面，再从仓库根目录运行：
+
+```powershell
+py -m pip install -r cli/requirements.txt
+py -m venv --system-site-packages cli/venv
+New-Item -ItemType File -Force -Path cli/venv/.deps_installed | Out-Null
+py -m unittest discover -s cli/tests -v
+```
+
 ## 主机平台入口
 
 | 工作流 | macOS / Linux / Git Bash | Windows PowerShell | 说明 |
@@ -75,6 +105,9 @@ pip install -r requirements.txt
 | 本地 MQTT + HTTP server | `./server.sh ...` | `.\server.ps1 ...` | 两个 wrapper 都使用 `requirements.txt` 中的 Python 依赖；不再要求安装系统 Mosquitto。 |
 | 注册表/配置 helper | `./config.sh`、`./collect.sh` | `.\config.ps1`、`.\collect.ps1` | `config.ps1` 的 registry task 需要 Bash；`collect.ps1` 直接调用 Python 采集引擎。 |
 | 直接 Python | `python3 -m mmwk ...` | `py -m mmwk ...` 或 `python -m mmwk ...` | 仅在你明确要绕过 wrapper 时使用。 |
+
+内置 HTTP 服务启动时不等待主机名解析，避免 macOS 等环境因主机名无法解析而
+启动超时。
 
 PowerShell 下参数与 POSIX 示例保持一致，主要差异是 wrapper 名和串口名：
 

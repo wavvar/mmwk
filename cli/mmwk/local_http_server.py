@@ -11,6 +11,7 @@ import threading
 import time
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from socketserver import TCPServer
 
 
 def _safe_path_label(path: str) -> str:
@@ -85,6 +86,15 @@ class _LocalHttpHandler(SimpleHTTPRequestHandler):
         self.wfile.write(body)
 
 
+class _LocalThreadingHTTPServer(ThreadingHTTPServer):
+    def server_bind(self):
+        # HTTPServer.server_bind resolves a host name before listening. That
+        # lookup can block startup on macOS; local transfers need only the IP.
+        TCPServer.server_bind(self)
+        self.server_name = self.server_address[0]
+        self.server_port = self.server_address[1]
+
+
 class LocalTransferHTTPServer:
     """Threaded local HTTP server with static file and upload support."""
 
@@ -102,7 +112,7 @@ class LocalTransferHTTPServer:
             directory=self.serve_dir,
             upload_dir=self.upload_dir,
         )
-        self.httpd = ThreadingHTTPServer((self.bind, self.port), handler)
+        self.httpd = _LocalThreadingHTTPServer((self.bind, self.port), handler)
         self.port = int(self.httpd.server_address[1])
         self._thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
         self._thread.start()

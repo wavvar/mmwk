@@ -20,6 +20,7 @@ Raw forwarding and recording are sibling actions of the single `radar` tool. See
 
 ## Table of Contents
 - [Installation](#installation)
+- [CLI validation](#cli-validation)
 - [Host Platform Entry Points](#host-platform-entry-points)
 - [Quick Start](#quick-start)
 - [Core Concepts](#core-concepts)
@@ -71,6 +72,36 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
+## CLI validation
+
+The CLI workflows run the same repository-local tests on Linux, macOS, and
+Windows with Python 3.10 and 3.12. Linux and macOS use `/bin/bash`, including
+macOS's system Bash 3.2; Windows tests the PowerShell wrappers and uses Git Bash
+for `config.ps1`. The checks compile all CLI Python modules, check wrapper syntax,
+and exercise help, argument forwarding, failure exit codes, caller-relative paths
+with spaces, and the local MQTT/HTTP server's start/status/env/stop commands.
+Tests use temporary files and local services; no radar device, external broker,
+Mosquitto installation, or sibling SDK checkout is required.
+
+Run from the repository root on Linux/macOS:
+
+```bash
+python3 -m venv cli/venv
+cli/venv/bin/python -m pip install -r cli/requirements.txt
+touch cli/venv/.deps_installed
+cli/venv/bin/python -m unittest discover -s cli/tests -v
+```
+
+On Windows, install PowerShell 7 (`pwsh`) and Git Bash, then run from the
+repository root with Git Bash's `bin` directory first on `PATH`:
+
+```powershell
+py -m pip install -r cli/requirements.txt
+py -m venv --system-site-packages cli/venv
+New-Item -ItemType File -Force -Path cli/venv/.deps_installed | Out-Null
+py -m unittest discover -s cli/tests -v
+```
+
 ## Host Platform Entry Points
 
 | Workflow | macOS / Linux / Git Bash | Windows PowerShell | Notes |
@@ -79,6 +110,9 @@ pip install -r requirements.txt
 | Local MQTT + HTTP server | `./server.sh ...` | `.\server.ps1 ...` | Both wrappers use the Python dependencies from `requirements.txt`; no system Mosquitto install is required. |
 | Registry/config helpers | `./config.sh`, `./collect.sh` | `.\config.ps1`, `.\collect.ps1` | `config.ps1` requires Bash for registry tasks; `collect.ps1` invokes the Python collection engine directly. |
 | Direct Python | `python3 -m mmwk ...` | `py -m mmwk ...` or `python -m mmwk ...` | Use only when intentionally bypassing wrappers. |
+
+The built-in HTTP server starts without resolving the machine's host name,
+avoiding startup delays when that name cannot be resolved, including on macOS.
 
 PowerShell command arguments are the same as the POSIX examples except for the wrapper name and serial-port spelling. Use the long `--port` form for serial ports in PowerShell.
 
