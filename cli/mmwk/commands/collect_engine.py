@@ -16,6 +16,7 @@ import tempfile
 import threading
 import time
 from contextlib import ExitStack
+from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, BinaryIO, Iterable, Mapping
@@ -771,6 +772,61 @@ class CollectionSummary:
         }
 
 
+class _RawReadBuffer:
+    """Bounded FIFO between pyserial's reader and capture file processing."""
+
+    def __init__(self):
+        self.condition = threading.Condition()
+        self.pending = bytearray()
+        self.spans = deque()
+        self.received_at = None
+        self.buffer_seconds = 0.0
+        self.closed = False
+        self.error = None
+
+    def connection_made(self, transport):
+        pass
+
+    def data_received(self, data):
+        with self.condition:
+            if len(self.pending) + len(data) > 1024 * 1024:
+                raise BufferError("raw receiver buffer exceeded 1 MiB")
+            self.pending.extend(data)
+            self.spans.append((len(data), time.time(), time.perf_counter()))
+            self.condition.notify_all()
+
+    def connection_lost(self, error):
+        with self.condition:
+            self.closed = True
+            self.error = error
+            self.condition.notify_all()
+
+    def read(self, size, wait):
+        with self.condition:
+            if wait:
+                self.condition.wait_for(lambda: self.pending or self.closed, timeout=0.1)
+            data = bytes(self.pending[:size])
+            del self.pending[:len(data)]
+            remaining = len(data)
+            oldest = None
+            while remaining:
+                count, wall, stamp = self.spans.popleft()
+                if oldest is None:
+                    oldest = stamp
+                take = min(remaining, count)
+                self.received_at = wall
+                remaining -= take
+                if take < count:
+                    self.spans.appendleft((count-take, wall, stamp))
+            self.buffer_seconds = max(0.0, time.perf_counter()-oldest) if oldest is not None else 0.0
+            return data
+
+    def take_error(self):
+        with self.condition:
+            error, self.error = self.error, None
+            return error
+
+
 class LocalWireSession:
     """Parsed-control then byte-oriented raw session for UART or native USB."""
 
@@ -788,6 +844,13 @@ class LocalWireSession:
         self.response_history: list[dict[str, Any]] = []
         self.on_raw_write = None
         self.on_raw_read = None
+        self.last_raw_read_seconds = 0.0
+        self.last_raw_read_pause_seconds = 0.0
+        self._last_raw_read_finished = None
+        self._raw_reader = None
+        self._raw_buffer = None
+        self.last_raw_received_at = None
+        self.last_raw_buffer_seconds = 0.0
         self._seq = 1
 
     def _make_serial(self):
@@ -858,9 +921,34 @@ class LocalWireSession:
         return self
 
     def close(self):
-        if self.serial is not None:
-            self.serial.close()
-            self.serial = None
+        try:
+            self.stop_data_reader()
+        finally:
+            if self.serial is not None:
+                self.serial.close()
+                self.serial = None
+
+    def start_data_reader(self):
+        from serial.threaded import ReaderThread
+
+        if not self.raw_open or self.parsed:
+            raise RuntimeError("background reception requires the active raw route")
+        if self._raw_reader is not None or self._raw_buffer is not None:
+            raise RuntimeError("raw receiver already started")
+        self._raw_buffer = _RawReadBuffer()
+        self._raw_reader = ReaderThread(self._require_serial(), lambda: self._raw_buffer)
+        self._raw_reader.start()
+        self._raw_reader.connect()
+
+    def stop_data_reader(self):
+        if self._raw_reader is not None:
+            self._raw_reader.stop()
+            if self._raw_reader.is_alive():
+                raise RuntimeError("raw receiver did not stop")
+            self._raw_reader = None
+            error = self._raw_buffer.take_error()
+            if error:
+                raise RuntimeError("raw receiver failed") from error
 
     def _require_serial(self):
         if self.serial is None:
@@ -1059,12 +1147,14 @@ class LocalWireSession:
             command["data"] = data or "off"
         if escape is not None:
             command["escape"] = escape
-        if self.plan.raw_baud is not None:
+        wire_data = (channel in {"wire", "both"} if ctrl is None and data is None
+                     else data in {"wire", "both"})
+        if wire_data and self.plan.raw_baud is not None:
             command["baud"] = self.plan.raw_baud
         response = self.send_control(command, timeout=timeout)
         self.raw_open = True
         self.parsed = False
-        if self.plan.raw_baud is not None:
+        if wire_data and self.plan.raw_baud is not None:
             self._set_baud(self.plan.raw_baud)
             # Firmware acknowledges the parsed request before its wire worker
             # applies the 100 ms UART rate switch. Keep the host quiet for a
@@ -1090,19 +1180,41 @@ class LocalWireSession:
     def read_raw(self, size: int = 8192) -> bytes:
         if not self.raw_open:
             raise RuntimeError("raw route is not active")
-        payload = bytes(self._require_serial().read(max(1, size)))
+        serial = self._require_serial()
+        started = time.perf_counter()
+        self.last_raw_read_pause_seconds = (
+            max(0.0, started-self._last_raw_read_finished)
+            if self._last_raw_read_finished is not None else 0.0
+        )
+        payload = b""
+        if self._raw_buffer is not None:
+            payload = self._raw_buffer.read(max(1, size), self._raw_reader is not None)
+            self.last_raw_received_at = self._raw_buffer.received_at
+            self.last_raw_buffer_seconds = self._raw_buffer.buffer_seconds
+            if not payload:
+                error = self._raw_buffer.take_error()
+                if error:
+                    raise RuntimeError("raw receiver failed") from error
+                if self._raw_reader is not None and not self._raw_reader.is_alive():
+                    raise RuntimeError("raw receiver ended unexpectedly")
+                if self._raw_reader is None:
+                    self._raw_buffer = None
+        if not payload and self._raw_buffer is None:
+            payload = bytes(serial.read(max(1, size)))
+            self.last_raw_received_at = time.time()
+            self.last_raw_buffer_seconds = 0.0
+        finished = time.perf_counter()
+        self.last_raw_read_seconds = max(0.0, finished-started)
+        self._last_raw_read_finished = finished
         if payload and self.on_raw_read is not None:
             self.on_raw_read(payload)
         return payload
 
     def _drain_raw_for(self, duration: float) -> None:
         """Keep consuming raw output while an escape guard is in progress."""
-        serial = self._require_serial()
         deadline = time.monotonic() + max(0.0, duration)
         while time.monotonic() < deadline:
-            payload = bytes(serial.read(8192))
-            if payload and self.on_raw_read is not None:
-                self.on_raw_read(payload)
+            self.read_raw()
 
     def close_raw(self, escape: bytes | None = None, timeout: float = 3.0) -> dict[str, Any] | None:
         if not self.raw_open:
@@ -3021,7 +3133,12 @@ def collect_local(plan: CollectionPlan, expected_did: str | None = None, serial_
             wire_file.write(payload)
             wire_file.flush()
         summary.wire_bytes += len(payload)
-        record_event("wire", direction=direction, bytes=len(payload))
+        timing = ({"read_seconds": session.last_raw_read_seconds,
+                   "read_pause_seconds": session.last_raw_read_pause_seconds,
+                   "received_at": session.last_raw_received_at,
+                   "buffer_seconds": session.last_raw_buffer_seconds}
+                  if direction == "device_to_host" else {})
+        record_event("wire", direction=direction, bytes=len(payload), **timing)
 
     def record_raw_response(payload: bytes) -> None:
         if not payload or resp_file is None:
@@ -3300,12 +3417,16 @@ def collect_local(plan: CollectionPlan, expected_did: str | None = None, serial_
                 capture_started = wait_for_data_magic("DATA-ready", capture=True)
 
                 capture_deadline = capture_started + plan.duration
-                while time.monotonic() < capture_deadline:
-                    payload = session.read_raw()
-                    if not payload:
-                        continue
-                    frame_capture.feed(payload)
-                frame_capture.finish(session.read_raw, plan.data_ready_timeout)
+                session.start_data_reader()
+                try:
+                    while time.monotonic() < capture_deadline:
+                        payload = session.read_raw()
+                        if not payload:
+                            continue
+                        frame_capture.feed(payload)
+                    frame_capture.finish(session.read_raw, plan.data_ready_timeout)
+                finally:
+                    session.stop_data_reader()
                 capture_elapsed = max(0.0, time.monotonic() - capture_started)
             except KeyboardInterrupt as exc:
                 summary.interrupted = True

@@ -1463,12 +1463,12 @@ def main():
         )
         raw_mode_parser.add_argument(
             "--ctrl",
-            choices=["wire", "mqtt", "both"],
+            choices=["off", "wire", "mqtt", "both"],
             help="Raw command/response route (runtime host only)",
         )
         raw_mode_parser.add_argument(
             "--data",
-            choices=["wire", "mqtt", "both"],
+            choices=["off", "wire", "mqtt", "both"],
             help="Raw radar-data route (runtime host only)",
         )
         raw_mode_parser.add_argument(

@@ -98,12 +98,12 @@ def _build_radar_tool() -> dict:
             },
             "ctrl": {
                 "type": "string",
-                "enum": ["wire", "mqtt", "both"],
+                "enum": ["off", "wire", "mqtt", "both"],
                 "description": "Raw command/response route",
             },
             "data": {
                 "type": "string",
-                "enum": ["wire", "mqtt", "both"],
+                "enum": ["off", "wire", "mqtt", "both"],
                 "description": "Raw radar-data route",
             },
             "baud": {"type": "number", "description": "Wire raw data baud, capped at 1000000"},
