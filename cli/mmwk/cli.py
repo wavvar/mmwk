@@ -1024,6 +1024,8 @@ def cmd_collect(args):
             else:
                 summary = collect_local(plan, expected_did=args.did)
             print(json.dumps(summary.as_dict(), indent=2))
+            if not summary.cleanup.state_restored:
+                sys.exit(1)
             return
         except Exception as exc:
             print(f"Error: {exc}")

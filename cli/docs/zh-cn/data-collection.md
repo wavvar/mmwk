@@ -225,6 +225,12 @@ attach 还应满足 `borrowed_route=true`；这里的成功表示 borrowed 路�
 不带换行的可打印 escape，再静默 1 秒，然后以 115200 恢复 parsed 控制。默认
 escape 是 `+++`；`--escape` 接受 1–16 个可打印字符，但前后 1 秒 guard 固定。
 
+本机 UART/USB 采集按完整 TI 帧写文件，计时结束后先收完正在传输的那一帧。
+控制台文本写入响应日志；可选 wire 文件仍保留原始读取。末帧无法收全时采集失败。
+本机和 split 采集即使已保存 DATA，只要收尾没有恢复原状态，也返回非零退出码。
+桥接固件在 raw 路由和波特率交接完成前，不向 raw 串口发送异步 JSON 事件；
+这些事件仍可经 MQTT 发送。
+
 如果 summary 显示 config、lifecycle、route、ownership、parsed 或 baud 恢复失败，
 应先明确恢复该项，再开始另一会话。
 

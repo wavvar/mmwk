@@ -47,6 +47,57 @@ class _RadarCommandRejected(RuntimeError):
         super().__init__(f"radar rejected {label}: {response[-240:]!r}")
 
 
+class _RadarFrameCapture:
+    """Write complete TI frames, including the frame in flight at the deadline."""
+
+    def __init__(self, write_frame, write_response):
+        self.pending = bytearray()
+        self.write_frame = write_frame
+        self.write_response = write_response
+
+    def feed(self, payload: bytes, *, finish: bool = False) -> bool:
+        self.pending.extend(payload)
+        while self.pending:
+            magic_at = self.pending.find(RADAR_DATA_MAGIC)
+            if magic_at < 0:
+                keep = _RadarCommandResponseStream._magic_suffix_length(self.pending)
+                count = len(self.pending) - keep
+                if count:
+                    self.write_response(bytes(self.pending[:count]))
+                    del self.pending[:count]
+                return False
+            if magic_at:
+                self.write_response(bytes(self.pending[:magic_at]))
+                del self.pending[:magic_at]
+            length_end = RADAR_FRAME_LENGTH_OFFSET + 4
+            if len(self.pending) < length_end:
+                return False
+            frame_length = int.from_bytes(
+                self.pending[RADAR_FRAME_LENGTH_OFFSET:length_end], "little"
+            )
+            if not RADAR_FRAME_HEADER_SIZE <= frame_length <= MAX_DATA_READY_PREFIX:
+                raise ValueError(f"invalid radar frame length: {frame_length}")
+            if len(self.pending) < frame_length:
+                return False
+            self.write_frame(bytes(self.pending[:frame_length]))
+            del self.pending[:frame_length]
+            if finish:
+                # Bytes after this frame belong to the next, unscored frame.
+                # The optional wire trace still retains the full serial read.
+                self.pending.clear()
+                return True
+        return False
+
+    def finish(self, read_raw, timeout: float) -> None:
+        deadline = time.monotonic() + timeout
+        while self.pending:
+            if time.monotonic() >= deadline:
+                raise TimeoutError("timed out completing final radar frame")
+            payload = read_raw()
+            if payload and self.feed(payload, finish=True):
+                break
+
+
 def _retryable_wdr_sensor_stop_rejection(response: bytes) -> bool:
     """Recognize a transport-truncated sensorStop rejection, not a semantic error."""
 
@@ -3056,9 +3107,7 @@ def collect_local(plan: CollectionPlan, expected_did: str | None = None, serial_
                 record_raw_response(response_prefix)
             ready_at = time.monotonic()
             if capture:
-                data_file.write(first_data)
-                data_file.flush()
-                summary.data_bytes += len(first_data)
+                frame_capture.feed(first_data)
                 record_event("data_ready", prefix_bytes=len(response_prefix))
             else:
                 record_event(
@@ -3070,6 +3119,13 @@ def collect_local(plan: CollectionPlan, expected_did: str | None = None, serial_
         if prefix:
             record_raw_response(bytes(prefix))
         raise TimeoutError(f"timed out waiting for {label} radar frame magic")
+
+    def write_frame(payload: bytes) -> None:
+        data_file.write(payload)
+        data_file.flush()
+        summary.data_bytes += len(payload)
+
+    frame_capture = _RadarFrameCapture(write_frame, record_raw_response)
 
     def cleanup_action(label: str, action) -> bool:
         try:
@@ -3248,9 +3304,8 @@ def collect_local(plan: CollectionPlan, expected_did: str | None = None, serial_
                     payload = session.read_raw()
                     if not payload:
                         continue
-                    data_file.write(payload)
-                    data_file.flush()
-                    summary.data_bytes += len(payload)
+                    frame_capture.feed(payload)
+                frame_capture.finish(session.read_raw, plan.data_ready_timeout)
                 capture_elapsed = max(0.0, time.monotonic() - capture_started)
             except KeyboardInterrupt as exc:
                 summary.interrupted = True
