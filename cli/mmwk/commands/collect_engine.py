@@ -3316,6 +3316,9 @@ def collect_local(plan: CollectionPlan, expected_did: str | None = None, serial_
                 summary.warnings.append(f"collection failed: {type(exc).__name__}: {exc}")
                 record_event("failure", error_type=type(exc).__name__, error=str(exc))
             finally:
+                record_event("capture_end", duration_s=capture_elapsed,
+                             data_bytes=summary.data_bytes,
+                             completed=primary_error is None)
                 if ledger.owns("sensor_started") and session.raw_open:
                     sensor_stopped = cleanup_action(
                         "sensorStop",

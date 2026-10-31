@@ -230,6 +230,8 @@ escape 是 `+++`；`--escape` 接受 1–16 个可打印字符，但前后 1 秒
 本机和 split 采集即使已保存 DATA，只要收尾没有恢复原状态，也返回非零退出码。
 桥接固件在 raw 路由和波特率交接完成前，不向 raw 串口发送异步 JSON 事件；
 这些事件仍可经 MQTT 发送。
+本机 wire 采集在开始清理前写出 `capture_end` 事件，表示 DATA 文件已写完。
+实时数据监视应在此事件后结束，再单独核对最终 summary 中的状态恢复结果。
 
 如果 summary 显示 config、lifecycle、route、ownership、parsed 或 baud 恢复失败，
 应先明确恢复该项，再开始另一会话。
