@@ -4,7 +4,7 @@
 
 本节先按用户选择的采集方式进行对比。表格中的“协议”只列用户接入 Bridge
 或业务系统的入口协议；采集到的雷达 DATA 由采集器保存为 `radar.sraw`。
-本节所称“所有”包括 MINI、PRO、WDR 和 WSR[^bridge-devices]。
+本节所称“所有”包括 MINI、PRO、WDR、WSR 和 BOX3[^bridge-devices]。
 
 ### 通过 Bridge 采集
 
@@ -20,9 +20,10 @@ Bridge 提供统一的脚本入口。用户只需选择 UART、USB、MQTT、UART
 | UART + MQTT | 所有 | JSON + MQTT | 本地控制、远程传输 DATA | 同时依赖本地串口和 MQTT |
 | MQTT attach | 所有 | MQTT | 不接管已有业务状态 | 必须已有 MQTT DATA 路由 |
 
-[^bridge-devices]: “所有”指 MINI、PRO、WDR 和 WSR。WSR 的 UART 与雷达能力
-按 PRO，原生 Type-C USB 按 WDR。WDR 外部 UART 只能作为有损诊断路径；无损
-DATA 采集使用 USB、MQTT 或 split。
+[^bridge-devices]: “所有”指 MINI、PRO、WDR、WSR 和 BOX3。WSR 的 UART 与雷达
+能力按 PRO，原生 Type-C USB 按 WDR。WDR 和 BOX3 复用 xWRL6432 单 UART 雷达
+路径，外部 UART 只能作为有损诊断；无损 DATA 采集使用可用的原生 USB、MQTT
+或 split。BOX3 没有 WDR 的 USB raw 通路。
 
 [^bridge-protocol]: 本地采集的控制面使用 CLI JSON，MQTT 方案使用 MQTT
 承载控制和 DATA。协议列不把雷达 DATA 的二进制内容另列为一种控制协议。
@@ -90,8 +91,8 @@ Windows 下命令形状相同：
 sensorStop；结束后关闭自己打开的路由并核对原有 host 生命周期仍在运行。`--attach`
 不能与 `--cfg` 同时使用，也不能接管已经打开的本地 raw 路由。
 
-采集器会从所选 cfg 保留生命周期命令及其参数，包括 WDR 的
-`sensorStop 0` 和 `sensorStart 0 0 0 0`。WDR 的 `baudRate` 只用于启动阶段，
+采集器会从所选 cfg 保留生命周期命令及其参数，包括 WDR/BOX3 的
+`sensorStop 0` 和 `sensorStart 0 0 0 0`。WDR/BOX3 的 `baudRate` 只用于启动阶段，
 运行期采集不会重放它；否则会改变雷达串口速率，却不同步桥接侧串口。
 
 ## 2. WDR/WSR 本机 USB
@@ -106,6 +107,19 @@ Type-C 接口采用同类原生 USB 路径。USB 采集不配置或等待 Wi-Fi/
 
 原生 USB 没有物理 raw 波特率，不要传 `--raw-baud`。依据实时 `node info`
 身份选择板卡，不要根据 `/dev/tty*` 名称或 USB 描述符猜测板型。
+
+### BOX3 扩展坞 UART
+
+BOX3 通过扩展坞使用同一条 UART 承载命令和雷达 DATA。雷达 DATA 速率为
+1250000 baud，当前桥接／CLI 的外部 RAW UART 通路上限为 1000000，因此直连
+UART 仅用于诊断，必须显式允许有损告警：
+
+```bash
+./run.sh collect --transport uart --port /dev/ttyUSB0 \
+  --raw-baud 1000000 --allow-lossy --duration 30
+```
+
+需要无损 BOX3 DATA 时，使用 MQTT 或 wire/MQTT split 分流。
 
 ## 3. 远程 MQTT host 采集
 
@@ -241,8 +255,8 @@ escape 是 `+++`；`--escape` 接受 1–16 个可打印字符，但前后 1 秒
 - 外部 raw UART 上限为 1000000，不存在默认 2 Mbaud；
 - MINI/PRO/WSR DATA 标称 921600，1000000 只有 8.5% adapter margin，因此告警和
   drop 计数是验收必查证据；
-- WDR DATA 为 1250000，默认拒绝把外部 UART 当作无损路径；请使用原生 USB、
-  MQTT 或 split。`--allow-lossy` 只用于诊断，并明确失去无损验收资格。
+- WDR/BOX3 DATA 为 1250000，默认拒绝把外部 UART 当作无损路径；请使用可用的
+  原生 USB、MQTT 或 split。`--allow-lossy` 只用于诊断，并明确失去无损验收资格。
 
 ## 9. 本地 MQTT/HTTP 完整采集示例
 

@@ -36,6 +36,13 @@ RADAR_DATA_MAGIC = bytes.fromhex("0201040306050807")
 MAX_DATA_READY_PREFIX = 1024 * 1024
 RADAR_FRAME_HEADER_SIZE = 40
 RADAR_FRAME_LENGTH_OFFSET = 12
+WDR_CLASS_6432_BOARDS = frozenset({"wdr", "box3"})
+
+
+def _is_wdr_class_6432_board(board: str) -> bool:
+    """Return whether a board uses the shared single-UART xWRL6432 policy."""
+
+    return str(board or "").strip().casefold() in WDR_CLASS_6432_BOARDS
 
 
 class _RadarCommandIncompleteResponse(RuntimeError):
@@ -2518,8 +2525,8 @@ def collect_split_wire_mqtt(
     try:
         summary.identity = session.identify(expected_did, timeout=plan.control_timeout)
         node_info = _result_payload(session.last_response)
-        if summary.identity.board == "wdr" and plan.raw_baud is not None:
-            raise ValueError("WDR split DATA uses MQTT; omit --raw-baud")
+        if _is_wdr_class_6432_board(summary.identity.board) and plan.raw_baud is not None:
+            raise ValueError("WDR/BOX3 split DATA uses MQTT; omit --raw-baud")
         raw_before, _ = session.query_raw()
         radar_before, _ = session.query_radar()
         if radar_before.mode != raw_before.radar:
@@ -2986,12 +2993,12 @@ def _prepare_runtime_config(config: bytes, source: str, board: str) -> bytes:
     ``baudRate`` is interpreted by the bridge driver while applying boot
     configuration.  Replaying it through the runtime CLI changes the radar's
     UART clock without retuning the bridge-side UART, which corrupts the
-    following response and leaves the raw handoff out of sync.  WDR profiles
-    are already booted at their required 1.25 Mbit/s rate, so omit this one
-    boot-only command from a collection window.  Other boards retain their
-    existing runtime configuration behavior.
+    following response and leaves the raw handoff out of sync.  WDR/BOX3
+    profiles are already booted at their required 1.25 Mbit/s rate, so omit
+    this one boot-only command from a collection window.  Other boards retain
+    their existing runtime configuration behavior.
     """
-    if board.strip().lower() != "wdr":
+    if not _is_wdr_class_6432_board(board):
         return config
     retained: list[bytes] = []
     for raw_line in config.splitlines():
@@ -3010,7 +3017,7 @@ def _prepare_runtime_config(config: bytes, source: str, board: str) -> bytes:
 def _radar_command_settle_seconds(board: str, command: bytes) -> float:
     """Return the board-specific quiet time after a runtime radar command."""
     command_name = command.lstrip().split(None, 1)[0].lower() if command.strip() else b""
-    if board.strip().lower() == "wdr" and command_name == b"sensorstop":
+    if _is_wdr_class_6432_board(board) and command_name == b"sensorstop":
         return RADAR_SENSOR_STOP_SETTLE_SECONDS
     return 0.0
 
@@ -3160,7 +3167,7 @@ def collect_local(plan: CollectionPlan, expected_did: str | None = None, serial_
             command += b"\n"
         board = summary.identity.board if summary.identity else ""
         command_name = command.lstrip().split(None, 1)[0].lower()
-        retry_stop = board.strip().lower() == "wdr" and command_name == b"sensorstop"
+        retry_stop = _is_wdr_class_6432_board(board) and command_name == b"sensorstop"
         attempts = 2 if retry_stop else 1
 
         for attempt in range(1, attempts + 1):
@@ -3320,12 +3327,17 @@ def collect_local(plan: CollectionPlan, expected_did: str | None = None, serial_
                 collection_sensor_start = prior_sensor_start
                 summary.config_source = "device:radar.config"
 
-        if summary.identity.board == "wdr" and plan.transport == "uart" and plan.raw_baud is not None:
-            warning = "WDR DATA is 1250000 baud; current 1000000-baud UART adapters are not lossless"
+        if _is_wdr_class_6432_board(summary.identity.board) and plan.transport == "uart" and plan.raw_baud is not None:
+            board_name = summary.identity.board.upper()
+            warning = f"{board_name} DATA is 1250000 baud; the current external RAW UART path is capped at 1000000 and is not lossless"
             if not plan.allow_lossy:
-                raise ValueError(warning + "; use native USB CDC, MQTT DATA, or --allow-lossy")
+                alternatives = (
+                    "MQTT DATA or split routing" if summary.identity.board == "box3"
+                    else "native USB CDC, MQTT DATA, or split routing"
+                )
+                raise ValueError(warning + "; use " + alternatives + ", or --allow-lossy for diagnostics")
             summary.warnings.append(
-                "lossy WDR UART capture explicitly allowed; disqualified from "
+                f"lossy {board_name} UART capture explicitly allowed; disqualified from "
                 "lossless hardware acceptance"
             )
         elif summary.identity.board in {"mini", "pro", "wsr"} and plan.raw_baud == MAX_EXTERNAL_UART_BAUD:

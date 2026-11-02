@@ -4,7 +4,7 @@
 
 The protocol column describes the user-facing control or integration protocol.
 The collected radar DATA is stored in `radar.sraw`. “All” means MINI, PRO, WDR,
-and WSR.[^bridge-devices]
+WSR, and BOX3.[^bridge-devices]
 
 ### Bridge collection
 
@@ -17,8 +17,10 @@ and WSR.[^bridge-devices]
 | MQTT attach | All | MQTT | Does not take over existing application state | Requires an active MQTT DATA route |
 
 [^bridge-devices]: WSR uses the PRO UART/radar behavior and the WDR-style native
-Type-C USB path. WDR external UART is a lossy diagnostic path; use USB, MQTT, or
-split for lossless DATA collection.
+Type-C USB path. WDR and BOX3 use the shared xWRL6432 single-UART radar path;
+their external UART DATA is a lossy diagnostic path, so use native USB where
+available, MQTT, or split for lossless DATA collection. BOX3 has no WDR USB raw
+transport.
 
 ### Custom collection
 
@@ -79,7 +81,7 @@ still running. `--attach` cannot be combined with `--cfg` and cannot take over
 an already-open local raw route.
 
 The lifecycle commands are taken from the selected cfg, including profile
-arguments such as WDR's `sensorStop 0` and `sensorStart 0 0 0 0`. WDR's
+arguments such as WDR/BOX3's `sensorStop 0` and `sensorStart 0 0 0 0`. WDR/BOX3's
 `baudRate` line is a boot-time setting and is not replayed through the runtime
 collection window; replaying it would change the radar UART without changing
 the bridge-side UART.
@@ -95,6 +97,20 @@ uses the same class of native Type-C USB path:
 
 Native USB has no physical raw baud; do not pass `--raw-baud`. Select the board
 from the live `node info` identity, not from a `/dev/tty*` name or USB descriptor.
+
+#### BOX3 Dock UART
+
+BOX3 uses the Dock's shared UART for both command and radar DATA. Its radar DATA
+rate is 1250000 baud, while the current bridge/CLI external RAW UART path is
+capped at 1000000. Direct UART collection is diagnostic-only and must opt in
+to the lossy warning:
+
+```bash
+./run.sh collect --transport uart --port /dev/ttyUSB0 \
+  --raw-baud 1000000 --allow-lossy --duration 30
+```
+
+Use MQTT or the split control/DATA mode when lossless BOX3 DATA is required.
 
 ## 3. Remote MQTT host collection
 
@@ -256,9 +272,10 @@ session.
 - MINI/PRO/WSR DATA is nominally 921600. The 1000000 setting has only an 8.5%
   adapter margin, so the warning and drop counters are mandatory acceptance
   evidence.
-- WDR DATA is 1250000. External UART is refused as lossless by default; use
-  native USB, MQTT, or split routing. `--allow-lossy` is diagnostic-only and
-  explicitly disqualifies the result from lossless acceptance.
+- WDR/BOX3 DATA is 1250000. External UART is refused as lossless by default;
+  use native USB where available, MQTT, or split routing. `--allow-lossy` is
+  diagnostic-only and explicitly disqualifies the result from lossless
+  acceptance.
 
 ## 9. Local MQTT/HTTP end-to-end collection example
 

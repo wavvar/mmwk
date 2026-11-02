@@ -2,7 +2,7 @@
 
 [中文版](./README_CN.md)
 
-This directory contains documentation for three product lines: [`RPX`](./rpx.md), [`WDR`](./wdr-m.md) with [`ML6432Ax`](./ml6432ax.md), and [`F9`](./f9a1.md). The sections below provide a quick product map and link to the corresponding detailed documents.
+This directory contains documentation for three product lines: [`RPX`](./rpx.md), [`WDR`](./wdr-m.md) with [`ML6432Ax`](./ml6432ax.md), and [`F9`](./f9a1.md), plus the [`ESP32-S3-BOX-3 Dock radar guide`](./box3.md). The sections below provide a quick product map and link to the corresponding detailed documents.
 
 ## 1. RPX Series
 
@@ -44,8 +44,15 @@ The `F9` series is represented here by rear safety radar products for electric t
 - `F9A1-D` is the matching installation variant for specific compatible vehicle structures.
 - Detailed documents: [F9A1 technical specification](./f9a1.md) | [中文](./f9a1_cn.md)
 
-## 4. Reading Guide
+## 4. ESP32-S3-BOX-3 Dock radar
+
+`BOX3` is a standalone ESP32-S3 board target with an IWRL6432/ML6432A radar connected through the BOX-3 Dock. Only the Dock radar adapter uses the WDR-class 6432 radar contract; BOX3's native display, touch, audio, and boot-button wiring remains board-specific.
+
+- [BOX3 Dock radar wiring and SDK guide](./box3.md) | [中文](./box3_cn.md)
+
+## 5. Reading Guide
 
 - Start with [mini.md](./mini.md), [pro.md](./pro.md), or [wsr.md](./wsr.md) for dedicated `6843` module details, or [rpx.md](./rpx.md) if you want the broader RPX product map including `RPI`.
 - Start with [wdr-m.md](./wdr-m.md) if you need a complete `6432`-based controller-and-communication platform, then continue with [wdr-4g.md](./wdr-4g.md), [ml6432a_bo.md](./ml6432a_bo.md), or [ml6432a.md](./ml6432a.md) for board-level details.
 - Start with [f9a1.md](./f9a1.md) if the target application is rear safety sensing for electric two-wheel or three-wheel vehicles.
+- Start with [box3.md](./box3.md) when using an ESP32-S3-BOX-3 Dock as the radar host.

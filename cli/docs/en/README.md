@@ -251,6 +251,7 @@ unsolicited JSON events on that wire; MQTT events remain available.
 | Scenario | Command shape |
 | --- | --- |
 | MINI/PRO/WSR UART | `./run.sh collect --transport uart --port PORT --duration 30` |
+| BOX3 UART (lossy diagnostics only) | `./run.sh collect --transport uart --port PORT --raw-baud 1000000 --allow-lossy --duration 30` |
 | WDR/WSR native USB | `./run.sh collect --transport usb --port PORT --duration 30` |
 | Remote MQTT | `./run.sh collect --transport mqtt --broker URI --did DID` |
 | Split wire/MQTT | `./run.sh collect --ctrl-transport uart --data-transport mqtt --port PORT --broker URI --did DID` |
@@ -817,6 +818,7 @@ then follow the standalone [Radar DATA collection guide](./data-collection.md):
 | Scenario | Command shape |
 | --- | --- |
 | MINI/PRO/WSR attached UART | `./run.sh collect --transport uart --port PORT --duration 30` |
+| BOX3 UART (lossy diagnostics only) | `./run.sh collect --transport uart --port PORT --raw-baud 1000000 --allow-lossy --duration 30` |
 | WDR/WSR attached native USB | `./run.sh collect --transport usb --port PORT --duration 30` |
 | Remote host MQTT | `./run.sh collect --transport mqtt --broker URI --did DID` |
 | Split control/DATA | `./run.sh collect --ctrl-transport uart --data-transport mqtt --port PORT --broker URI --did DID` |

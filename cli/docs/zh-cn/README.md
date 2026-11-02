@@ -235,6 +235,7 @@ PowerShell 下参数与 POSIX 示例保持一致，主要差异是 wrapper 名�
 | 场景 | 命令形状 |
 | --- | --- |
 | MINI/PRO/WSR UART | `./run.sh collect --transport uart --port PORT --duration 30` |
+| BOX3 UART（仅有损诊断） | `./run.sh collect --transport uart --port PORT --raw-baud 1000000 --allow-lossy --duration 30` |
 | WDR/WSR USB | `./run.sh collect --transport usb --port PORT --duration 30` |
 | 远程 MQTT | `./run.sh collect --transport mqtt --broker URI --did DID` |
 | wire/MQTT split | `./run.sh collect --ctrl-transport uart --data-transport mqtt --port PORT --broker URI --did DID` |
@@ -739,6 +740,7 @@ wire raw 期间，桥接固件不向同一串口发送异步 JSON 事件；MQTT 
 | 场景 | 命令形状 |
 | --- | --- |
 | MINI/PRO/WSR UART | `./run.sh collect --transport uart --port PORT --duration 30` |
+| BOX3 UART（仅有损诊断） | `./run.sh collect --transport uart --port PORT --raw-baud 1000000 --allow-lossy --duration 30` |
 | WDR/WSR 原生 USB | `./run.sh collect --transport usb --port PORT --duration 30` |
 | 远程 MQTT | `./run.sh collect --transport mqtt --broker URI --did DID` |
 | wire/MQTT split | `./run.sh collect --ctrl-transport uart --data-transport mqtt --port PORT --broker URI --did DID` |
