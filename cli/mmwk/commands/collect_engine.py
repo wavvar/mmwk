@@ -16,6 +16,7 @@ import tempfile
 import threading
 import time
 from contextlib import ExitStack
+from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, BinaryIO, Iterable, Mapping
@@ -45,6 +46,57 @@ class _RadarCommandRejected(RuntimeError):
     def __init__(self, label: str, response: bytes):
         self.response = response
         super().__init__(f"radar rejected {label}: {response[-240:]!r}")
+
+
+class _RadarFrameCapture:
+    """Write complete TI frames, including the frame in flight at the deadline."""
+
+    def __init__(self, write_frame, write_response):
+        self.pending = bytearray()
+        self.write_frame = write_frame
+        self.write_response = write_response
+
+    def feed(self, payload: bytes, *, finish: bool = False) -> bool:
+        self.pending.extend(payload)
+        while self.pending:
+            magic_at = self.pending.find(RADAR_DATA_MAGIC)
+            if magic_at < 0:
+                keep = _RadarCommandResponseStream._magic_suffix_length(self.pending)
+                count = len(self.pending) - keep
+                if count:
+                    self.write_response(bytes(self.pending[:count]))
+                    del self.pending[:count]
+                return False
+            if magic_at:
+                self.write_response(bytes(self.pending[:magic_at]))
+                del self.pending[:magic_at]
+            length_end = RADAR_FRAME_LENGTH_OFFSET + 4
+            if len(self.pending) < length_end:
+                return False
+            frame_length = int.from_bytes(
+                self.pending[RADAR_FRAME_LENGTH_OFFSET:length_end], "little"
+            )
+            if not RADAR_FRAME_HEADER_SIZE <= frame_length <= MAX_DATA_READY_PREFIX:
+                raise ValueError(f"invalid radar frame length: {frame_length}")
+            if len(self.pending) < frame_length:
+                return False
+            self.write_frame(bytes(self.pending[:frame_length]))
+            del self.pending[:frame_length]
+            if finish:
+                # Bytes after this frame belong to the next, unscored frame.
+                # The optional wire trace still retains the full serial read.
+                self.pending.clear()
+                return True
+        return False
+
+    def finish(self, read_raw, timeout: float) -> None:
+        deadline = time.monotonic() + timeout
+        while self.pending:
+            if time.monotonic() >= deadline:
+                raise TimeoutError("timed out completing final radar frame")
+            payload = read_raw()
+            if payload and self.feed(payload, finish=True):
+                break
 
 
 def _retryable_wdr_sensor_stop_rejection(response: bytes) -> bool:
@@ -720,6 +772,61 @@ class CollectionSummary:
         }
 
 
+class _RawReadBuffer:
+    """Bounded FIFO between pyserial's reader and capture file processing."""
+
+    def __init__(self):
+        self.condition = threading.Condition()
+        self.pending = bytearray()
+        self.spans = deque()
+        self.received_at = None
+        self.buffer_seconds = 0.0
+        self.closed = False
+        self.error = None
+
+    def connection_made(self, transport):
+        pass
+
+    def data_received(self, data):
+        with self.condition:
+            if len(self.pending) + len(data) > 1024 * 1024:
+                raise BufferError("raw receiver buffer exceeded 1 MiB")
+            self.pending.extend(data)
+            self.spans.append((len(data), time.time(), time.perf_counter()))
+            self.condition.notify_all()
+
+    def connection_lost(self, error):
+        with self.condition:
+            self.closed = True
+            self.error = error
+            self.condition.notify_all()
+
+    def read(self, size, wait):
+        with self.condition:
+            if wait:
+                self.condition.wait_for(lambda: self.pending or self.closed, timeout=0.1)
+            data = bytes(self.pending[:size])
+            del self.pending[:len(data)]
+            remaining = len(data)
+            oldest = None
+            while remaining:
+                count, wall, stamp = self.spans.popleft()
+                if oldest is None:
+                    oldest = stamp
+                take = min(remaining, count)
+                self.received_at = wall
+                remaining -= take
+                if take < count:
+                    self.spans.appendleft((count-take, wall, stamp))
+            self.buffer_seconds = max(0.0, time.perf_counter()-oldest) if oldest is not None else 0.0
+            return data
+
+    def take_error(self):
+        with self.condition:
+            error, self.error = self.error, None
+            return error
+
+
 class LocalWireSession:
     """Parsed-control then byte-oriented raw session for UART or native USB."""
 
@@ -737,6 +844,13 @@ class LocalWireSession:
         self.response_history: list[dict[str, Any]] = []
         self.on_raw_write = None
         self.on_raw_read = None
+        self.last_raw_read_seconds = 0.0
+        self.last_raw_read_pause_seconds = 0.0
+        self._last_raw_read_finished = None
+        self._raw_reader = None
+        self._raw_buffer = None
+        self.last_raw_received_at = None
+        self.last_raw_buffer_seconds = 0.0
         self._seq = 1
 
     def _make_serial(self):
@@ -807,9 +921,34 @@ class LocalWireSession:
         return self
 
     def close(self):
-        if self.serial is not None:
-            self.serial.close()
-            self.serial = None
+        try:
+            self.stop_data_reader()
+        finally:
+            if self.serial is not None:
+                self.serial.close()
+                self.serial = None
+
+    def start_data_reader(self):
+        from serial.threaded import ReaderThread
+
+        if not self.raw_open or self.parsed:
+            raise RuntimeError("background reception requires the active raw route")
+        if self._raw_reader is not None or self._raw_buffer is not None:
+            raise RuntimeError("raw receiver already started")
+        self._raw_buffer = _RawReadBuffer()
+        self._raw_reader = ReaderThread(self._require_serial(), lambda: self._raw_buffer)
+        self._raw_reader.start()
+        self._raw_reader.connect()
+
+    def stop_data_reader(self):
+        if self._raw_reader is not None:
+            self._raw_reader.stop()
+            if self._raw_reader.is_alive():
+                raise RuntimeError("raw receiver did not stop")
+            self._raw_reader = None
+            error = self._raw_buffer.take_error()
+            if error:
+                raise RuntimeError("raw receiver failed") from error
 
     def _require_serial(self):
         if self.serial is None:
@@ -1008,12 +1147,14 @@ class LocalWireSession:
             command["data"] = data or "off"
         if escape is not None:
             command["escape"] = escape
-        if self.plan.raw_baud is not None:
+        wire_data = (channel in {"wire", "both"} if ctrl is None and data is None
+                     else data in {"wire", "both"})
+        if wire_data and self.plan.raw_baud is not None:
             command["baud"] = self.plan.raw_baud
         response = self.send_control(command, timeout=timeout)
         self.raw_open = True
         self.parsed = False
-        if self.plan.raw_baud is not None:
+        if wire_data and self.plan.raw_baud is not None:
             self._set_baud(self.plan.raw_baud)
             # Firmware acknowledges the parsed request before its wire worker
             # applies the 100 ms UART rate switch. Keep the host quiet for a
@@ -1039,19 +1180,41 @@ class LocalWireSession:
     def read_raw(self, size: int = 8192) -> bytes:
         if not self.raw_open:
             raise RuntimeError("raw route is not active")
-        payload = bytes(self._require_serial().read(max(1, size)))
+        serial = self._require_serial()
+        started = time.perf_counter()
+        self.last_raw_read_pause_seconds = (
+            max(0.0, started-self._last_raw_read_finished)
+            if self._last_raw_read_finished is not None else 0.0
+        )
+        payload = b""
+        if self._raw_buffer is not None:
+            payload = self._raw_buffer.read(max(1, size), self._raw_reader is not None)
+            self.last_raw_received_at = self._raw_buffer.received_at
+            self.last_raw_buffer_seconds = self._raw_buffer.buffer_seconds
+            if not payload:
+                error = self._raw_buffer.take_error()
+                if error:
+                    raise RuntimeError("raw receiver failed") from error
+                if self._raw_reader is not None and not self._raw_reader.is_alive():
+                    raise RuntimeError("raw receiver ended unexpectedly")
+                if self._raw_reader is None:
+                    self._raw_buffer = None
+        if not payload and self._raw_buffer is None:
+            payload = bytes(serial.read(max(1, size)))
+            self.last_raw_received_at = time.time()
+            self.last_raw_buffer_seconds = 0.0
+        finished = time.perf_counter()
+        self.last_raw_read_seconds = max(0.0, finished-started)
+        self._last_raw_read_finished = finished
         if payload and self.on_raw_read is not None:
             self.on_raw_read(payload)
         return payload
 
     def _drain_raw_for(self, duration: float) -> None:
         """Keep consuming raw output while an escape guard is in progress."""
-        serial = self._require_serial()
         deadline = time.monotonic() + max(0.0, duration)
         while time.monotonic() < deadline:
-            payload = bytes(serial.read(8192))
-            if payload and self.on_raw_read is not None:
-                self.on_raw_read(payload)
+            self.read_raw()
 
     def close_raw(self, escape: bytes | None = None, timeout: float = 3.0) -> dict[str, Any] | None:
         if not self.raw_open:
@@ -2970,7 +3133,12 @@ def collect_local(plan: CollectionPlan, expected_did: str | None = None, serial_
             wire_file.write(payload)
             wire_file.flush()
         summary.wire_bytes += len(payload)
-        record_event("wire", direction=direction, bytes=len(payload))
+        timing = ({"read_seconds": session.last_raw_read_seconds,
+                   "read_pause_seconds": session.last_raw_read_pause_seconds,
+                   "received_at": session.last_raw_received_at,
+                   "buffer_seconds": session.last_raw_buffer_seconds}
+                  if direction == "device_to_host" else {})
+        record_event("wire", direction=direction, bytes=len(payload), **timing)
 
     def record_raw_response(payload: bytes) -> None:
         if not payload or resp_file is None:
@@ -3056,9 +3224,7 @@ def collect_local(plan: CollectionPlan, expected_did: str | None = None, serial_
                 record_raw_response(response_prefix)
             ready_at = time.monotonic()
             if capture:
-                data_file.write(first_data)
-                data_file.flush()
-                summary.data_bytes += len(first_data)
+                frame_capture.feed(first_data)
                 record_event("data_ready", prefix_bytes=len(response_prefix))
             else:
                 record_event(
@@ -3070,6 +3236,13 @@ def collect_local(plan: CollectionPlan, expected_did: str | None = None, serial_
         if prefix:
             record_raw_response(bytes(prefix))
         raise TimeoutError(f"timed out waiting for {label} radar frame magic")
+
+    def write_frame(payload: bytes) -> None:
+        data_file.write(payload)
+        data_file.flush()
+        summary.data_bytes += len(payload)
+
+    frame_capture = _RadarFrameCapture(write_frame, record_raw_response)
 
     def cleanup_action(label: str, action) -> bool:
         try:
@@ -3244,13 +3417,16 @@ def collect_local(plan: CollectionPlan, expected_did: str | None = None, serial_
                 capture_started = wait_for_data_magic("DATA-ready", capture=True)
 
                 capture_deadline = capture_started + plan.duration
-                while time.monotonic() < capture_deadline:
-                    payload = session.read_raw()
-                    if not payload:
-                        continue
-                    data_file.write(payload)
-                    data_file.flush()
-                    summary.data_bytes += len(payload)
+                session.start_data_reader()
+                try:
+                    while time.monotonic() < capture_deadline:
+                        payload = session.read_raw()
+                        if not payload:
+                            continue
+                        frame_capture.feed(payload)
+                    frame_capture.finish(session.read_raw, plan.data_ready_timeout)
+                finally:
+                    session.stop_data_reader()
                 capture_elapsed = max(0.0, time.monotonic() - capture_started)
             except KeyboardInterrupt as exc:
                 summary.interrupted = True
@@ -3261,6 +3437,9 @@ def collect_local(plan: CollectionPlan, expected_did: str | None = None, serial_
                 summary.warnings.append(f"collection failed: {type(exc).__name__}: {exc}")
                 record_event("failure", error_type=type(exc).__name__, error=str(exc))
             finally:
+                record_event("capture_end", duration_s=capture_elapsed,
+                             data_bytes=summary.data_bytes,
+                             completed=primary_error is None)
                 if ledger.owns("sensor_started") and session.raw_open:
                     sensor_stopped = cleanup_action(
                         "sensorStop",

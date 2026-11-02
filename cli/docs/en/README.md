@@ -210,6 +210,10 @@ On a fresh bridge device, configure Wi-Fi, run `network mqtt`, reboot, and then 
 
 ### 5. Choose a Data Collection Path
 
+Local UART/USB capture writes complete TI frames and fails if the final frame
+or cleanup is incomplete. While wire raw is active, the bridge suppresses
+unsolicited JSON events on that wire; MQTT events remain available.
+
 | Scenario | Command shape |
 | --- | --- |
 | MINI/PRO/WSR UART | `./run.sh collect --transport uart --port PORT --duration 30` |

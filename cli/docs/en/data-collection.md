@@ -235,6 +235,17 @@ newline, then keep it silent for one second and reopen parsed control at 115200.
 The default escape is `+++`; `--escape` accepts 1–16 printable characters, but
 the one-second guards are fixed.
 
+Local UART/USB collection writes complete TI frames and finishes the frame in
+flight when the duration expires. Console text goes to the response log; the
+optional wire trace preserves the original reads. An incomplete final frame
+fails collection. Local and split collection also exit nonzero when cleanup
+does not restore the saved state, even if DATA was recorded successfully.
+The bridge suppresses unsolicited JSON events on the raw wire until the
+route and baud handoff finish; those events may still be delivered over MQTT.
+For local wire collection, the `capture_end` event marks the end of DATA
+writing before cleanup starts. A live DATA observer should end at this event,
+then check the final summary separately for successful state restoration.
+
 If any summary item says config, lifecycle, route, ownership, parsed state, or
 baud restoration failed, recover that item explicitly before starting another
 session.
