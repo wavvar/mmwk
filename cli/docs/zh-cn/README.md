@@ -730,6 +730,9 @@ ERC 是一种二进制 whole-OTA 格式：前缀为 32-byte v1 或 256-byte v2 �
 
 ## 数据采集流程
 
+本机 UART/USB 采集按完整 TI 帧写文件；末帧或收尾不完整时返回失败。
+wire raw 期间，桥接固件不向同一串口发送异步 JSON 事件；MQTT 事件仍可使用。
+
 `collect` 是唯一采集入口。按场景选择后，继续阅读独立的
 [雷达 DATA 采集指南](./data-collection.md)：
 
