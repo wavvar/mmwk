@@ -2,6 +2,7 @@
 
 import os
 import json
+import re
 import time
 import base64
 
@@ -601,7 +602,8 @@ class FlashCommand:
                 except Exception as e:
                     err_text = str(e)
                     if (
-                        ("err=-2" in err_text) or ("No UART update in progress" in err_text)
+                        re.search(r"\berr=(?:-2|-3415)(?![\w.])", err_text)
+                        or ("No UART update in progress" in err_text)
                     ) and try_idx >= (1 if i == 0 else 2):
                         logger.error(
                             f"Chunk {i} keeps reporting not-active update session; restarting flash session"
