@@ -27,3 +27,7 @@ The new package must include a verified schema-3 `release-manifest.json`, matche
 The host CLI is optional for offline applications. After the new package has passed target builds, the published instructions will provide the exact first-flash asset partition procedure and `idf.py -B <build-dir> -p <port> flash monitor` commands. Do not infer a device's board from its changing serial-port name.
 
 **The current production publisher writes `mmwk/dev`; it must not be used during this branch's pre-merge work.** New native sources and docs are committed only on `mmwk/arch_v2`. A merge does not authorize a formal release.
+
+## CLI flash-session compatibility
+
+The host CLI on `mmwk/arch_v2` now recognizes both legacy `err=-2` and current SDK `err=-3415` inactive radar UART update responses, and avoids treating unrelated `err=-20` or `err=-34150` as the same error. The change preserves the previous bounded retry/reopen behavior; it is validated by host fake-transport tests only, **not** an actual firmware flash or OTA. The public CLI remains independent of the SDK candidate overlay.
