@@ -117,3 +117,12 @@ Device discovery, serial communication, firmware flashing, OTA, MQTT collection,
 - Run `git diff --check` and the checks relevant to the files changed.
 - Confirm documentation examples use placeholders rather than real secrets or device data.
 - Summarize changed behavior, validations run, and any checks skipped because hardware or toolchains were unavailable.
+
+
+## Stage1 SDK transition (arch_v2 branch only)
+
+- Until `wavvar/mmwk_sdk` PR #70 (`arch_v2 → main`) is merged, **all changes in this repository for that migration must remain on `arch_v2`**. Do not write to `dev`, `main`, or run the current SDK publisher that targets `mmwk/dev`.
+- Existing public `mini/pro/wdr` archives and `sdk/examples/presence` are the *legacy* package. The new four presets must **not** be treated as functional simply because the CLI parses `--preset`; fail closed until a matching verified aggregate package, immutable consumer lock and migrated presence have been built.
+- Stage1 layout target: source-configured `mmwk_board` and aggregate `mmwk_sdk`, selected backend at link time, one archive per proven target/ABI compatibility group. PRO/WDR share an S3 archive only after real SHA256 and ELF/map evidence.
+- Native examples, `sdk/README*`, `docs/**`, and `cli/**` belong here. The SDK's release/candidate tooling must never wholesale replace these paths. The CLI stays independently maintained; for offline preset it is not an implicit build/runtime dependency.
+- S6 acceptance remains a last-stage physical operation. No source- or host-only checks count as final MINI, PRO, WDR and independent WDR-with-SIM evidence; device revisions/in-use internal boards must also be reconciled.
