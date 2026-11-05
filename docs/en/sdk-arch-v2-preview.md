@@ -31,3 +31,22 @@ The host CLI is optional for offline applications. After the new package has pas
 ## CLI flash-session compatibility
 
 The host CLI on `mmwk/arch_v2` now recognizes both legacy `err=-2` and current SDK `err=-3415` inactive radar UART update responses, and avoids treating unrelated `err=-20` or `err=-34150` as the same error. The change preserves the previous bounded retry/reopen behavior; it is validated by host fake-transport tests only, **not** an actual firmware flash or OTA. The public CLI remains independent of the SDK candidate overlay.
+
+## Application-owned key and LED
+
+The new aggregate SDK adds `startup.disable_legacy_key` and
+`startup.disable_legacy_led` to the existing startup policy, without
+adding a new exported API. Set both **before** calling
+`mmwk_sensor_bridge_run()`. This prevents the legacy button GPIO/task
+and LED driver/delayed-task initialization; the application may then
+configure those pins with its own policy. These flags do **not** disable
+Wi-Fi provisioning or the network runtime; those capabilities require
+separate build selection. Internal legacy firmware keeps its old behavior
+when the policy fields are zero.
+
+The native presence source uses
+`#ifdef MMWK_SENSOR_STARTUP_LEGACY_UI_POLICY_V1` to set these flags only
+when consuming the new header/archive. On the still-published old per-board
+SDK it builds without accessing absent fields. This source-path opt-out is
+not a substitute for the eventual aggregate SDK target build or physical
+key/LED ownership test.

@@ -31,3 +31,16 @@ schema-3 Manifest 必须包含覆盖**全部**受管文件的 `file_sha256`（�
 ## CLI 刷写会话兼容
 
 `mmwk/arch_v2` 中的主机 CLI 现可识别旧版 `err=-2` 与新版 SDK 的 `err=-3415` 雷达 UART 升级会话失活反馈，且不会把无关的 `err=-20`、`err=-34150` 误判为同类问题。原有的有界重试及重开会话逻辑不变。当前只进行主机模拟传输回归，**未执行真实设备刷写或 OTA**。CLI 仍独立维护，不进入 SDK 候选覆盖路径。
+
+## 应用独立管理按键与 LED
+
+新版聚合 SDK 在原有 `startup` 参数中增加
+`disable_legacy_key`、`disable_legacy_led` 字段，**无需新增公开导出函数**。
+在调用 `mmwk_sensor_bridge_run()` 前设置为 `true`，即可跳过 SDK
+默认按键 GPIO/任务和 LED 驱动/延迟任务的初始化，让应用独占相应 GPIO
+并自行实现按键、灯效策略。这两个字段**不等于**关闭 Wi-Fi、自动配网或其他
+网络服务；网络能力需要独立选择。内部旧固件保留零默认值和现有行为。
+
+原生 presence 使用 `#ifdef MMWK_SENSOR_STARTUP_LEGACY_UI_POLICY_V1`
+适配新版头文件；在尚未替换的旧版分板库中不引用不存在的字段。
+这仅证明源码适配，完整聚合构建和实体按键/LED 争用还需要后续验收。
