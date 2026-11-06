@@ -91,3 +91,27 @@ the existing default profile.
 
 Use a Windows COM port when appropriate. No host MMWK CLI or prior device
 configuration is required for the ESP image and radar-resource partition flash.
+
+## Custom key/LED policy in the native presence application
+
+Edit `sdk/examples/presence/main/main.c`:
+
+```c
+static const presence_ui_policy_t s_ui_policy = {
+    .claim_key = false,  // set true only when your app will read the key
+    .claim_led = false,  // set true only when your app will drive the LED
+    .led_initially_on = false,
+};
+```
+
+`presence_ui_configure(&s_ui_policy)` runs **before**
+`mmwk_sensor_bridge_run()`. With both fields false, the application configures
+no GPIO and creates no UI task. A new aggregate SDK exposes
+`mmwk_board_get_config()` and supports explicit application key/LED
+ownership; `presence_ui_read_key()` and `presence_ui_set_led()` then provide
+the read/write primitives. The application implements its own debounce,
+events and light states; the example creates **no** background button,
+gesture or LED animation task. The PRO/WDR/MINI physical pin behavior must
+be checked during S6. A legacy per-board SDK cannot safely transfer those
+GPIOs and therefore returns `ESP_ERR_NOT_SUPPORTED` when asked to claim
+one; with the default all-false policy, the old example remains functional.

@@ -77,3 +77,25 @@ presence 工程已有
 且使用 `FLASH_IN_PROJECT` 一并首刷，不能从相邻私有仓自动回退资源。
 新版聚合库可用之后，还必须校验完整 Manifest 和消费锁；当前旧库
 暂时只支持既有 default 功能。Windows 上可指定相应 COM 串口。
+
+## 原生 presence 自定义按键和 LED
+
+在 `sdk/examples/presence/main/main.c` 编辑：
+
+```c
+static const presence_ui_policy_t s_ui_policy = {
+    .claim_key = false,  // 应用需要读取按键时才开启
+    .claim_led = false,  // 应用需要独立控制 LED 时才开启
+    .led_initially_on = false,
+};
+```
+
+`presence_ui_configure(&s_ui_policy)` 在 `mmwk_sensor_bridge_run()`
+**之前**执行。默认两项均为 false：应用不初始化任何 GPIO，也不会创建
+按键／灯效任务。新版聚合 SDK 提供 `mmwk_board_get_config()`，
+启用相应选项后由应用独立占用 IO，可通过
+`presence_ui_read_key()`、`presence_ui_set_led()` 自行实现按键防抖、
+事件和 LED 状态；示例**不创建**默认按键任务、网络手势或灯效动画。
+MINI/PRO/WDR 的实际引脚行为留在最后 S6 验收。
+旧版分板库没有转移 GPIO 所有权的能力，因此开启占用时明确返回
+`ESP_ERR_NOT_SUPPORTED`；保持默认关闭时仍兼容旧例程。
