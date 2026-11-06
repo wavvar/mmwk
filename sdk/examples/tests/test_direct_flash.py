@@ -200,6 +200,18 @@ class FlashScriptTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
         self.assertEqual(self.calls(), [])
 
+    def test_legacy_flash_refuses_stale_aggregate_cmake_cache(self):
+        build = self.make_build()
+        (build / "CMakeCache.txt").write_text(
+            "MMWK_STAGE1_PRESET:UNINITIALIZED=default\n"
+            "MMWK_STAGE1_BOARD:UNINITIALIZED=mini\n"
+            "MMWK_STAGE1_ABI:UNINITIALIZED=old\n"
+            "MMWK_STAGE1_LOCK_FILE:UNINITIALIZED=/stale/lock\n")
+        result = self.call("presence", "mini", "--port", "/dev/ttyUSB42")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("aggregate CMake cache", result.stderr)
+        self.assertEqual(self.calls(), [])
+
     def test_path_escape_in_flash_manifest_refuses(self):
         path = self.make_build()
         (path / "flasher_args.json").write_text(json.dumps(

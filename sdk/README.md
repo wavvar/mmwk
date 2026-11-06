@@ -79,7 +79,10 @@ bash flash.sh presence mini --port /dev/ttyUSB0 --monitor-only
 
 The flash preflight checks the selected board/ESP target, size optimization,
 `flasher_args.json`, application image and `assets.bin`; it refuses an
-incomplete first-flash partition set. For an explicit `--preset default`
+incomplete first-flash partition set. With an aggregate SDK installed, **both
+default and offline** flashes recheck the exact board/preset/ABI manifest lock
+and build CMake cache. Returning to a legacy package does not permit flashing
+an old aggregate-built image. For an explicit `--preset default`
 build, repeat the same preset when flashing. Other new presets remain
 unavailable until the aggregate SDK is verified. Details:
 [stage1 preview](../docs/en/sdk-arch-v2-preview.md).

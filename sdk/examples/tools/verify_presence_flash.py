@@ -33,7 +33,7 @@ def check_stage1_cache(build_dir: Path, board: str, preset: str, abi: str,
     This is source/build-directory identity only. Real hardware flashes still
     require the signed-off target build and later S6 physical acceptance.
     """
-    if preset != "offline" or not abi or not lock.is_absolute():
+    if preset not in ("offline", "default") or not abi or not lock.is_absolute():
         fail("unsupported or incomplete Stage1 flash selection")
     cache = build_dir / "CMakeCache.txt"
     if not cache.is_file() or cache.is_symlink():
@@ -58,7 +58,28 @@ def check_stage1_cache(build_dir: Path, board: str, preset: str, abi: str,
     }:
         fail("isolated Stage1 CMake build does not match requested SDK lock")
 
-def check(build_dir: Path, board: str, action: str, *,
+def check_legacy_cache(build_dir: Path) -> None:
+    """Never flash an aggregate-built image after swapping in legacy SDK.
+
+    The legacy build script may set MMWK_STAGE1_PRESET=default, but an ABI,
+    board or lock entry only appears in the aggregate-mode CMake cache.
+    """
+    cache = build_dir / "CMakeCache.txt"
+    if cache.is_symlink():
+        fail("symlink in legacy CMake cache")
+    if not cache.is_file():
+        return
+    forbidden = {"MMWK_STAGE1_ABI", "MMWK_STAGE1_BOARD",
+                 "MMWK_STAGE1_LOCK_FILE"}
+    for row in cache.read_text(encoding="utf-8").splitlines():
+        if row.startswith(("//", "#")) or "=" not in row:
+            continue
+        key = row.split("=", 1)[0].split(":", 1)[0]
+        if key in forbidden:
+            fail("aggregate CMake cache requires exact SDK manifest and lock")
+
+
+def check(build_dir: Path, board: str, action: str, *
           stage1_preset: str | None = None, stage1_abi: str | None = None,
           stage1_lock: Path | None = None):
     if board not in BOARD_TARGET:
@@ -87,6 +108,8 @@ def check(build_dir: Path, board: str, action: str, *,
             fail("Stage1 flash build selection incomplete")
         check_stage1_cache(build_dir, board, stage1_preset,
                            stage1_abi, stage1_lock)
+    else:
+        check_legacy_cache(build_dir)
     if action == "monitor":
         return {"board": board, "target": target, "action": action}
 
@@ -162,7 +185,7 @@ def main():
     parser.add_argument("--build-dir", type=Path, required=True)
     parser.add_argument("--board", choices=BOARD_TARGET, required=True)
     parser.add_argument("--action", choices=("flash", "flash-monitor", "monitor"), required=True)
-    parser.add_argument("--stage1-preset", choices=("offline",))
+    parser.add_argument("--stage1-preset", choices=("offline", "default"))
     parser.add_argument("--stage1-abi")
     parser.add_argument("--stage1-lock", type=Path)
     options = parser.parse_args()

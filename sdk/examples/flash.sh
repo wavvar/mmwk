@@ -14,8 +14,9 @@ Usage:
 Build first with ./build.sh presence <board> [--preset default|offline].
 A flash checks the board/target configuration and the generated asset image.
 The --monitor option monitors immediately after flashing; --monitor-only never flashes.
-Offline flashing requires the matching aggregate SDK manifest, board/preset/ABI lock,
-and the unchanged first-config CMake cache for that exact isolated build.
+For both default and offline aggregate builds, flashing requires the matching
+SDK manifest, board/preset/ABI lock and the exact first-config CMake cache.
+Legacy default builds remain supported without an aggregate manifest.
 Local-control and wifi-data remain disabled pending their source adapters.
 USAGE
 }
@@ -49,10 +50,17 @@ while (($#)); do
 done
 
 [[ -n "$port" ]] || die "--port is mandatory; do not guess a serial device"
+aggregate_manifest="$SCRIPT_DIR/../release-manifest.json"
+aggregate_selected=0
+if [[ -e "$aggregate_manifest" || -L "$aggregate_manifest" ]]; then
+    [[ -f "$aggregate_manifest" && ! -L "$aggregate_manifest" ]] ||
+        die "aggregate SDK manifest must be a regular file"
+    aggregate_selected=1
+fi
 case "$preset" in
     default) ;;
     offline)
-        [[ -f "$SCRIPT_DIR/../release-manifest.json" &&
+        [[ "$aggregate_selected" = 1 &&
            -f "$SCRIPT_DIR/presence/main/presence_offline.c" ]] ||
             die "preset 'offline' is not enabled without an aggregate SDK and native RAW consumer"
         ;;
@@ -70,15 +78,16 @@ command -v idf.py >/dev/null 2>&1 || die "idf.py unavailable: initialize the pin
 command -v python3 >/dev/null 2>&1 || die "python3 unavailable"
 
 stage1_args=()
-if [[ "$preset" = offline ]]; then
-    [[ -n "${MMWK_STAGE1_ABI:-}" ]] || die "offline flash requires MMWK_STAGE1_ABI"
+if ((aggregate_selected)); then
+    [[ -n "${MMWK_STAGE1_ABI:-}" ]] ||
+        die "aggregate '$preset' flash requires MMWK_STAGE1_ABI"
     stage1_lock="${MMWK_STAGE1_LOCK_FILE:-$SCRIPT_DIR/../../mmwk-sdk.$board.$preset.lock.json}"
     [[ "$stage1_lock" = /* && -f "$stage1_lock" && ! -L "$stage1_lock" ]] ||
-        die "offline flash requires an existing absolute SDK lock"
+        die "aggregate '$preset' flash requires an existing absolute SDK lock"
     python3 "$SCRIPT_DIR/tools/mmwk_sdk_bundle.py" \
         --sdk-root "$SCRIPT_DIR/.." --board "$board" --preset "$preset" \
         --abi "$MMWK_STAGE1_ABI" --check-lock "$stage1_lock" ||
-        die "offline SDK/asset/ABI lock invalid; refusing flash"
+        die "aggregate SDK/asset/ABI lock invalid; refusing flash"
     stage1_args=(--stage1-preset "$preset" --stage1-abi "$MMWK_STAGE1_ABI"
                  --stage1-lock "$stage1_lock")
 fi

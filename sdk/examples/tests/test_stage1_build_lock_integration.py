@@ -70,8 +70,8 @@ class Stage1BuildLockTests(unittest.TestCase):
     def invocations(self):
         return self.log.read_text().splitlines() if self.log.exists() else []
 
-    def prepare_flash_fixture(self):
-        build = self.examples / "build/presence/wdr/offline"
+    def prepare_flash_fixture(self, preset="offline"):
+        build = self.examples / "build/presence/wdr" / preset
         build.mkdir(parents=True, exist_ok=True)
         (build / "sdkconfig").write_text(
             'CONFIG_RADAR_BOARD_WDR=y\nCONFIG_IDF_TARGET="esp32s3"\n'
@@ -84,7 +84,7 @@ class Stage1BuildLockTests(unittest.TestCase):
                             "0x10000": "mmwk_presence_example.bin",
                             "0x210000": "assets.bin"}}))
         (build / "CMakeCache.txt").write_text(
-            f"MMWK_STAGE1_PRESET:UNINITIALIZED=offline\n"
+            f"MMWK_STAGE1_PRESET:UNINITIALIZED={preset}\n"
             f"MMWK_STAGE1_BOARD:UNINITIALIZED=wdr\n"
             f"MMWK_STAGE1_ABI:UNINITIALIZED=os-idf553\n"
             f"MMWK_STAGE1_LOCK_FILE:UNINITIALIZED={self.env['MMWK_STAGE1_LOCK_FILE']}\n"
@@ -130,6 +130,46 @@ class Stage1BuildLockTests(unittest.TestCase):
         tampered = self.flash_offline()
         self.assertNotEqual(tampered.returncode, 0)
         self.assertEqual(self.invocations(), [])
+
+    def test_default_aggregate_flash_requires_exact_bundle_and_cache(self):
+        self.lock("default")
+        build = self.prepare_flash_fixture(preset="default")
+        command = ["bash", str(self.examples / "flash.sh"),
+                   "presence", "wdr", "--port", "COM4",
+                   "--preset", "default"]
+        def run():
+            return subprocess.run(command, env=self.env, capture_output=True, text=True)
+        correct = run()
+        self.assertEqual(correct.returncode, 0, correct.stderr)
+        self.assertIn("assets_included", correct.stdout)
+        before = len(self.invocations())
+
+        (build / "CMakeCache.txt").write_text(
+            (build / "CMakeCache.txt").read_text().replace(
+                "MMWK_STAGE1_PRESET:UNINITIALIZED=default",
+                "MMWK_STAGE1_PRESET:UNINITIALIZED=offline"))
+        bad_cache = run()
+        self.assertNotEqual(bad_cache.returncode, 0)
+        self.assertIn("does not match requested SDK lock", bad_cache.stderr)
+        self.assertEqual(before, len(self.invocations()))
+        (build / "CMakeCache.txt").write_text(
+            (build / "CMakeCache.txt").read_text().replace(
+                "MMWK_STAGE1_PRESET:UNINITIALIZED=offline",
+                "MMWK_STAGE1_PRESET:UNINITIALIZED=default"))
+        (self.sdk / self.fixture.fw).write_bytes(b"tampered resource")
+        tampered = run()
+        self.assertNotEqual(tampered.returncode, 0)
+        self.assertIn("aggregate SDK/asset/ABI lock invalid", tampered.stderr)
+        self.assertEqual(before, len(self.invocations()))
+        (self.sdk / self.fixture.fw).write_bytes(self.fixture.contents[self.fixture.fw])
+
+        # Reverting to a legacy package does not authorize flashing the
+        # previously built aggregate image via the legacy default path.
+        (self.sdk / "release-manifest.json").unlink()
+        fallback = run()
+        self.assertNotEqual(fallback.returncode, 0)
+        self.assertIn("aggregate CMake cache", fallback.stderr)
+        self.assertEqual(before, len(self.invocations()))
 
     def test_verified_offline_archive_and_lock_are_used_before_idf(self):
         self.lock("offline")
