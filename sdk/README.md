@@ -5,6 +5,14 @@ published into the sibling distribution repository. Keep examples and SDK-facing
 content here independent from private checkout paths so the published SDK can
 build from its own `sdk/` directory.
 
+The board-specific archive layout below describes the **legacy/default
+release**, not an already completed Stage1 aggregate. The `arch_v2`
+development candidate aims for one ESP32 archive (MINI) and one shared
+ESP32-S3 archive (PRO/WDR), with board-config ABI v2 and explicit capability
+presets. Final Xtensa ELF pruning, all 12 consumer builds and full device
+acceptance are still **unverified**. See
+[Stage1 preview](../docs/en/sdk-arch-v2-preview.md) for transition gates.
+
 The published SDK boundary is:
 
 - `components/mmwk_board/` is published as source and provides board IO
