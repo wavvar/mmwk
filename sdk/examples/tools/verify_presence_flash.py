@@ -79,7 +79,7 @@ def check_legacy_cache(build_dir: Path) -> None:
             fail("aggregate CMake cache requires exact SDK manifest and lock")
 
 
-def check(build_dir: Path, board: str, action: str, *
+def check(build_dir: Path, board: str, action: str, *,
           stage1_preset: str | None = None, stage1_abi: str | None = None,
           stage1_lock: Path | None = None):
     if board not in BOARD_TARGET:
