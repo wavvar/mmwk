@@ -1,4 +1,20 @@
 cmake_minimum_required(VERSION 3.16)
+# Stage1 preset selection must be fixed before IDF component discovery.
+# Never trust cached sdkconfig from another capability configuration.
+if(DEFINED MMWK_STAGE1_PRESET AND DEFINED ENV{MMWK_STAGE1_PRESET} AND
+   NOT "$ENV{MMWK_STAGE1_PRESET}" STREQUAL "" AND
+   NOT "${MMWK_STAGE1_PRESET}" STREQUAL "$ENV{MMWK_STAGE1_PRESET}")
+    message(FATAL_ERROR "presence: conflicting early/normal Stage1 preset")
+endif()
+if(NOT DEFINED MMWK_STAGE1_PRESET AND DEFINED ENV{MMWK_STAGE1_PRESET} AND
+   NOT "$ENV{MMWK_STAGE1_PRESET}" STREQUAL "")
+    set(MMWK_STAGE1_PRESET "$ENV{MMWK_STAGE1_PRESET}" CACHE STRING "Stage1 public capability preset")
+endif()
+if(DEFINED MMWK_STAGE1_PRESET AND
+   NOT MMWK_STAGE1_PRESET MATCHES "^(offline|local-control|wifi-data|default)$")
+    message(FATAL_ERROR "presence: unsupported Stage1 preset")
+endif()
+
 get_filename_component(MMWK_USER_SDK_ROOT "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
 
 set(MMWK_PRESENCE_ENABLE_TINYUSB 0)
@@ -35,6 +51,10 @@ if(MMWK_PRESENCE_WDR_ENABLED AND MMWK_PRESENCE_TINYUSB_CDC_ENABLED)
     set(MMWK_PRESENCE_ENABLE_TINYUSB 1)
 endif()
 
+# Offline mode must not implicitly claim WDR USB, modem or network resources.
+if(DEFINED MMWK_STAGE1_PRESET AND MMWK_STAGE1_PRESET STREQUAL "offline")
+    set(MMWK_PRESENCE_ENABLE_TINYUSB 0)
+endif()
 set(ENV{MMWK_USB_ENABLE_TINYUSB} "${MMWK_PRESENCE_ENABLE_TINYUSB}")
 
 set(COMPONENT_DIRS "$ENV{IDF_PATH}/components" "${CMAKE_CURRENT_LIST_DIR}/main" "${MMWK_USER_SDK_ROOT}/components")
