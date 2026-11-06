@@ -13,6 +13,19 @@ def fail(message):
     raise ValueError(message)
 
 
+def _unique_json_object(pairs):
+    obj = {}
+    for key, value in pairs:
+        if key in obj:
+            fail("duplicate flasher_args.json key: " + key)
+        obj[key] = value
+    return obj
+
+
+def _reject_nonfinite(value):
+    fail("nonfinite flasher_args.json value: " + value)
+
+
 def check_stage1_cache(build_dir: Path, board: str, preset: str, abi: str,
                        lock: Path) -> None:
     """Ensure the isolated firmware was configured for this exact SDK mode.
@@ -81,11 +94,15 @@ def check(build_dir: Path, board: str, action: str, *,
     if not args_file.is_file() or args_file.is_symlink():
         fail("missing flasher_args.json; build presence before flashing")
     try:
-        args = json.loads(args_file.read_text(encoding="utf-8"))
+        args = json.loads(args_file.read_text(encoding="utf-8"),
+                          object_pairs_hook=_unique_json_object,
+                          parse_constant=_reject_nonfinite)
     except (ValueError, UnicodeDecodeError) as exc:
         fail(f"invalid flasher_args.json: {exc}")
+    if type(args) is not dict:
+        fail("flasher_args.json must be a JSON object")
     flash_files = args.get("flash_files")
-    if not isinstance(flash_files, dict) or not flash_files:
+    if type(flash_files) is not dict or not flash_files:
         fail("flasher_args.json contains no flash_files")
     # ESP-IDF normally uses hex offsets. Decimal aliases must not allow two
     # distinct dictionary keys to write the same address. Reject overlap,

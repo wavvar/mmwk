@@ -171,6 +171,35 @@ class FlashScriptTests(unittest.TestCase):
         self.assertIn("symlink in flash image path", result.stderr)
         self.assertEqual(self.calls(), [])
 
+    def test_duplicate_json_keys_fail_before_idf(self):
+        path = self.make_build()
+        args_file = path / "flasher_args.json"
+        # json.loads normally keeps the last duplicate key; that could hide
+        # conflicting flash offsets or disguise the actual assets image.
+        args_file.write_text('{"flash_files":{"0x0":"bootloader.bin",'
+                             '"0x10000":"mmwk_presence_example.bin",'
+                             '"0x210000":"assets.bin","0x210000":"bootloader.bin"}}')
+        result = self.call("presence", "mini", "--port", "/dev/ttyUSB42")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("duplicate flasher_args.json key", result.stderr)
+        self.assertEqual(self.calls(), [])
+        args_file.write_text('{"flash_files":{"0x0":"bootloader.bin"},'
+                             '"flash_files":{"0x10000":"mmwk_presence_example.bin"}}')
+        result = self.call("presence", "mini", "--port", "/dev/ttyUSB42")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("duplicate flasher_args.json key", result.stderr)
+        self.assertEqual(self.calls(), [])
+
+    def test_nonnumeric_json_and_nonobject_root_fail_closed(self):
+        path = self.make_build()
+        args_file = path / "flasher_args.json"
+        for data in ('[]', '{"flash_files":NaN}', '{"flash_files":null}'):
+            with self.subTest(data=data):
+                args_file.write_text(data)
+                result = self.call("presence", "mini", "--port", "/dev/ttyUSB42")
+                self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.calls(), [])
+
     def test_path_escape_in_flash_manifest_refuses(self):
         path = self.make_build()
         (path / "flasher_args.json").write_text(json.dumps(
