@@ -101,6 +101,8 @@ def inspect(root: Path, board: str, preset: str, abi: str) -> dict:
     manifest = parse_json(manifest_raw)
     if manifest.get("schema") != 3 or manifest.get("format") != FORMAT:
         raise ValueError("not an aggregate SDK v2 package")
+    if type(manifest.get("board_config_abi")) is not int or manifest["board_config_abi"] != 2:
+        raise ValueError("unsupported board configuration ABI (expected 2)")
     if any((root / old).exists() or (root / old).is_symlink() for old in LEGACY_ARCHIVES):
         raise ValueError("mixed legacy and aggregate SDK libraries")
     groups = manifest.get("target_groups")
