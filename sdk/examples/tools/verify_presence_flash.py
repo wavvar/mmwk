@@ -3,6 +3,7 @@
 import argparse
 import json
 from pathlib import Path
+import re
 import sys
 
 BOARD_TARGET = {"mini": "esp32", "pro": "esp32s3", "wdr": "esp32s3"}
@@ -47,23 +48,51 @@ def check(build_dir: Path, board: str, action: str):
     flash_files = args.get("flash_files")
     if not isinstance(flash_files, dict) or not flash_files:
         fail("flasher_args.json contains no flash_files")
+    # ESP-IDF normally uses hex offsets. Decimal aliases must not allow two
+    # distinct dictionary keys to write the same address. Reject overlap,
+    # invalid image bytes, or a path that traverses an in-tree symlink.
     images = []
+    ranges = []
+    seen_offsets = set()
+    seen_paths = set()
     for offset, relative in flash_files.items():
-        try:
-            int(offset, 0)
-        except (TypeError, ValueError):
+        if not isinstance(offset, str) or not re.fullmatch(
+            r"(?:0[xX][0-9a-fA-F]+|[1-9][0-9]*|0)", offset
+        ):
             fail("invalid flash offset")
+        address = int(offset, 0 if offset.lower().startswith("0x") else 10)
+        if address < 0 or address > 0xFFFFFFFF or address % 0x1000:
+            fail("invalid or unaligned flash offset")
+        if address in seen_offsets:
+            fail("duplicate numeric flash offset")
+        seen_offsets.add(address)
         if not isinstance(relative, str) or not relative or relative.startswith("/"):
             fail("unsafe flash image path")
         parts = relative.split("/")
-        if any(part in ("", ".", "..") for part in parts) or "\\" in relative:
+        if any(part in ("", ".", "..") or part.startswith(".")
+               for part in parts) or "\\" in relative or "\x00" in relative:
             fail("unsafe flash image path")
-        path = build_dir.joinpath(*parts)
-        if path.is_symlink() or not path.is_file() or not path.resolve().is_relative_to(build_dir):
+        if relative in seen_paths:
+            fail("duplicate flash image path")
+        seen_paths.add(relative)
+        path = build_dir
+        for part in parts:
+            path = path / part
+            if path.is_symlink():
+                fail("symlink in flash image path")
+        if not path.is_file() or not path.resolve().is_relative_to(build_dir):
             fail("flash image missing or outside build: " + relative)
+        size = path.stat().st_size
+        if size <= 0 or size > 0x100000000 - address:
+            fail("empty or oversized flash image: " + relative)
         images.append(path.name)
-    if "assets.bin" not in images:
-        fail("first-flash radar assets.bin missing from flash_files")
+        ranges.append((address, address + size, relative))
+    ranges.sort()
+    for left, right in zip(ranges, ranges[1:]):
+        if left[1] > right[0]:
+            fail("overlapping flash image ranges: " + left[2] + " / " + right[2])
+    if images.count("assets.bin") != 1:
+        fail("first-flash radar assets.bin missing or duplicated in flash_files")
     if not any(name.endswith(".bin") and name not in {
         "assets.bin", "bootloader.bin", "partition-table.bin"
     } for name in images):

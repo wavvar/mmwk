@@ -115,6 +115,62 @@ class FlashScriptTests(unittest.TestCase):
         self.assertIn("--port is mandatory", result.stderr)
         self.assertEqual(self.calls(), [])
 
+    def test_flash_offset_alias_and_overlap_are_rejected_before_idf(self):
+        path = self.make_build("mini")
+        args_file = path / "flasher_args.json"
+        args = json.loads(args_file.read_text())
+        # Different JSON keys can express the same numeric flash offset.
+        args["flash_files"]["65536"] = "assets.bin"
+        args_file.write_text(json.dumps(args))
+        duplicate = self.call("presence", "mini", "--port", "/dev/ttyUSB42")
+        self.assertNotEqual(duplicate.returncode, 0)
+        self.assertIn("duplicate numeric flash offset", duplicate.stderr)
+        self.assertEqual(self.calls(), [])
+
+        args["flash_files"].pop("65536")
+        (path / "bootloader.bin").write_bytes(b"A" * (0x10000 + 1))
+        args_file.write_text(json.dumps(args))
+        overlap = self.call("presence", "mini", "--port", "/dev/ttyUSB42")
+        self.assertNotEqual(overlap.returncode, 0)
+        self.assertIn("overlapping flash image ranges", overlap.stderr)
+        self.assertEqual(self.calls(), [])
+
+    def test_empty_unaligned_and_hidden_image_paths_rejected(self):
+        path = self.make_build()
+        args_file = path / "flasher_args.json"
+        original = json.loads(args_file.read_text())
+        for entry, expected in (
+            ({"0x123": "bootloader.bin", "0x10000": "mmwk_presence_example.bin",
+              "0x210000": "assets.bin"}, "unaligned flash offset"),
+            ({"-1": "bootloader.bin", "0x10000": "mmwk_presence_example.bin",
+              "0x210000": "assets.bin"}, "invalid flash offset"),
+        ):
+            with self.subTest(expected=expected):
+                args_file.write_text(json.dumps({"flash_files": entry}))
+                result = self.call("presence", "mini", "--port", "/dev/ttyUSB42")
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(expected, result.stderr)
+        (path / "assets.bin").write_bytes(b"")
+        args_file.write_text(json.dumps(original))
+        failed = self.call("presence", "mini", "--port", "/dev/ttyUSB42")
+        self.assertNotEqual(failed.returncode, 0)
+        self.assertIn("empty or oversized", failed.stderr)
+        self.assertEqual(self.calls(), [])
+
+    def test_in_tree_symlink_intermediate_directory_rejected(self):
+        path = self.make_build()
+        (path / "real").mkdir()
+        (path / "real" / "assets.bin").write_bytes(b"firmware assets")
+        (path / "alias").symlink_to(path / "real", target_is_directory=True)
+        args_file = path / "flasher_args.json"
+        args = json.loads(args_file.read_text())
+        args["flash_files"]["0x210000"] = "alias/assets.bin"
+        args_file.write_text(json.dumps(args))
+        result = self.call("presence", "mini", "--port", "/dev/ttyUSB42")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("symlink in flash image path", result.stderr)
+        self.assertEqual(self.calls(), [])
+
     def test_path_escape_in_flash_manifest_refuses(self):
         path = self.make_build()
         (path / "flasher_args.json").write_text(json.dumps(
