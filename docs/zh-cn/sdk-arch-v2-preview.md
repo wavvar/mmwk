@@ -111,3 +111,19 @@ MINI/PRO/WDR 的实际引脚行为留在最后 S6 验收。
 仅当应用明确不需要从 UART/MQTT 接收外部 RAW 命令时才关闭；
 它**不代表**关闭全部无线网络能力。ESP 目标构建、并发停止和重复启动
 仍需验证，当前已发布旧包没有这个字段。
+
+## 消费方管理的雷达固件与配置配对
+
+`sdk/examples/presence/main/presence_radar_assets.c` 现在由应用明确维护
+MINI/ESP32/6843、PRO/ESP32-S3/6843、WDR/ESP32-S3/6432 三种档案；
+每个档案把雷达资源族、固件和配置文件绑定为一组。
+若板型、芯片、目标 MCU 不匹配，或使用未登记的组合，presence 将在
+SDK 运行启动**之前**拒绝继续。为兼容旧代码，仍保留
+`presence_radar_firmware_path()` 和 `presence_radar_config_path()`。
+
+构建时对应的 `sdk/examples/presence/presence_asset_profiles.cmake`
+会检查板型、IDF target、芯片，以及两份本地资源文件是否齐全。
+不会自动去相邻的私有源码检出目录寻找资源。产品使用的固件与资源分区
+由应用负责，不能由聚合 SDK 二进制偷偷选择。已完成本地 GCC/CMake
+的合法组合、错误匹配及缺件测试，但实际 ESP 构建、固件内容与首次刷写
+仍需要后续独立验收。

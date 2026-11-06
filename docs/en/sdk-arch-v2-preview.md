@@ -129,3 +129,22 @@ does not require external UART/MQTT RAW commands. It is not a global
 radio/network shutdown switch. New target firmware and concurrent stop/
 restart behavior still require validation; older published SDKs do not
 provide this flag.
+
+## Consumer-owned radar firmware and configuration pairs
+
+`sdk/examples/presence/main/presence_radar_assets.c` now owns the explicit
+MINI/ESP32/6843, PRO/ESP32-S3/6843 and WDR/ESP32-S3/6432 descriptors.
+Each descriptor binds one firmware and one configuration file, including its
+resource family. Mismatched or unknown profiles fail **before** the presence
+SDK runtime starts; legacy `presence_radar_firmware_path()` and
+`presence_radar_config_path()` remain for compatibility.
+
+The matching build-time selection is in
+`sdk/examples/presence/presence_asset_profiles.cmake`; it checks chip,
+board, IDF target and both native firmware/config files. It does **not** use
+a sibling private checkout as an implicit fallback. These files are
+application-maintained; the aggregate library must not choose the product's
+firmware or embedded asset partition. Host GCC and CMake test cases cover
+the three valid profiles, mismatches and missing resources. Actual firmware
+contents, target linkage and initial flash remain separate verification
+requirements.
