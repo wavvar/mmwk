@@ -47,15 +47,16 @@ const presence_radar_asset_pair_t *presence_radar_assets_current(void)
 #elif defined(CONFIG_IDF_TARGET_ESP32)
     const char *target = "esp32";
 #else
-    return NULL;
+    const char *target = NULL;
 #endif
 #if CONFIG_RADAR_BOARD_RADAR_CHIP == 6432
     const char *family = "radarl64xx";
 #elif CONFIG_RADAR_BOARD_RADAR_CHIP == 6843
     const char *family = "radar68xx";
 #else
-    return NULL;
+    const char *family = NULL;
 #endif
+    if (!target || !family) return NULL;
     if (presence_radar_assets_select(CONFIG_RADAR_BOARD_NAME, target,
                                      CONFIG_RADAR_BOARD_RADAR_CHIP,
                                      family, &selected) != 0) return NULL;
