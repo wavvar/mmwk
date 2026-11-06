@@ -8,13 +8,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 usage() {
     cat >&2 <<'USAGE'
 Usage:
-  ./flash.sh presence mini|pro|wdr --port <device-port> [--preset default] [--monitor]
-  ./flash.sh presence mini|pro|wdr --port <device-port> [--preset default] --monitor-only
+  ./flash.sh presence mini|pro|wdr --port <device-port> [--preset default|offline] [--monitor]
+  ./flash.sh presence mini|pro|wdr --port <device-port> [--preset default|offline] --monitor-only
 
-Build first with ./build.sh presence <board> [--preset default].
+Build first with ./build.sh presence <board> [--preset default|offline].
 A flash checks the board/target configuration and the generated asset image.
 The --monitor option monitors immediately after flashing; --monitor-only never flashes.
-Non-default presets stay disabled until aggregate SDK and source migration pass target validation.
+Offline flashing requires the matching aggregate SDK manifest, board/preset/ABI lock,
+and the unchanged first-config CMake cache for that exact isolated build.
+Local-control and wifi-data remain disabled pending their source adapters.
 USAGE
 }
 
@@ -49,8 +51,13 @@ done
 [[ -n "$port" ]] || die "--port is mandatory; do not guess a serial device"
 case "$preset" in
     default) ;;
-    offline|local-control|wifi-data)
-        die "preset '$preset' is not enabled until the aggregate archive and actual target builds are verified" ;;
+    offline)
+        [[ -f "$SCRIPT_DIR/../release-manifest.json" &&
+           -f "$SCRIPT_DIR/presence/main/presence_offline.c" ]] ||
+            die "preset 'offline' is not enabled without an aggregate SDK and native RAW consumer"
+        ;;
+    local-control|wifi-data)
+        die "preset '$preset' is not enabled until the aggregate source adapter and actual target builds are verified" ;;
     *) die "unknown preset: $preset" ;;
 esac
 
@@ -62,8 +69,22 @@ if ((explicit_preset)); then build_dir="$build_dir/$preset"; fi
 command -v idf.py >/dev/null 2>&1 || die "idf.py unavailable: initialize the pinned ESP-IDF environment"
 command -v python3 >/dev/null 2>&1 || die "python3 unavailable"
 
+stage1_args=()
+if [[ "$preset" = offline ]]; then
+    [[ -n "${MMWK_STAGE1_ABI:-}" ]] || die "offline flash requires MMWK_STAGE1_ABI"
+    stage1_lock="${MMWK_STAGE1_LOCK_FILE:-$SCRIPT_DIR/../../mmwk-sdk.$board.$preset.lock.json}"
+    [[ "$stage1_lock" = /* && -f "$stage1_lock" && ! -L "$stage1_lock" ]] ||
+        die "offline flash requires an existing absolute SDK lock"
+    python3 "$SCRIPT_DIR/tools/mmwk_sdk_bundle.py" \
+        --sdk-root "$SCRIPT_DIR/.." --board "$board" --preset "$preset" \
+        --abi "$MMWK_STAGE1_ABI" --check-lock "$stage1_lock" ||
+        die "offline SDK/asset/ABI lock invalid; refusing flash"
+    stage1_args=(--stage1-preset "$preset" --stage1-abi "$MMWK_STAGE1_ABI"
+                 --stage1-lock "$stage1_lock")
+fi
 python3 "$SCRIPT_DIR/tools/verify_presence_flash.py" \
-    --build-dir "$build_dir" --board "$board" --action "$action" || exit 2
+    --build-dir "$build_dir" --board "$board" --action "$action" \
+    "${stage1_args[@]}" || exit 2
 
 case "$action" in
     flash)

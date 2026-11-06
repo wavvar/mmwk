@@ -13,7 +13,41 @@ def fail(message):
     raise ValueError(message)
 
 
-def check(build_dir: Path, board: str, action: str):
+def check_stage1_cache(build_dir: Path, board: str, preset: str, abi: str,
+                       lock: Path) -> None:
+    """Ensure the isolated firmware was configured for this exact SDK mode.
+
+    This is source/build-directory identity only. Real hardware flashes still
+    require the signed-off target build and later S6 physical acceptance.
+    """
+    if preset != "offline" or not abi or not lock.is_absolute():
+        fail("unsupported or incomplete Stage1 flash selection")
+    cache = build_dir / "CMakeCache.txt"
+    if not cache.is_file() or cache.is_symlink():
+        fail("missing isolated Stage1 CMakeCache; rebuild this preset first")
+    keys = ("MMWK_STAGE1_PRESET", "MMWK_STAGE1_BOARD", "MMWK_STAGE1_ABI",
+            "MMWK_STAGE1_LOCK_FILE")
+    values = {}
+    for line in cache.read_text(encoding="utf-8").splitlines():
+        if line.startswith("//") or line.startswith("#") or "=" not in line:
+            continue
+        keytype, value = line.split("=", 1)
+        key = keytype.split(":", 1)[0]
+        if key in keys:
+            if key in values:
+                fail("duplicate Stage1 CMake cache selection")
+            values[key] = value
+    if values != {
+        "MMWK_STAGE1_PRESET": preset,
+        "MMWK_STAGE1_BOARD": board,
+        "MMWK_STAGE1_ABI": abi,
+        "MMWK_STAGE1_LOCK_FILE": str(lock),
+    }:
+        fail("isolated Stage1 CMake build does not match requested SDK lock")
+
+def check(build_dir: Path, board: str, action: str, *,
+          stage1_preset: str | None = None, stage1_abi: str | None = None,
+          stage1_lock: Path | None = None):
     if board not in BOARD_TARGET:
         fail("unsupported radar board")
     if action not in {"flash", "flash-monitor", "monitor"}:
@@ -35,6 +69,11 @@ def check(build_dir: Path, board: str, action: str):
         fail("firmware ESP target does not match board")
     if "CONFIG_COMPILER_OPTIMIZATION_SIZE=y" not in lines:
         fail("SDK library requires CONFIG_COMPILER_OPTIMIZATION_SIZE=y")
+    if stage1_preset is not None:
+        if stage1_lock is None or stage1_abi is None:
+            fail("Stage1 flash build selection incomplete")
+        check_stage1_cache(build_dir, board, stage1_preset,
+                           stage1_abi, stage1_lock)
     if action == "monitor":
         return {"board": board, "target": target, "action": action}
 
@@ -106,9 +145,15 @@ def main():
     parser.add_argument("--build-dir", type=Path, required=True)
     parser.add_argument("--board", choices=BOARD_TARGET, required=True)
     parser.add_argument("--action", choices=("flash", "flash-monitor", "monitor"), required=True)
+    parser.add_argument("--stage1-preset", choices=("offline",))
+    parser.add_argument("--stage1-abi")
+    parser.add_argument("--stage1-lock", type=Path)
     options = parser.parse_args()
     try:
-        result = check(options.build_dir, options.board, options.action)
+        result = check(options.build_dir, options.board, options.action,
+                       stage1_preset=options.stage1_preset,
+                       stage1_abi=options.stage1_abi,
+                       stage1_lock=options.stage1_lock)
     except (ValueError, OSError) as exc:
         print(f"presence flash preflight rejected: {exc}", file=sys.stderr)
         return 2
