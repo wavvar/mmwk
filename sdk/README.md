@@ -100,3 +100,13 @@ pairing, consumer package locks, and direct-flash preflight with a simulated
 `idf.py`. It never flashes hardware, runs a target build, invokes CI or
 publishes to another branch. Software and device acceptance are tracked in
 `mmwk_sdk` PR #70.
+
+### RAW callback and CLI concurrency
+
+The native presence sample now shares the same lock-protected presence state
+as the SDK's legacy/internal host example. The RAW worker updates counters
+under a FreeRTOS spinlock; CLI readers obtain a consistent snapshot before
+formatting JSON. `test_presence_state_concurrency.py` executes the actual
+public C source with host pthreads and validates that untrusted timeout
+values (NaN, fractions, out-of-range) are rejected. This is a host concurrency
+contract, **not** ESP target timing or hardware acceptance.
