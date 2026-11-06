@@ -69,8 +69,14 @@ void app_main(void)
     mmwk_sensor_profile_t profile;
     mmwk_sensor_protocol_family_t proto_cfg;
     mmwk_sensor_startup_policy_t startup;
-    const char *firmware_path = presence_radar_firmware_path();
-    const char *config_path = presence_radar_config_path();
+    const presence_radar_asset_pair_t *assets = presence_radar_assets_current();
+    if (!assets) {
+        /* Never try to boot 6432 firmware with 6843 pins/assets, or vice versa. */
+        ESP_LOGE(TAG, "Unsupported or mismatched board/target/radar asset pair");
+        return;
+    }
+    const char *firmware_path = assets->firmware_path;
+    const char *config_path = assets->config_path;
 
     presence_state_init(&s_presence_state);
 
