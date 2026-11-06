@@ -52,6 +52,12 @@ done
 [[ -n "$port" ]] || die "--port is mandatory; do not guess a serial device"
 aggregate_manifest="$SCRIPT_DIR/../release-manifest.json"
 aggregate_selected=0
+aggregate_libs="$SCRIPT_DIR/../components/mmwk_sdk/lib"
+if [[ ! -e "$aggregate_manifest" && ! -L "$aggregate_manifest" &&
+      ( -e "$aggregate_libs/esp32" || -L "$aggregate_libs/esp32" ||
+        -e "$aggregate_libs/esp32s3" || -L "$aggregate_libs/esp32s3" ) ]]; then
+    die "aggregate SDK archives require a verified release manifest"
+fi
 if [[ -e "$aggregate_manifest" || -L "$aggregate_manifest" ]]; then
     [[ -f "$aggregate_manifest" && ! -L "$aggregate_manifest" ]] ||
         die "aggregate SDK manifest must be a regular file"

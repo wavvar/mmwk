@@ -26,7 +26,20 @@ require_preset_ready() {
     local board="$1" preset="$2"
     local sdk_root="${SCRIPT_DIR}/.."
     MMWK_STAGE1_BUILD_MODE=legacy
-    if [[ ! -f "$sdk_root/release-manifest.json" ]]; then
+    local manifest="$sdk_root/release-manifest.json"
+    local libs="$sdk_root/components/mmwk_sdk/lib"
+    if [[ -L "$manifest" || ( -e "$manifest" && ! -f "$manifest" ) ]]; then
+        echo "Invalid SDK release manifest; refusing an implicit legacy fallback." >&2
+        return 2
+    fi
+    if [[ ! -f "$manifest" ]]; then
+        # An incomplete aggregate package must never be treated as a valid
+        # legacy SDK just because its release-manifest.json disappeared.
+        if [[ -e "$libs/esp32" || -L "$libs/esp32" ||
+              -e "$libs/esp32s3" || -L "$libs/esp32s3" ]]; then
+            echo "Aggregate SDK archives require a verified release manifest." >&2
+            return 2
+        fi
         if [[ "$preset" = default ]]; then return 0; fi
         echo "Stage1 '$preset' requires a verified aggregate package, not legacy archives." >&2
         return 2
@@ -44,7 +57,7 @@ require_preset_ready() {
         return 2
     fi
     local lock="${MMWK_STAGE1_LOCK_FILE:-${SCRIPT_DIR}/../../mmwk-sdk.${board}.${preset}.lock.json}"
-    if [[ "$lock" != /* || ! -f "$lock" ]]; then
+    if [[ "$lock" != /* || ! -f "$lock" || -L "$lock" ]]; then
         echo "Missing absolute lock: $lock. Create it using sdk/examples/tools/mmwk_sdk_bundle.py." >&2
         return 2
     fi

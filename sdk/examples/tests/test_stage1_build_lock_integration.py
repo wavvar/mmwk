@@ -202,6 +202,33 @@ class Stage1BuildLockTests(unittest.TestCase):
         self.assertNotEqual(changed.returncode, 0)
         self.assertEqual(self.invocations(), [])
 
+    def test_incomplete_aggregate_bundle_never_falls_back_to_legacy(self):
+        self.prepare_flash_fixture(preset="default")
+        self.lock("default")
+        manifest = self.sdk / "release-manifest.json"
+        manifest.unlink()
+        result = self.call("default")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Aggregate SDK archives require", result.stderr)
+        self.assertEqual(self.invocations(), [])
+
+        manifest.symlink_to(self.sdk / "missing-manifest.json")
+        result = self.call("default")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Invalid SDK release manifest", result.stderr)
+        self.assertEqual(self.invocations(), [])
+
+    def test_aggregate_build_requires_regular_lock(self):
+        self.lock("offline")
+        lock = Path(self.env["MMWK_STAGE1_LOCK_FILE"])
+        real = lock.with_name("trusted-lock.json")
+        lock.rename(real)
+        lock.symlink_to(real)
+        result = self.call("offline")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Missing absolute lock", result.stderr)
+        self.assertEqual(self.invocations(), [])
+
     def test_missing_abi_and_unimplemented_presets_fail_closed(self):
         self.lock("offline")
         env = dict(self.env)

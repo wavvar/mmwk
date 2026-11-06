@@ -212,6 +212,16 @@ class FlashScriptTests(unittest.TestCase):
         self.assertIn("aggregate CMake cache", result.stderr)
         self.assertEqual(self.calls(), [])
 
+    def test_orphaned_aggregate_archives_are_not_flushed_as_legacy(self):
+        self.make_build()
+        libs = self.package / "components/mmwk_sdk/lib/esp32s3"
+        libs.mkdir(parents=True)
+        (libs / "libmmwk_sdk.a").write_bytes(b"orphaned")
+        result = self.call("presence", "mini", "--port", "/dev/ttyUSB42")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("aggregate SDK archives require", result.stderr)
+        self.assertEqual(self.calls(), [])
+
     def test_path_escape_in_flash_manifest_refuses(self):
         path = self.make_build()
         (path / "flasher_args.json").write_text(json.dumps(
