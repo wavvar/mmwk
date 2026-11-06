@@ -22,7 +22,7 @@ cd sdk/examples
 
 ## 解锁新组合之前必须完成的条件
 
-schema-3 Manifest 必须包含覆盖**全部**受管文件的 `file_sha256`（而非仅验证当前板型归档），包括板型配置源码、公开 CMake、两类雷达资源、`NOTICE`、许可证及补丁。Manifest 自身的 SHA256 由 `mmwk-sdk.lock.json` 锁定；即使不是本次选中的文件，只要缺失或被篡改也必须失败。聚合包必须带有经完整校验的 schema-3 `release-manifest.json`、版本匹配的公共头文件和板型源码、正确 ABI 的聚合归档、对应 firmware/config 资源，以及包含包摘要与消费选择的锁定记录。presence 必须真实迁到 RAW 订阅和按能力装配，且在初始化前关闭 legacy UI。最终候选必须通过三板 × 四组合全部 12 次目标构建/链接，再进入完整设备及全部在用硬件版本的实机验收。
+schema-3 Manifest 还必须声明 `board_config_abi=2`，与消费方编译的板型配置和 USB 路由字段一致；旧版或无效 ABI 声明会在安装/选择前被拒绝。schema-3 Manifest 必须包含覆盖**全部**受管文件的 `file_sha256`（而非仅验证当前板型归档），包括板型配置源码、公开 CMake、两类雷达资源、`NOTICE`、许可证及补丁。Manifest 自身的 SHA256 由 `mmwk-sdk.lock.json` 锁定；即使不是本次选中的文件，只要缺失或被篡改也必须失败。聚合包必须带有经完整校验的 schema-3 `release-manifest.json`、版本匹配的公共头文件和板型源码、正确 ABI 的聚合归档、对应 firmware/config 资源，以及包含包摘要与消费选择的锁定记录。presence 必须真实迁到 RAW 订阅和按能力装配，且在初始化前关闭 legacy UI。最终候选必须通过三板 × 四组合全部 12 次目标构建/链接，再进入完整设备及全部在用硬件版本的实机验收。
 
 纯离线应用不需要先安装主机 CLI。真正完成目标构建之后，公开说明将补齐首次刷写资源分区及 `idf.py -B <build-dir> -p <port> flash monitor` 的准确步骤；不可用动态串口编号判断板型。
 
