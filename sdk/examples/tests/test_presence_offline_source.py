@@ -15,7 +15,7 @@ ROOT_CMAKE=ROOT/"sdk/examples/presence/CMakeLists.txt"
 
 
 class PresenceOfflineSourceTests(unittest.TestCase):
-    def resolve(self, preset):
+    def resolve(self, preset, *, reject=False):
         with tempfile.TemporaryDirectory() as d:
             folder=Path(d)
             source=folder/"CMakeLists.txt"
@@ -33,6 +33,11 @@ class PresenceOfflineSourceTests(unittest.TestCase):
             result=subprocess.run(["cmake","-S",str(folder),"-B",str(folder/"out")],
                                   capture_output=True,text=True,
                                   env={**os.environ,"MMWK_STAGE1_PRESET":preset})
+            if reject:
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("source adapter is not implemented", result.stderr)
+                self.assertFalse((folder / "out/source_list.txt").exists())
+                return None, None
             self.assertEqual(result.returncode,0,result.stderr+result.stdout)
             return (set((folder/"out/source_list.txt").read_text().split(";")),
                     set((folder/"out/deps.txt").read_text().split(";")))
@@ -53,6 +58,11 @@ class PresenceOfflineSourceTests(unittest.TestCase):
                           "esp_driver_gpio"} & offline_deps)
         self.assertIn("mmwk_sdk",offline_deps)
         self.assertIn("mmwk_board",offline_deps)
+
+    def test_unimplemented_presets_never_silently_compile_legacy_bridge(self):
+        for preset in ("local-control", "wifi-data"):
+            with self.subTest(preset=preset):
+                self.resolve(preset, reject=True)
 
     def test_application_raw_lifecycle_and_early_choice_are_explicit(self):
         source=(SRC/"presence_offline.c").read_text()
