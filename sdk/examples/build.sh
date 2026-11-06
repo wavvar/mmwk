@@ -80,6 +80,13 @@ build_presence_board() {
                          -D "MMWK_STAGE1_BOARD=$board"
                          -D "MMWK_STAGE1_ABI=$MMWK_STAGE1_ABI"
                          -D "MMWK_STAGE1_LOCK_FILE=$MMWK_STAGE1_LOCK_FILE")
+        else
+            # Legacy packages must never inherit stale Stage1 selections
+            # from a user's shell or a previously configured build cache.
+            # Always force the compatible default for the legacy path.
+            export MMWK_STAGE1_PRESET=default
+            unset MMWK_STAGE1_BOARD MMWK_STAGE1_LOCK_FILE MMWK_STAGE1_ABI
+            stage1_args=(-D "MMWK_STAGE1_PRESET=default")
         fi
         idf.py -B "$build_dir" \
             -D "SDKCONFIG=$sdkconfig_path" \
