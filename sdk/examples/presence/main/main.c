@@ -92,6 +92,18 @@ void app_main(void)
     profile = mmwk_sensor_load_profile();
     proto_cfg = mmwk_sensor_load_protocol_family();
     startup = mmwk_sensor_load_startup_policy(&profile, &proto_cfg);
+#ifdef MMWK_SENSOR_STARTUP_SPI_BACKEND_POLICY_V1
+    /* Keep one consumer-owned static linker root, never both descriptors.
+     * The SDK runtime may only use SPI when the caller chooses SPI mode;
+     * default/host paths retain their existing behavior. */
+#if CONFIG_RADAR_BOARD_RADAR_CHIP == 6432
+    startup.spi_backend = &mmwk_driver_spi_backend_xwrl6432;
+#elif CONFIG_RADAR_BOARD_RADAR_CHIP == 6843
+    startup.spi_backend = &mmwk_driver_spi_backend_xwr6843;
+#else
+#error "Presence example requires one approved radar SPI backend"
+#endif
+#endif
     ESP_ERROR_CHECK(presence_ui_configure(&s_ui_policy));
     /* The new aggregate SDK lets the application own key/LED GPIOs. The
      * current legacy SDK has no such policy fields and retains its original
