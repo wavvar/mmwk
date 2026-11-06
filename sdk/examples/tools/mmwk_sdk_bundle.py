@@ -96,7 +96,7 @@ def safe_path(root: Path, name: str) -> Path:
             "\\" in name or "\0" in name:
         raise ValueError("invalid SDK file path")
     parts = name.split("/")
-    if any(x in ("", ".", "..", ".git", ".gitmodules", ".lfsconfig") for x in parts):
+    if any(x in ("", ".", "..") or x.startswith(".") or ":" in x for x in parts):
         raise ValueError("unsafe SDK file path: " + name)
     candidate = root
     for part in parts:

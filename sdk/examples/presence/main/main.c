@@ -114,4 +114,9 @@ void app_main(void)
 #endif
 
     mmwk_sensor_bridge_run(&profile, &proto_cfg, &startup);
+    esp_err_t release_err = presence_ui_release();
+    if (release_err != ESP_OK) {
+        ESP_LOGW(TAG, "Unable to release application-owned key/LED GPIO: %d",
+                 (int)release_err);
+    }
 }

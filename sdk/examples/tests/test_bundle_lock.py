@@ -181,6 +181,18 @@ class BundleLockTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "symlink"):
             self.inspect()
 
+    def test_hidden_and_windows_alias_paths_fail_consumer_preflight(self):
+        for name in (
+            "C:/bad/driver.h",
+            "components/mmwk_sdk/include/.private.h",
+            "components/mmwk_sdk/.cache/hidden",
+            "components/mmwk_sdk/include/colon:file.h",
+            "components/mmwk_sdk/include/nul\x00byte.h",
+        ):
+            with self.subTest(name=repr(name)):
+                with self.assertRaisesRegex(ValueError, "unsafe|invalid"):
+                    bundle.safe_path(self.root, name)
+
     def test_bad_manifest_syntax_or_unsafe_path(self):
         self.put_manifest()
         (self.root / "release-manifest.json").write_bytes(b'{"schema":3,"schema":3}')
