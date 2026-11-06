@@ -115,3 +115,17 @@ gesture or LED animation task. The PRO/WDR/MINI physical pin behavior must
 be checked during S6. A legacy per-board SDK cannot safely transfer those
 GPIOs and therefore returns `ESP_ERR_NOT_SUPPORTED` when asked to claim
 one; with the default all-false policy, the old example remains functional.
+
+## Optional external RAW command ingress
+
+The new SDK supports an independent, application-chosen startup flag,
+`startup.disable_external_raw_commands = true` (guarded by
+`MMWK_SENSOR_STARTUP_RAW_COMMAND_POLICY_V1`). It prevents the external
+RAW command worker, queues and copied-payload pool from being allocated.
+Internal radar startup/config commands and RAW output subscribers remain
+available. The default is **false**, preserving existing host-control,
+Bridge and Hub workflows. Only enable the opt-out when the application
+does not require external UART/MQTT RAW commands. It is not a global
+radio/network shutdown switch. New target firmware and concurrent stop/
+restart behavior still require validation; older published SDKs do not
+provide this flag.

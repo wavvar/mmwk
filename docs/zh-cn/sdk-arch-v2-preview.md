@@ -99,3 +99,15 @@ static const presence_ui_policy_t s_ui_policy = {
 MINI/PRO/WDR 的实际引脚行为留在最后 S6 验收。
 旧版分板库没有转移 GPIO 所有权的能力，因此开启占用时明确返回
 `ESP_ERR_NOT_SUPPORTED`；保持默认关闭时仍兼容旧例程。
+
+## 可选的外部 RAW 命令入口
+
+新 SDK 增加了应用启动前可选择的
+`startup.disable_external_raw_commands = true`（使用
+`MMWK_SENSOR_STARTUP_RAW_COMMAND_POLICY_V1` 宏判断支持）。
+该配置不再分配外部 RAW 命令 worker、队列及复制数据缓冲池；
+雷达内部启动/配置命令和 RAW 输出订阅不受影响。
+默认为 **false**，保持原有主机控制、Bridge 与 Hub 行为。
+仅当应用明确不需要从 UART/MQTT 接收外部 RAW 命令时才关闭；
+它**不代表**关闭全部无线网络能力。ESP 目标构建、并发停止和重复启动
+仍需验证，当前已发布旧包没有这个字段。
