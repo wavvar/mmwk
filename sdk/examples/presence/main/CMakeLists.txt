@@ -4,8 +4,10 @@ idf_component_register(
         "presence_state.c"
         "presence_cli.c"
         "presence_radar_assets.c"
+        "presence_ui.c"
     REQUIRES
         mmwk_sdk
         mmwk_board
         json
+        esp_driver_gpio
 )
