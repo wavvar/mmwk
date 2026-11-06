@@ -54,3 +54,24 @@ checkout. Its presence state is intentionally a minimal demonstration: raw
 radar frames only refresh an example status flag. Real products should decode
 radar frames and derive presence from targets, point clouds, tracks, or another
 application-specific signal before reporting a presence result.
+
+## Direct ESP-IDF flash and monitor (no host CLI)
+
+The supported presence project includes a radar `assets` SPIFFS image via
+`spiffs_create_partition_image(... FLASH_IN_PROJECT)`. After building,
+identify the **actual physical board** and use its own serial port:
+
+```sh
+cd sdk/examples
+./build.sh presence mini
+bash flash.sh presence mini --port /dev/ttyUSB0 --monitor
+# Monitor only (does not flash):
+bash flash.sh presence mini --port /dev/ttyUSB0 --monitor-only
+```
+
+The flash preflight checks the selected board/ESP target, size optimization,
+`flasher_args.json`, application image and `assets.bin`; it refuses an
+incomplete first-flash partition set. For an explicit `--preset default`
+build, repeat the same preset when flashing. Other new presets remain
+unavailable until the aggregate SDK is verified. Details:
+[stage1 preview](../docs/en/sdk-arch-v2-preview.md).

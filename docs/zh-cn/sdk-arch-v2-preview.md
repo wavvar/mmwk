@@ -44,3 +44,36 @@ schema-3 Manifest 必须包含覆盖**全部**受管文件的 `file_sha256`（�
 原生 presence 使用 `#ifdef MMWK_SENSOR_STARTUP_LEGACY_UI_POLICY_V1`
 适配新版头文件；在尚未替换的旧版分板库中不引用不存在的字段。
 这仅证明源码适配，完整聚合构建和实体按键/LED 争用还需要后续验收。
+
+## 不依赖主机 CLI 的构建、首次刷写和监控
+
+首先加载匹配版本的 ESP-IDF，并根据实物确认板型；**不能仅凭 USB
+串口号推断硬件型号**。以下操作只依赖 ESP-IDF、Python 和公开 SDK：
+
+```sh
+cd sdk/examples
+./build.sh presence mini
+./flash.sh presence mini --port /dev/ttyUSB0 --monitor
+# 仅监控，不刷写：
+./flash.sh presence mini --port /dev/ttyUSB0 --monitor-only
+
+# 指定 default 时使用独立输出目录：
+./build.sh presence wdr --preset default
+./flash.sh presence wdr --preset default --port /dev/ttyACM0 --monitor
+```
+
+`flash.sh` 必须显式提供 `--port`，并检查构建目录中的
+`sdkconfig` 板型/ESP 目标/size 优化、`flasher_args.json` 和应用
+及 `assets.bin` 镜像；不允许只刷 ESP 应用而漏刷雷达资源。
+presence 工程已有
+`spiffs_create_partition_image(assets ... FLASH_IN_PROJECT)`，因此
+`idf.py flash` 首刷时会一并写入配对的雷达固件、配置和 `meta.json`
+分区。`--monitor-only` 不执行刷写。实际设备执行仍属于 S6，不冒充已验收。
+
+独立 ESP-IDF 应用可只加入交付的 `sdk/components` 作为组件根，
+在应用 `main/CMakeLists.txt` 中依赖 `mmwk_sdk`，选用目标板型
+`sdkconfig.defaults` 并保持 `CONFIG_COMPILER_OPTIMIZATION_SIZE=y`。
+自己的 `assets` 分区应只包含匹配同一雷达家族的固件/config/catalog，
+且使用 `FLASH_IN_PROJECT` 一并首刷，不能从相邻私有仓自动回退资源。
+新版聚合库可用之后，还必须校验完整 Manifest 和消费锁；当前旧库
+暂时只支持既有 default 功能。Windows 上可指定相应 COM 串口。
