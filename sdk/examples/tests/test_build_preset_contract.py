@@ -33,6 +33,15 @@ class PresenceBuildSelectionTests(unittest.TestCase):
     def calls(self):
         return self.log.read_text().splitlines() if self.log.exists() else []
 
+    def test_native_host_runner_never_invokes_target_or_publisher(self):
+        runner = ROOT / "sdk/examples/tests/run_host_checks.sh"
+        self.assertTrue(runner.is_file())
+        script = runner.read_text()
+        self.assertIn("unittest discover", script)
+        self.assertIn("PYTHONDONTWRITEBYTECODE=1", script)
+        self.assertNotIn("idf.py build", script)
+        self.assertNotIn("release_publisher.py", script)
+
     def test_legacy_default_entry_stays_compatible(self):
         run = self.run_build("presence", "mini")
         self.assertEqual(run.returncode, 0, run.stderr)

@@ -75,3 +75,17 @@ incomplete first-flash partition set. For an explicit `--preset default`
 build, repeat the same preset when flashing. Other new presets remain
 unavailable until the aggregate SDK is verified. Details:
 [stage1 preview](../docs/en/sdk-arch-v2-preview.md).
+
+## Offline host regression (no IDF target or hardware)
+
+From the `arch_v2` repository root:
+
+```sh
+bash sdk/examples/tests/run_host_checks.sh
+```
+
+The host suite exercises the public example's C/CMake source, firmware/config
+pairing, consumer package locks, and direct-flash preflight with a simulated
+`idf.py`. It never flashes hardware, runs a target build, invokes CI or
+publishes to another branch. Software and device acceptance are tracked in
+`mmwk_sdk` PR #70.
