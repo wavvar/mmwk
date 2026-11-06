@@ -26,6 +26,47 @@ PRESETS = {
     "wifi-data": {"core", "network"},
     "default": {"core", "local_control", "network", "portal", "mqtt_control"},
 }
+OWNED_PREFIXES = (
+    "components/mmwk_board/", "components/mmwk_sdk/",
+    "assets/", "licenses/", "patches/",
+)
+
+
+def audit_owned_files(root: Path, managed: set[str]) -> None:
+    """The consumer must not compile unlisted files beside signed-off files."""
+    unapproved = sorted(name for name in managed
+                        if name != "NOTICE" and
+                        not name.startswith(OWNED_PREFIXES))
+    if unapproved:
+        raise ValueError("unapproved aggregate SDK managed paths: " +
+                         ", ".join(unapproved[:5]))
+    actual = set()
+    for prefix in OWNED_PREFIXES:
+        directory = root / prefix.rstrip("/")
+        if directory.is_symlink():
+            raise ValueError("symlink in SDK-owned payload: " + prefix)
+        if not directory.exists():
+            continue
+        if not directory.is_dir():
+            raise ValueError("invalid SDK-owned directory: " + prefix)
+        for item in directory.rglob("*"):
+            name = item.relative_to(root).as_posix()
+            if item.is_symlink():
+                raise ValueError("symlink in SDK-owned payload: " + name)
+            if item.is_dir():
+                continue
+            if not item.is_file():
+                raise ValueError("non-file in SDK-owned payload: " + name)
+            # Do not accept traversal, hidden Git metadata or aliases.
+            safe_path(root, name)
+            actual.add(name)
+    expected = {name for name in managed if name.startswith(OWNED_PREFIXES)}
+    if actual != expected:
+        raise ValueError("SDK-owned payload differs from exact managed file inventory"
+                         " extra=" + repr(sorted(actual - expected)[:5]) +
+                         " missing=" + repr(sorted(expected - actual)[:5]))
+
+
 LEGACY_ARCHIVES = (
     "components/mmwk_sdk/lib/mini/libmmwk_sdk.a",
     "components/mmwk_sdk/lib/pro/libmmwk_sdk.a",
@@ -124,6 +165,7 @@ def inspect(root: Path, board: str, preset: str, abi: str) -> dict:
         raise ValueError("incomplete managed SHA256 inventory")
     if "release-manifest.json" in full_hashes:
         raise ValueError("manifest must not hash itself")
+    audit_owned_files(root, set(managed))
     for name in managed:
         # Verify every managed file, not only the files for this board. This
         # guards the public CMake, NOTICE, licensing and optional resources.

@@ -182,6 +182,15 @@ class Stage1BuildLockTests(unittest.TestCase):
         self.assertIn("MMWK_STAGE1_ABI=os-idf553", command)
         self.assertIn("set-target esp32s3 build", command)
 
+    def test_extra_unlisted_sdk_file_never_reaches_idf_build(self):
+        self.lock("offline")
+        rogue = self.sdk / "components/mmwk_sdk/include/rogue.h"
+        rogue.write_bytes(b"not present in manifest")
+        blocked = self.call("offline")
+        self.assertNotEqual(blocked.returncode, 0)
+        self.assertIn("exact managed file inventory", blocked.stderr)
+        self.assertEqual(self.invocations(), [])
+
     def test_wrong_lock_and_tampered_package_do_not_invoke_idf(self):
         self.lock("default")
         wrong = self.call("offline")

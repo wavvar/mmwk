@@ -191,6 +191,30 @@ class BundleLockTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unsafe"):
             self.inspect(spec)
 
+    def test_exact_owned_inventory_rejects_extra_sdk_header_archive_and_link(self):
+        self.inspect()
+        native = self.root / "examples/presence/main/main.c"
+        native.parent.mkdir(parents=True, exist_ok=True)
+        native.write_bytes(b"native example is not SDK-managed")
+        self.inspect()
+        for name in (
+            "components/mmwk_sdk/include/unlisted.h",
+            "components/mmwk_sdk/lib/esp32s3/rogue/libmmwk_sdk.a",
+            "components/mmwk_board/include/extra.h",
+            "assets/radarl64xx/hidden.cfg",
+        ):
+            with self.subTest(name=name):
+                path = self.root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b"untracked")
+                with self.assertRaisesRegex(ValueError, "exact managed file inventory"):
+                    self.inspect()
+                path.unlink()
+        link = self.root / "components/mmwk_sdk/include/alias.h"
+        link.symlink_to(self.root / self.header)
+        with self.assertRaisesRegex(ValueError, "symlink in SDK-owned payload"):
+            self.inspect()
+
     def test_cli_create_check_and_bad_lock(self):
         self.put_manifest()
         lock = self.root.parent / "customer.lock.json"
