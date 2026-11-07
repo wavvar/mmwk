@@ -129,6 +129,19 @@ class BundleLockTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "mismatched"):
             bundle.read_lock(lock, wrong)
 
+    def test_unapproved_extra_or_missing_radar_resource_family(self):
+        self.inspect()
+        for option in ("extra", "missing"):
+            with self.subTest(option=option):
+                spec = copy.deepcopy(self.manifest)
+                if option == "extra":
+                    spec["asset_pairs"]["unsanctioned"] = copy.deepcopy(
+                        spec["asset_pairs"]["radarl64xx"])
+                else:
+                    del spec["asset_pairs"]["radar68xx"]
+                with self.assertRaisesRegex(ValueError, "unapproved aggregate radar resource"):
+                    self.inspect(spec)
+
     def test_exact_approved_target_and_board_inventory(self):
         self.inspect()
         for bad_case in ("missing-mini", "extra-board", "extra-s3", "spoof-pro"):
@@ -143,6 +156,14 @@ class BundleLockTests(unittest.TestCase):
                 else:
                     spec["boards"]["pro"]["radar_chip"] = 6432
                 with self.assertRaisesRegex(ValueError, "aggregate"):
+                    self.inspect(spec)
+
+    def test_unselected_pro_cannot_invent_new_capability(self):
+        for fake in ("future_control", {"untyped": 1}):
+            with self.subTest(fake=fake):
+                spec = copy.deepcopy(self.manifest)
+                spec["boards"]["pro"]["capabilities"].append(fake)
+                with self.assertRaisesRegex(ValueError, "unapproved aggregate|not supported"):
                     self.inspect(spec)
 
     def test_selected_caps_and_abi(self):

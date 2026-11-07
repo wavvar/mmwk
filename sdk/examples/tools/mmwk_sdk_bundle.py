@@ -183,8 +183,10 @@ def inspect(root: Path, board: str, preset: str, abi: str) -> dict:
     ) != (target, chip, family):
         raise ValueError("board target, chip or resource family mismatch")
     caps = board_entry.get("capabilities")
-    if type(caps) is not list or any(type(x) is not str for x in caps) or \
-            len(set(caps)) != len(caps) or not PRESETS[preset] <= set(caps):
+    if (type(caps) is not list or any(type(x) is not str for x in caps) or
+            len(set(caps)) != len(caps) or
+            not PRESETS[preset] <= set(caps) or
+            not set(caps) <= PRESETS["default"]):
         raise ValueError("requested preset not supported by SDK board")
     expected_members = {"esp32": ["mini"], "esp32s3": ["pro", "wdr"]}
     if set(groups) != set(expected_members) or set(board_map) != set(PROFILES):
@@ -200,6 +202,12 @@ def inspect(root: Path, board: str, preset: str, abi: str) -> dict:
                 (record.get("target"), record.get("radar_chip"),
                  record.get("asset_family")) != expected_profile):
             raise ValueError("unapproved aggregate board profile: " + profile_name)
+        caps = record.get("capabilities")
+        if (type(caps) is not list or
+                any(type(cap) is not str for cap in caps) or
+                len(set(caps)) != len(caps) or
+                not set(caps) <= PRESETS["default"]):
+            raise ValueError("unapproved aggregate board capabilities: " + profile_name)
     group = groups.get(target)
     if type(group) is not dict or group.get("target") != target or \
             group.get("abi") != abi or board not in group.get("boards", []):
@@ -225,6 +233,8 @@ def inspect(root: Path, board: str, preset: str, abi: str) -> dict:
         x.endswith("mmwk_board_config.h") for x in board_source_paths
     ):
         raise ValueError("board config C implementation/header is missing")
+    if set(asset_pairs) != {"radar68xx", "radarl64xx"}:
+        raise ValueError("unapproved aggregate radar resource families")
     pair = asset_pairs.get(family)
     if type(pair) is not dict or set(pair) != {"firmware", "config"}:
         raise ValueError("incomplete selected radar firmware/config pair")
