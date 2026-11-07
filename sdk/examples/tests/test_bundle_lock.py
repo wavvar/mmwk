@@ -30,6 +30,9 @@ class BundleLockTests(unittest.TestCase):
         self.board_header = "components/mmwk_board/include/mmwk_board_config.h"
         self.board_source = "components/mmwk_board/mmwk_board_config.c"
         self.lib = "components/mmwk_sdk/lib/esp32s3/os-idf553/libmmwk_sdk.a"
+        self.mini_lib = "components/mmwk_sdk/lib/esp32/os-idf553/libmmwk_sdk.a"
+        self.fw6843 = "assets/radar68xx/out_of_box_6843_aop.bin"
+        self.cfg6843 = "assets/radar68xx/out_of_box_6843_aop.cfg"
         self.fw = "assets/radarl64xx/presence.appimage"
         self.cfg = "assets/radarl64xx/presence.cfg"
         self.contents = {
@@ -37,8 +40,11 @@ class BundleLockTests(unittest.TestCase):
             self.board_header: b"board header",
             self.board_source: b"board data",
             self.lib: b"the same archive for PRO/WDR",
+            self.mini_lib: b"ESP32 archive for MINI",
             self.fw: b"6432 firmware",
             self.cfg: b"6432 config",
+            self.fw6843: b"6843 firmware",
+            self.cfg6843: b"6843 config",
         }
         for name, content in self.contents.items():
             file = self.root / name
@@ -47,25 +53,48 @@ class BundleLockTests(unittest.TestCase):
         self.manifest = {
             "schema": 3, "format": "mmwk-sdk-aggregate-v2",
             "board_config_abi": 2,
-            "target_groups": {"esp32s3": {
-                "target": "esp32s3", "abi": "os-idf553",
-                "boards": ["pro", "wdr"],
-                "archive": {"path": self.lib, "sha256": digest(self.contents[self.lib])},
-            }},
-            "boards": {"wdr": {
-                "target": "esp32s3", "radar_chip": 6432,
-                "asset_family": "radarl64xx",
-                "capabilities": ["core", "network", "local_control", "portal", "mqtt_control"],
-            }},
+            "target_groups": {
+                "esp32": {
+                    "target": "esp32", "abi": "os-idf553", "boards": ["mini"],
+                    "archive": {"path": self.mini_lib, "sha256": digest(self.contents[self.mini_lib])},
+                },
+                "esp32s3": {
+                    "target": "esp32s3", "abi": "os-idf553", "boards": ["pro", "wdr"],
+                    "archive": {"path": self.lib, "sha256": digest(self.contents[self.lib])},
+                },
+            },
+            "boards": {
+                "mini": {
+                    "target": "esp32", "radar_chip": 6843,
+                    "asset_family": "radar68xx",
+                    "capabilities": ["core", "network", "local_control", "portal", "mqtt_control"],
+                },
+                "pro": {
+                    "target": "esp32s3", "radar_chip": 6843,
+                    "asset_family": "radar68xx",
+                    "capabilities": ["core", "network", "local_control", "portal", "mqtt_control"],
+                },
+                "wdr": {
+                    "target": "esp32s3", "radar_chip": 6432,
+                    "asset_family": "radarl64xx",
+                    "capabilities": ["core", "network", "local_control", "portal", "mqtt_control"],
+                },
+            },
             "headers": {self.header: digest(self.contents[self.header])},
             "board_sources": {
                 self.board_header: digest(self.contents[self.board_header]),
                 self.board_source: digest(self.contents[self.board_source]),
             },
-            "asset_pairs": {"radarl64xx": {
-                "firmware": {"path": self.fw, "sha256": digest(self.contents[self.fw])},
-                "config": {"path": self.cfg, "sha256": digest(self.contents[self.cfg])},
-            }},
+            "asset_pairs": {
+                "radarl64xx": {
+                    "firmware": {"path": self.fw, "sha256": digest(self.contents[self.fw])},
+                    "config": {"path": self.cfg, "sha256": digest(self.contents[self.cfg])},
+                },
+                "radar68xx": {
+                    "firmware": {"path": self.fw6843, "sha256": digest(self.contents[self.fw6843])},
+                    "config": {"path": self.cfg6843, "sha256": digest(self.contents[self.cfg6843])},
+                },
+            },
             "managed_paths": list(self.contents),
             "file_sha256": {name: digest(blob) for name, blob in self.contents.items()},
         }
@@ -99,6 +128,22 @@ class BundleLockTests(unittest.TestCase):
         wrong = {**expected, "preset": "wifi-data"}
         with self.assertRaisesRegex(ValueError, "mismatched"):
             bundle.read_lock(lock, wrong)
+
+    def test_exact_approved_target_and_board_inventory(self):
+        self.inspect()
+        for bad_case in ("missing-mini", "extra-board", "extra-s3", "spoof-pro"):
+            with self.subTest(case=bad_case):
+                spec = copy.deepcopy(self.manifest)
+                if bad_case == "missing-mini":
+                    del spec["target_groups"]["esp32"]
+                elif bad_case == "extra-board":
+                    spec["boards"]["box3"] = dict(spec["boards"]["wdr"])
+                elif bad_case == "extra-s3":
+                    spec["target_groups"]["esp32s3"]["boards"].append("box3")
+                else:
+                    spec["boards"]["pro"]["radar_chip"] = 6432
+                with self.assertRaisesRegex(ValueError, "aggregate"):
+                    self.inspect(spec)
 
     def test_selected_caps_and_abi(self):
         self.inspect(preset="wifi-data")

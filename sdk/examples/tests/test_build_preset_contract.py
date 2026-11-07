@@ -34,6 +34,20 @@ class PresenceBuildSelectionTests(unittest.TestCase):
     def calls(self):
         return self.log.read_text().splitlines() if self.log.exists() else []
 
+    def test_build_script_shell_syntax_and_single_entrypoints(self):
+        checked = subprocess.run(["bash", "-n", str(SCRIPT)],
+                                 capture_output=True, text=True)
+        self.assertEqual(checked.returncode, 0, checked.stderr)
+        source = SCRIPT.read_text()
+        for function in ("require_preset_ready", "preflight_presence_cache",
+                         "build_presence_board", "build_presence", "main"):
+            self.assertEqual(source.count(function + "() {"), 1, function)
+        self.assertEqual(source.count('main "$@"'), 1)
+        self.assertLess(source.index('preflight_presence_cache() {'),
+                        source.index('build_presence_board() {'))
+        self.assertLess(source.index('for check_board in mini pro wdr'),
+                        source.index('build_presence_board mini "$preset" "$explicit"'))
+
     def test_native_host_runner_never_invokes_target_or_publisher(self):
         runner = ROOT / "sdk/examples/tests/run_host_checks.sh"
         self.assertTrue(runner.is_file())
@@ -101,6 +115,22 @@ class PresenceBuildSelectionTests(unittest.TestCase):
                 result = self.run_build("presence", "wdr", "--preset", name)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("requires a verified aggregate package", result.stderr)
+        self.assertEqual(self.calls(), [])
+
+    def test_all_fails_before_any_idf_if_later_board_has_stale_cache(self):
+        copied = self.dir / "sdk/examples"
+        copied.mkdir(parents=True)
+        (copied / "presence").mkdir()
+        shutil.copyfile(SCRIPT, copied / "build.sh")
+        stale = copied / "build/presence/pro/CMakeCache.txt"
+        stale.parent.mkdir(parents=True)
+        stale.write_text("MMWK_STAGE1_BOARD:UNINITIALIZED=pro\n"
+                         "MMWK_STAGE1_ABI:UNINITIALIZED=old\n")
+        result = subprocess.run(
+            ["bash", str(copied / "build.sh"), "all"],
+            capture_output=True, text=True, env=self.env)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("cannot reuse aggregate Stage1 CMake cache", result.stderr)
         self.assertEqual(self.calls(), [])
 
     def test_all_legacy_boards_and_bad_preset(self):

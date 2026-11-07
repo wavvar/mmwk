@@ -171,6 +171,19 @@ class Stage1BuildLockTests(unittest.TestCase):
         self.assertIn("aggregate CMake cache", fallback.stderr)
         self.assertEqual(before, len(self.invocations()))
 
+    def test_aggregate_build_rejects_stale_lock_cache_before_idf(self):
+        self.lock("offline")
+        build = self.prepare_flash_fixture()
+        cache = build / "CMakeCache.txt"
+        cache.write_text(cache.read_text().replace(
+            "MMWK_STAGE1_ABI:UNINITIALIZED=os-idf553",
+            "MMWK_STAGE1_ABI:UNINITIALIZED=old-abi"))
+        denied = self.call("offline")
+        self.assertNotEqual(denied.returncode, 0)
+        self.assertIn("Aggregate SDK build cache differs", denied.stderr)
+        self.assertEqual(self.invocations(), [])
+        self.assertIn("old-abi", cache.read_text())
+
     def test_verified_offline_archive_and_lock_are_used_before_idf(self):
         self.lock("offline")
         result = self.call("offline")
@@ -241,6 +254,24 @@ class Stage1BuildLockTests(unittest.TestCase):
             with self.subTest(preset=preset):
                 self.assertNotEqual(self.call(preset).returncode, 0)
         self.assertEqual(self.invocations(), [])
+
+    def test_all_three_boards_select_independent_default_locks(self):
+        env = dict(self.env)
+        env.pop("MMWK_STAGE1_LOCK_FILE")
+        for board in ("mini", "pro", "wdr"):
+            record = bundle.inspect(self.sdk, board, "default", "os-idf553")
+            (self.home / ("mmwk-sdk." + board + ".default.lock.json")).write_text(
+                json.dumps(record, sort_keys=True))
+        run = subprocess.run(
+            ["bash", str(self.examples / "build.sh"),
+             "presence", "all", "--preset", "default"],
+            env=env, capture_output=True, text=True)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        calls = self.invocations()
+        self.assertEqual(len(calls), 3)
+        for name, command in zip(("mini", "pro", "wdr"), calls):
+            self.assertIn("MMWK_STAGE1_BOARD=" + name, command)
+            self.assertIn("mmwk-sdk." + name + ".default.lock.json", command)
 
     def test_default_requires_matching_new_package_lock(self):
         self.lock("default")

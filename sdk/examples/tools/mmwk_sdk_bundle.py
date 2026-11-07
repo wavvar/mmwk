@@ -186,6 +186,20 @@ def inspect(root: Path, board: str, preset: str, abi: str) -> dict:
     if type(caps) is not list or any(type(x) is not str for x in caps) or \
             len(set(caps)) != len(caps) or not PRESETS[preset] <= set(caps):
         raise ValueError("requested preset not supported by SDK board")
+    expected_members = {"esp32": ["mini"], "esp32s3": ["pro", "wdr"]}
+    if set(groups) != set(expected_members) or set(board_map) != set(PROFILES):
+        raise ValueError("incomplete or unapproved aggregate board/target inventory")
+    for group_target, members in expected_members.items():
+        record = groups[group_target]
+        if (type(record) is not dict or record.get("target") != group_target or
+                record.get("boards") != members):
+            raise ValueError("unapproved aggregate target group members: " + group_target)
+    for profile_name, expected_profile in PROFILES.items():
+        record = board_map[profile_name]
+        if (type(record) is not dict or
+                (record.get("target"), record.get("radar_chip"),
+                 record.get("asset_family")) != expected_profile):
+            raise ValueError("unapproved aggregate board profile: " + profile_name)
     group = groups.get(target)
     if type(group) is not dict or group.get("target") != target or \
             group.get("abi") != abi or board not in group.get("boards", []):
