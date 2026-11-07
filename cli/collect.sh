@@ -1,12 +1,11 @@
 #!/bin/bash
-# collect.sh — registry-backed late-attach MQTT raw collection helper
+# collect.sh — local/remote radar DATA collection wrapper
 set -euo pipefail
 
 INVOKE_PWD="$(pwd)"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$SCRIPT_DIR"
 MMWK_CLI="$PROJECT_DIR/run.sh"
-SERVER_SH="$PROJECT_DIR/server.sh"
 TOOL_NAME="collect"
 
 # shellcheck disable=SC1091
@@ -14,32 +13,31 @@ TOOL_NAME="collect"
 
 usage() {
     cat <<'EOF_USAGE'
-collect.sh -- Collect radar raw data using device.yml
+collect.sh -- Collect radar DATA through the shared Python engine
 
 USAGE:
-  ./collect.sh --did DID [options]
-  ./collect.sh --trigger none|radar-restart|device-reboot [direct-options]
+  ./collect.sh --transport uart|usb --port PORT [collection-options]
+  ./collect.sh --transport mqtt --did DID [collection-options]
+  ./collect.sh --ctrl-transport uart|usb --data-transport mqtt [collection-options]
+  ./collect.sh --did DID [registry-backed MQTT attach options]
+  ./collect.sh --trigger none|radar-restart|device-reboot [advanced options]
 
-REQUIRED:
-  --did DID             DID stored in `<working>/device.yml`
-
-OPTIONAL:
-  --duration SEC        Capture duration in seconds; omit for Ctrl-C mode
-  --reboot              Restart the radar service after subscribe-ready bootstrap so startup raw_resp is captured
-  --working DIR         Working directory root for device.yml and data output
-  --server-state-dir DIR
-                       Direct mode server.sh state dir (default: ./build_output/local_server)
-  -h, --help            Show this help
-
-NOTES:
-  - `collect.sh` reads MQTT connection info from `<working>/device.yml`.
-  - Output files are written under `<working>/data/<did>/`.
-  - Data and log outputs now share the same basename: `*_raw_data.sraw` and `*_raw_data.log`.
-  - If `--duration` is omitted, press Ctrl-C to stop.
-  - `--trigger` enables direct pure-MQTT mode and forwards options to
-    `python -m mmwk.tools.collect_raw`.
+The local UART/USB, host MQTT, split, and attach paths use the same Python
+engine as `run.sh collect`. The registry form is a compatibility adapter that
+resolves `device.yml` and invokes the same MQTT engine. The trigger form is an
+explicit advanced pure-MQTT reconnect helper.
 EOF_USAGE
 }
+
+local_engine_mode=false
+for arg in "$@"; do
+    case "$arg" in
+        --transport|--transport=*|--port|--port=*|-p|-p=*|--baudrate|--baudrate=*|-b|-b=*|--raw-baud|--raw-baud=*|--escape|--escape=*|--ctrl-transport|--ctrl-transport=*|--data-transport|--data-transport=*|--data-topic|--data-topic=*|--resp-topic|--resp-topic=*|--prod|--prod=*|--oid|--oid=*|--cid|--cid=*|--protocol|--protocol=*|--reset|--timeout|--timeout=*|--data-ready-timeout|--data-ready-timeout=*|--resp-optional|--verbose|-v|--broker|--broker=*|--mqtt-port|--mqtt-port=*|--mqtt-user|--mqtt-user=*|--mqtt-password|--mqtt-password=*|--mqtt-ca|--mqtt-ca=*|--cfg|--cfg=*|--data-output|--data-output=*|--resp-output|--resp-output=*|--wire-output|--wire-output=*|--summary-output|--summary-output=*|--events-output|--events-output=*|--allow-lossy|--overwrite)
+            local_engine_mode=true
+            break
+            ;;
+    esac
+done
 
 cmd_direct() {
     local server_state_dir=""
@@ -107,10 +105,20 @@ if [ "$direct_mode" = true ]; then
     cmd_direct "$@"
 fi
 
+if [ "$local_engine_mode" = true ]; then
+    setup_project_env
+    cd "$INVOKE_PWD"
+    exec "$MMWK_CLI" collect "$@"
+fi
+
+# Registry-backed compatibility mode. It remains useful after config.sh init,
+# while explicit host/remote/split options above always go through `collect`.
 did=""
 duration=""
 reboot=false
 working_dir=""
+mode="host"
+attach=false
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -126,12 +134,22 @@ while [ $# -gt 0 ]; do
             reboot=true
             shift
             ;;
+        --mode)
+            mode="${2:?missing value for --mode}"
+            shift 2
+            ;;
+        --attach)
+            attach=true
+            shift
+            ;;
         --working)
             working_dir="${2:?missing value for --working}"
             shift 2
             ;;
         -h|--help)
             usage
+            setup_project_env
+            "$PYTHON" -m mmwk collect --help
             exit 0
             ;;
         *)
@@ -175,6 +193,12 @@ if [ -n "$duration" ]; then
 fi
 if [ "$reboot" = true ]; then
     py_args+=(--reboot)
+fi
+if [ "$mode" != "host" ]; then
+    py_args+=(--mode "$mode")
+fi
+if [ "$attach" = true ]; then
+    py_args+=(--attach)
 fi
 
 log_info "Working dir: $working_dir"

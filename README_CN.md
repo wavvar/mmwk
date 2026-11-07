@@ -35,7 +35,7 @@ ESP 芯片通过三种接口与雷达芯片通信：
 
 ESP 的 Flash 分区中包含 NVS（设备设置）、PHY 初始化数据、出厂应用，以及一个用于存放雷达固件二进制与配置文件的 **assets** 分区。在 bridge `auto`、hub `auto` 这类受管启动流程里，ESP 可以从该分区加载雷达固件，并自动完成雷达刷写与配置。
 
-不同板卡的外设配置有所不同。PRO 标准板自带 4G/LTE Cat1，部分型号还提供 ESP 侧用户 IO、音频或外接 4G/LTE 模块。主机通过 USB-UART/Serial 与 ESP 连接，实现本地访问。
+不同板卡的外设配置有所不同。PRO 和 WSR 标准板自带 4G/LTE Cat1，部分型号还提供 ESP 侧用户 IO、音频或外接 4G/LTE 模块。主机可通过 USB-UART/Serial 本地连接；WDR 和 WSR 还支持原生 Type-C USB。
 
 ### 2.2 板卡型号
 
@@ -43,6 +43,7 @@ Name | ESP | Audio | Radar | LED | 4G/LTE Support
 --- | --- | --- | --- | --- | ---
 [MINI](./modules/mini_cn.md) | ESP32 | No | IWR6843AoP | 1 | No
 [PRO](./modules/pro_cn.md) | ESP32S3 | Optional | IWR6843AoP | 1 | 标配 Cat1/4G
+[WSR](./modules/wsr_cn.md) | ESP32S3 | Optional | IWR6843AoP | 1 | 标配 Cat1/4G
 [RPI](./modules/rpx_cn.md#3-rpi-6432-感知模块) | ESP32S3 | Yes | IWRL6432AoP | 1 | No
 [CFH](./modules/rpx_cn.md#2-6843-系列感知模块) | ESP32S3 | Yes | IWR6843AoP | 1 | No
 IOT | ESP32S3 | No | IWR6843AoP | 1 | Yes
@@ -105,7 +106,7 @@ MMWK 支持你把自己的软件和硬件带入生态：
 
 ### 3.2 应用场景
 
-**采集雷达数据：** 如果设备已经运行某个 [`mmwk_sensor`](./docs/zh-cn/mmwk-sensor.md) 固件 profile，而你要采集 raw 雷达数据、验证点云/数据或建立可复现采集流程，请走这条路径。先完成 Wi-Fi 或 4G 联网，确认 MQTT 可达，再阅读 [mmWave Sensor Development Kit](./docs/zh-cn/mmwk-sensor.md) 和 [本地 `server.sh` + `run.sh` Wi-Fi 刷机与 5 分钟采集示例](./docs/zh-cn/collect.md)。如果你要使用任务导向 wrapper，请看 [Radar Task Tools](./cli/docs/zh-cn/radar-task-tools.md) 和 [通过 Bridge 开发雷达](./cli/docs/zh-cn/bridge-ti-radar-debug.md)。
+**采集雷达数据：** 如果设备已经运行某个 [`mmwk_sensor`](./docs/zh-cn/mmwk-sensor.md) 固件 profile，而你要采集 raw 雷达数据、验证点云/数据或建立可复现采集流程，请走这条路径。先完成 Wi-Fi 或 4G 联网，确认 MQTT 可达，再阅读 [mmWave Sensor Development Kit](./docs/zh-cn/mmwk-sensor.md) 和 [本地 MQTT/HTTP 完整采集示例](./cli/docs/zh-cn/data-collection.md#9-本地-mqtthttp-完整采集示例)。如果你要使用任务导向 wrapper，请看 [Radar Task Tools](./cli/docs/zh-cn/radar-task-tools.md) 和 [通过 Bridge 开发雷达](./cli/docs/zh-cn/bridge-ti-radar-debug.md)。
 
 **刷自己的雷达固件：** 如果你已经有自己开发或选择的雷达 firmware/config 配对，请走这条路径。尽量先在雷达开发板上验证 `.bin` / `.appimage` 与 `.cfg` 是否匹配，再使用 MMWK 的 bridge 能力完成刷写、配置和采集验证。主要入口是 [雷达固件](#5-雷达固件)、[通过 Bridge 开发雷达](./cli/docs/zh-cn/bridge-ti-radar-debug.md)，以及 CLI 的 [固件刷写流程](./cli/docs/zh-cn/README.md#固件刷写流程)。需要网络 OTA 下载时使用 HTTP；台架场景也可以根据需要选择 UART 或 MQTT 分块传输。
 

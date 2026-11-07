@@ -5,6 +5,7 @@ import json
 import logging
 import argparse
 import os
+from pathlib import Path
 
 from mmwk._logging import logger
 from mmwk.transport import create_transport
@@ -15,6 +16,11 @@ from mmwk.commands.ota import OtaCommand
 from mmwk.commands.reconf import ReconfCommand
 from mmwk.commands.device_ota import DeviceOtaCommand
 from mmwk.commands.collect import CollectCommand
+from mmwk.commands.collect_engine import (
+    CollectionPlan,
+    collect_local,
+    collect_split_wire_mqtt,
+)
 from mmwk.commands.cfg import CfgCommand
 
 _ACTIVE_PROTOCOL = "cli"
@@ -95,7 +101,7 @@ def _usb_node_info_matches(text, expected_did=None):
         if reported_did is not None:
             break
 
-    if str(board or "").strip().casefold() != "wdr":
+    if str(board or "").strip().casefold() not in {"wdr", "wsr"}:
         logger.debug("USB node info probe rejected board=%r", board)
         return False
     if expected_did and str(reported_did or "").strip().casefold() != expected_did:
@@ -287,7 +293,7 @@ def add_transport_args(parser, include_route_args=True):
                        help="Control protocol (default: cli; use mcp as fallback)")
     group.add_argument("--transport", "-t", default="uart",
                        choices=["uart", "usb", "mqtt"],
-                       help="Transport layer (default: uart; USB is WDR CDC only)")
+                       help="Transport layer (default: uart; USB is WDR/WSR CDC only)")
     group.add_argument("--port", "-p", help="Serial port (UART or exact USB CDC path)")
     group.add_argument("--baudrate", "-b", type=int, default=115200,
                        help="UART baudrate (USB CDC always uses 115200; default: 115200)")
@@ -723,8 +729,6 @@ def cmd_device_agent(args):
             dev_args["mqtt"] = args.mqtt
         if args.uart is not None:
             dev_args["uart"] = args.uart
-        if args.raw_auto is not None:
-            dev_args["raw_auto"] = args.raw_auto
         if getattr(args, "uart_split", None) is not None:
             dev_args["uart_split"] = args.uart_split
         if getattr(args, "led", None) is not None:
@@ -877,72 +881,164 @@ def cmd_fw_download(args):
         transport.close()
 
 
-def cmd_record(args):
-    """Handle: mmwk record ..."""
-    transport = _cli_create_transport(args)
-    try:
-        mcp = McpClient(transport)
-        mcp.initialize(timeout=args.timeout)
-
-        rec_args = {"action": args.action}
-        if args.action == "start" and getattr(args, 'uri', None):
-            rec_args["uri"] = args.uri
-        elif args.action == "trigger":
-            if getattr(args, 'event', None):
-                rec_args["event"] = args.event
-            if getattr(args, 'duration', None) is not None:
-                rec_args["duration_sec"] = args.duration
-
-        result = mcp.call_tool("record", rec_args, timeout=args.timeout)
-        text = mcp.extract_text(result)
-        try:
-            data = json.loads(text)
-            print(json.dumps(data, indent=2))
-        except Exception:
-            print(text)
-    finally:
-        transport.close()
-
-
 def cmd_radar_raw(args):
     """Handle: mmwk radar raw ..."""
-    payload = {}
-    if args.raw_group == "status":
-        payload = {"action": "status"}
-    elif args.raw_group == "config":
-        if args.raw_config_action == "get":
-            payload = {"action": "config_get"}
-        else:
-            payload = {
-                "action": "config_set",
-                "config": _load_json_object_arg(args.json),
-            }
-    elif args.raw_group == "start":
-        payload = {"action": "start"}
-        if getattr(args, "uri", None):
-            payload["uri"] = args.uri
-    elif args.raw_group == "stop":
-        payload = {"action": "stop"}
-    elif args.raw_group == "trigger":
-        payload = {"action": "trigger"}
+    payload = {"action": "raw"}
+    action = args.raw_action
+    if action == "status":
+        _call_tool_and_print_json(args, "radar", payload)
+        return
+
+    channel = getattr(args, "channel", None)
+    ctrl = getattr(args, "ctrl", None)
+    data = getattr(args, "data", None)
+    baud = getattr(args, "baud", None)
+    escape = getattr(args, "escape", None)
+    if channel is not None and (ctrl is not None or data is not None):
+        print("Error: --channel cannot be combined with --ctrl/--data")
+        raise SystemExit(2)
+    if (ctrl is None) != (data is None):
+        print("Error: --ctrl and --data must be supplied together")
+        raise SystemExit(2)
+    if channel is None and ctrl is None and action != "off":
+        print("Error: state-changing raw commands require --channel or --ctrl/--data")
+        raise SystemExit(2)
+    if action == "reconnect":
+        if channel != "mqtt" or ctrl is not None or data is not None:
+            print("Error: reconnect requires --channel mqtt and no explicit ctrl/data")
+            raise SystemExit(2)
+        if baud is not None or escape is not None:
+            print("Error: reconnect does not accept --baud or --escape")
+            raise SystemExit(2)
+    if action == "off" and baud is not None:
+        print("Error: --baud is only valid for raw runtime")
+        raise SystemExit(2)
+    if action != "runtime" and escape is not None:
+        print("Error: --escape is only valid for raw runtime")
+        raise SystemExit(2)
+    data_route = data or channel
+    if baud is not None and data_route not in {"wire", "both"}:
+        print("Error: --baud requires a wire DATA route")
+        raise SystemExit(2)
+
+    payload["mode"] = action
+    for name in ("channel", "ctrl", "data", "baud", "escape"):
+        value = getattr(args, name, None)
+        if value is not None:
+            payload[name] = value
+    _call_tool_and_print_json(args, "radar", payload)
+
+
+def cmd_radar_record(args):
+    """Handle: mmwk radar record start|stop|trigger ..."""
+    payload = {"action": "record", "op": args.record_action}
+    if args.record_action == "config_set":
+        payload["config"] = _load_json_object_arg(args.json)
+    elif args.record_action == "start":
+        if not getattr(args, "uri", None):
+            print("Error: radar record start requires --uri")
+            raise SystemExit(2)
+        payload["uri"] = args.uri
+    elif args.record_action == "trigger":
         if getattr(args, "event", None):
             payload["event"] = args.event
         if getattr(args, "duration_s", None) is not None:
             payload["duration_s"] = args.duration_s
-
-    _call_tool_and_print_json(args, "radar.raw", payload)
+    _call_tool_and_print_json(args, "radar", payload)
 
 
 def cmd_collect(args):
     """Handle: mmwk collect ..."""
+    summary_output = getattr(args, "summary_output", None)
+    explicit_output_values = [
+        value for value in (
+            getattr(args, "data_output", None),
+            getattr(args, "resp_output", None),
+            getattr(args, "wire_output", None),
+            summary_output,
+            getattr(args, "events_output", None),
+        ) if value
+    ]
+    resolved_outputs = [Path(value).expanduser().resolve() for value in explicit_output_values]
+    if len(set(resolved_outputs)) != len(resolved_outputs):
+        print("Error: collection output paths must be distinct")
+        sys.exit(1)
+    transport_name = getattr(args, "transport", None)
+    ctrl_transport = getattr(args, "ctrl_transport", None)
+    data_transport = getattr(args, "data_transport", None)
+    if (ctrl_transport is None) != (data_transport is None):
+        print("Error: --ctrl-transport and --data-transport must be supplied together")
+        sys.exit(1)
+    if ctrl_transport is not None:
+        if transport_name is not None:
+            print("Error: --transport cannot be combined with --ctrl-transport/--data-transport")
+            sys.exit(1)
+        if not (ctrl_transport in {"uart", "usb"} and data_transport == "mqtt"):
+            print("Error: split collection currently supports local wire control with MQTT DATA")
+            sys.exit(1)
+        transport_name = ctrl_transport
+    else:
+        transport_name = transport_name or ("uart" if args.port else "mqtt")
+    mode = getattr(args, "mode", "host")
+    if transport_name in {"uart", "usb"}:
+        try:
+            raw_baud = args.raw_baud
+            if raw_baud is None and transport_name == "uart" and data_transport is None:
+                raw_baud = 1_000_000
+            plan = CollectionPlan(
+                transport=transport_name,
+                port=args.port,
+                baudrate=args.baudrate,
+                raw_baud=raw_baud,
+                escape=getattr(args, "escape", "+++"),
+                mode=mode,
+                duration=args.duration,
+                cfg_path=getattr(args, "cfg", None),
+                data_output=args.data_output,
+                resp_output=args.resp_output,
+                wire_output=getattr(args, "wire_output", None),
+                summary_output=summary_output,
+                events_output=getattr(args, "events_output", None),
+                overwrite=getattr(args, "overwrite", False),
+                attach=getattr(args, "attach", False),
+                allow_lossy=getattr(args, "allow_lossy", False),
+                ctrl_transport=ctrl_transport,
+                data_transport=data_transport,
+                data_ready_timeout=getattr(args, "data_ready_timeout", 10.0),
+                control_timeout=args.timeout,
+            )
+            if ctrl_transport is not None:
+                summary = collect_split_wire_mqtt(
+                    plan,
+                    broker=args.broker,
+                    mqtt_port=args.mqtt_port,
+                    expected_did=args.did,
+                    data_topic=args.data_topic,
+                    prod=args.prod,
+                    oid=args.oid,
+                    cid=args.cid,
+                    mqtt_username=getattr(args, "mqtt_user", "") or "",
+                    mqtt_password=getattr(args, "mqtt_password", "") or "",
+                    mqtt_ca=getattr(args, "mqtt_ca", None),
+                )
+            else:
+                summary = collect_local(plan, expected_did=args.did)
+            print(json.dumps(summary.as_dict(), indent=2))
+            if not summary.cleanup.state_restored:
+                sys.exit(1)
+            return
+        except Exception as exc:
+            print(f"Error: {exc}")
+            sys.exit(1)
+
     transport = None
     mcp = None
 
     try:
-        if args.port:
-            transport = _cli_create_transport(args)
-            mcp = McpClient(transport)
-            mcp.initialize(timeout=args.timeout)
+        args.transport = "mqtt"
+        transport = _cli_create_transport(args)
+        mcp = McpClient(transport)
+        mcp.initialize(timeout=args.timeout)
 
         collector = CollectCommand(mcp)
         ok = collector.execute(
@@ -958,7 +1054,17 @@ def cmd_collect(args):
             data_topic=args.data_topic,
             resp_topic=args.resp_topic,
             resp_optional=getattr(args, "resp_optional", False),
+            mode=mode,
+            attach=getattr(args, "attach", False),
+            overwrite=getattr(args, "overwrite", False),
             timeout=args.timeout,
+            cfg_path=getattr(args, "cfg", None),
+            summary_output=summary_output,
+            events_output=getattr(args, "events_output", None),
+            wire_output=getattr(args, "wire_output", None),
+            mqtt_username=getattr(args, "mqtt_user", "") or "",
+            mqtt_password=getattr(args, "mqtt_password", "") or "",
+            mqtt_ca=getattr(args, "mqtt_ca", None),
         )
         sys.exit(0 if ok else 1)
     finally:
@@ -1333,45 +1439,93 @@ def main():
     add_transport_args(fw_dl_parser)
     fw_dl_parser.set_defaults(func=cmd_fw_download)
 
-    # radar raw
-    radar_raw_parser = radar_sub.add_parser("raw", help="Inspect raw recorder state, config, and recorder lifecycle")
-    radar_raw_sub = radar_raw_parser.add_subparsers(dest="raw_group", required=True)
+    # radar raw route
+    radar_raw_parser = radar_sub.add_parser(
+        "raw",
+        help="Inspect or change the raw radar route",
+    )
+    radar_raw_sub = radar_raw_parser.add_subparsers(dest="raw_action", required=True)
 
-    radar_raw_status_parser = radar_raw_sub.add_parser("status", help="Show radar raw recorder status")
+    radar_raw_status_parser = radar_raw_sub.add_parser("status", help="Show raw route status")
     add_transport_args(radar_raw_status_parser)
     radar_raw_status_parser.set_defaults(func=cmd_radar_raw)
 
-    radar_raw_config_parser = radar_raw_sub.add_parser("config", help="Get or update radar raw config")
-    radar_raw_config_sub = radar_raw_config_parser.add_subparsers(dest="raw_config_action", required=True)
+    for raw_mode, mode_help in (
+        ("runtime", "Open a raw route for the current radar service"),
+        ("reconnect", "Arm one-shot auto-mode MQTT DATA after reconnect"),
+        ("off", "Close a selected raw route"),
+    ):
+        raw_mode_parser = radar_raw_sub.add_parser(raw_mode, help=mode_help)
+        raw_mode_parser.add_argument(
+            "--channel",
+            choices=["wire", "mqtt", "both"],
+            help="Raw route shorthand for command and data paths",
+        )
+        raw_mode_parser.add_argument(
+            "--ctrl",
+            choices=["off", "wire", "mqtt", "both"],
+            help="Raw command/response route (runtime host only)",
+        )
+        raw_mode_parser.add_argument(
+            "--data",
+            choices=["off", "wire", "mqtt", "both"],
+            help="Raw radar-data route (runtime host only)",
+        )
+        raw_mode_parser.add_argument(
+            "--baud",
+            type=int,
+            help="Wire raw data baud (maximum 1000000; default 1000000)",
+        )
+        raw_mode_parser.add_argument(
+            "--escape",
+            help="Wire host escape sequence (default +++; guarded by one second idle windows)",
+        )
+        add_transport_args(raw_mode_parser)
+        raw_mode_parser.set_defaults(func=cmd_radar_raw)
 
-    radar_raw_config_get_parser = radar_raw_config_sub.add_parser("get", help="Read radar raw config")
-    add_transport_args(radar_raw_config_get_parser)
-    radar_raw_config_get_parser.set_defaults(func=cmd_radar_raw)
+    # radar record
+    radar_record_parser = radar_sub.add_parser(
+        "record",
+        help="Start, stop, or trigger a radar recording",
+    )
+    radar_record_sub = radar_record_parser.add_subparsers(dest="record_action", required=True)
 
-    radar_raw_config_set_parser = radar_raw_config_sub.add_parser("set", help="Write radar raw config")
-    radar_raw_config_set_parser.add_argument(
+    radar_record_status_parser = radar_record_sub.add_parser("status", help="Show recorder state")
+    add_transport_args(radar_record_status_parser)
+    radar_record_status_parser.set_defaults(func=cmd_radar_record)
+
+    radar_record_config_parser = radar_record_sub.add_parser("config", help="Read or write recorder config")
+    radar_record_config_sub = radar_record_config_parser.add_subparsers(
+        dest="record_config_action", required=True
+    )
+    radar_record_config_get_parser = radar_record_config_sub.add_parser("get", help="Read recorder config")
+    add_transport_args(radar_record_config_get_parser)
+    radar_record_config_get_parser.set_defaults(record_action="config_get", func=cmd_radar_record)
+
+    radar_record_config_set_parser = radar_record_config_sub.add_parser("set", help="Write recorder config")
+    radar_record_config_set_parser.add_argument(
         "--json",
         required=True,
-        help="JSON object string, @file, or file path containing the raw config patch",
+        help="JSON object string, @file, or file path containing the record config",
     )
-    add_transport_args(radar_raw_config_set_parser)
-    radar_raw_config_set_parser.set_defaults(func=cmd_radar_raw)
+    add_transport_args(radar_record_config_set_parser)
+    radar_record_config_set_parser.set_defaults(record_action="config_set", func=cmd_radar_record)
 
-    radar_raw_start_parser = radar_raw_sub.add_parser("start", help="Arm the raw recorder")
-    radar_raw_start_parser.add_argument("--uri", help="Upload target URI override")
-    add_transport_args(radar_raw_start_parser)
-    radar_raw_start_parser.set_defaults(func=cmd_radar_raw)
+    radar_record_start_parser = radar_record_sub.add_parser("start", help="Start the recorder")
+    radar_record_start_parser.add_argument("--uri", help="Upload target URI override")
+    add_transport_args(radar_record_start_parser)
+    radar_record_start_parser.set_defaults(func=cmd_radar_record)
 
-    radar_raw_stop_parser = radar_raw_sub.add_parser("stop", help="Stop the raw recorder")
-    add_transport_args(radar_raw_stop_parser)
-    radar_raw_stop_parser.set_defaults(func=cmd_radar_raw)
+    radar_record_stop_parser = radar_record_sub.add_parser("stop", help="Stop the recorder")
+    add_transport_args(radar_record_stop_parser)
+    radar_record_stop_parser.set_defaults(func=cmd_radar_record)
 
-    radar_raw_trigger_parser = radar_raw_sub.add_parser("trigger", help="Trigger a raw recording window")
-    radar_raw_trigger_parser.add_argument("--event", help="Trigger event name (default: manual)")
-    radar_raw_trigger_parser.add_argument("--duration-s", dest="duration_s", type=int,
-                                          help="Recording duration in seconds (defaults to radar.raw config)")
-    add_transport_args(radar_raw_trigger_parser)
-    radar_raw_trigger_parser.set_defaults(func=cmd_radar_raw)
+    radar_record_trigger_parser = radar_record_sub.add_parser("trigger", help="Trigger a recording window")
+    radar_record_trigger_parser.add_argument("--event", help="Trigger event name (default: manual)")
+    radar_record_trigger_parser.add_argument("--duration-s", dest="duration_s", type=int,
+                                              help="Recording duration in seconds")
+    add_transport_args(radar_record_trigger_parser)
+    radar_record_trigger_parser.set_defaults(func=cmd_radar_record)
 
     # radar diag
     diag_parser = radar_sub.add_parser("diag", help="Manage/query radar diagnostics")
@@ -1475,8 +1629,6 @@ def main():
                                      help="MQTT agent enable (0=off, 1=on)")
     device_agent_parser.add_argument("--uart", type=int, choices=[0, 1], default=None,
                                      help="UART agent enable (0=off, 1=on)")
-    device_agent_parser.add_argument("--raw-auto", type=int, choices=[0, 1], default=None,
-                                     help="Auto-enable raw stream on boot (0=off, 1=on)")
     device_agent_parser.add_argument("--uart-split", dest="uart_split", type=int, choices=[0, 1], default=None,
                                      help="Split single-UART runtime data after sensorStart (0=off, 1=on)")
     device_agent_parser.add_argument("--led", type=int, choices=[0, 1], default=None,
@@ -1488,7 +1640,7 @@ def main():
         dest="usb_ms",
         type=_usb_ms_arg,
         default=None,
-        help="WDR UART idle window before USB CDC takeover (0=stay on UART, max 60000)",
+        help="WDR/WSR UART idle window before USB CDC takeover (0=stay on UART, max 60000)",
     )
     add_transport_args(device_agent_parser)
     device_agent_parser.set_defaults(func=cmd_device_agent)
@@ -1521,34 +1673,69 @@ def main():
     # -- collect --
     collect_parser = subparsers.add_parser(
         "collect",
-        help="Collect MQTT raw_data/raw_resp into raw data plus trimmed cmd_resp text files",
+        help="Collect radar raw DATA through local host UART/USB, MQTT, or split routes",
     )
     collect_parser.add_argument("--duration", type=int, default=10,
                                 help="Collection time in seconds (default: 10)")
+    collect_parser.add_argument("--transport", choices=["uart", "usb", "mqtt"], default="uart",
+                                help="Control/data transport (default: uart; local host collection)")
+    collect_parser.add_argument("--mode", choices=["host", "auto"], default="host",
+                                help="Radar ownership mode (default: host)")
+    collect_parser.add_argument("--raw-baud", type=int, default=None,
+                                help="Local UART raw DATA baud (max 1000000; USB rejects this option)")
+    collect_parser.add_argument("--escape", default="+++",
+                                help="Wire raw escape sequence (1-16 printable characters; default: +++)")
+    collect_parser.add_argument("--cfg", help="Radar cfg file for a local host collection")
+    collect_parser.add_argument("--attach", action="store_true",
+                                help=("Borrow an existing radar lifecycle without reconfiguring it; "
+                                      "auto mode requires an active MQTT DATA route"))
+    collect_parser.add_argument("--ctrl-transport", choices=["uart", "usb", "mqtt"],
+                                help="Split-session command transport (requires --data-transport)")
+    collect_parser.add_argument("--data-transport", choices=["uart", "usb", "mqtt"],
+                                help="Split-session DATA transport (requires --ctrl-transport)")
+    collect_parser.add_argument("--allow-lossy", action="store_true",
+                                help="Allow explicitly lossy local UART capture (never claims lossless output)")
+    collect_parser.add_argument("--wire-output",
+                                help="Optional complete merged raw-wire audit output")
+    collect_parser.add_argument("--events-output",
+                                help="Optional JSON-lines phase and cleanup event log")
+    collect_parser.add_argument("--overwrite", action="store_true",
+                                help="Atomically replace existing collection outputs")
+    collect_parser.add_argument("--summary-output",
+                                help="Optional JSON summary output path")
     collect_parser.add_argument("--protocol", choices=["mcp", "cli"],
                                 help="Control protocol for optional device discovery (default: cli)")
     collect_parser.add_argument(
         "--data-output",
-        default="data_resp.sraw",
-        help="Output file for raw_data/data_resp payloads (raw DATA UART bytes, default: data_resp.sraw)",
+        default=None,
+        help=("Output file for validated radar DATA bytes; MQTT and split routes are DATA-only "
+              "(default: collections/<did>/<timestamp>/radar.sraw)"),
     )
     collect_parser.add_argument(
         "--resp-output",
-        default="cmd_resp.log",
-        help="Output file for raw_resp/cmd_resp payloads (startup-trimmed CMD UART text, default: cmd_resp.log)",
+        default=None,
+        help=("Output file for parsed setup/close acknowledgements in local host mode, "
+              "or MQTT raw/resp payloads in remote host mode "
+              "(default: collections/<did>/<timestamp>/commands.log)"),
     )
     collect_parser.add_argument(
         "--resp-optional",
         action="store_true",
         help=(
-            "Allow late-attach collect to succeed when no raw_resp payload is captured during "
-            "this window; do not use for startup/welcome proof"
+            "Compatibility flag accepted only with --attach; borrowed auto DATA never requires "
+            "a raw/resp topic"
         ),
     )
     collect_parser.add_argument("--broker",
                                 help="MQTT broker URI/host for collection (e.g. mqtt://127.0.0.1:1883)")
     collect_parser.add_argument("--mqtt-port", type=int, default=1883,
                                 help="MQTT broker port (default: 1883)")
+    collect_parser.add_argument("--mqtt-user",
+                                help="MQTT username (defaults to broker URI/device profile)")
+    collect_parser.add_argument("--mqtt-password",
+                                help="MQTT password (never written to summaries or event logs)")
+    collect_parser.add_argument("--mqtt-ca",
+                                help="CA certificate path for mqtts:// broker verification")
     collect_parser.add_argument("--did",
                                 help="DID for MQTT route fallback")
     collect_parser.add_argument("--prod", default="mmwk",
@@ -1558,9 +1745,9 @@ def main():
     collect_parser.add_argument("--cid", default="",
                                 help="MQTT claimed route id; when set it takes precedence over --did")
     collect_parser.add_argument("--data-topic",
-                                help="MQTT raw_data topic to subscribe (DATA UART raw data-port bytes)")
+                                help="MQTT raw/data topic to subscribe (DATA bytes only)")
     collect_parser.add_argument("--resp-topic",
-                                help="MQTT raw_resp topic to subscribe (CMD UART startup-trimmed command-port output)")
+                                help="MQTT raw/resp topic to subscribe (host command-port output)")
     collect_parser.add_argument("--port", "-p",
                                 help="Optional UART serial port for auto-discovery via node info")
     collect_parser.add_argument("--baudrate", "-b", type=int, default=115200,
@@ -1569,9 +1756,11 @@ def main():
                                 help="Reset device before auto-discovery when --port is used")
     collect_parser.add_argument("--timeout", type=float, default=10.0,
                                 help="Timeout for auto-discovery in seconds (default: 10)")
+    collect_parser.add_argument("--data-ready-timeout", type=float, default=10.0,
+                                help="Seconds to wait for the first radar DATA frame (default: 10)")
     collect_parser.add_argument("-v", "--verbose", action="store_true",
                                 help="Enable debug logging")
-    collect_parser.set_defaults(func=cmd_collect, transport="uart")
+    collect_parser.set_defaults(func=cmd_collect, transport=None)
 
     # -- endpoint --
     endpoint_parser = subparsers.add_parser("endpoint", help="Matter-oriented endpoint discovery, state, and config inspection")
@@ -1597,12 +1786,12 @@ def main():
     endpoint_config_sub = endpoint_config_parser.add_subparsers(dest="config_action", required=True)
 
     endpoint_config_get_parser = endpoint_config_sub.add_parser("get", help="Read endpoint config")
-    endpoint_config_get_parser.add_argument("id", help="Endpoint id, e.g. radar.raw")
+    endpoint_config_get_parser.add_argument("id", help="Endpoint id, e.g. radar.record")
     add_transport_args(endpoint_config_get_parser)
     endpoint_config_get_parser.set_defaults(func=cmd_endpoint_config_get)
 
     endpoint_config_set_parser = endpoint_config_sub.add_parser("set", help="Write endpoint config")
-    endpoint_config_set_parser.add_argument("id", help="Endpoint id, e.g. radar.raw")
+    endpoint_config_set_parser.add_argument("id", help="Endpoint id, e.g. radar.record")
     endpoint_config_set_parser.add_argument(
         "--config-json",
         required=True,

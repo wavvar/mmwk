@@ -78,10 +78,10 @@ Hub 内部实现、算法、私有模块和具体产品行为不属于这份公�
 推荐顺序：
 
 1. POSIX shell 下用 `./cli/run.sh node info -p <port>`，Windows PowerShell 下用 `.\cli\run.ps1 node info --port COM3`，确认设备可通过 UART 访问。
-2. 如果 Wi-Fi 和 MQTT 还没配置好，按 [本地 `server.sh` + `run.sh` Wi-Fi 刷机与 5 分钟采集示例](./collect.md) 里的 bring-up 主线继续。
-3. 用 [本地 `server.sh` + `run.sh` Wi-Fi 刷机与 5 分钟采集示例](./collect.md) 完成经过验证的雷达刷写加 5 分钟数据采集流程。
+2. 如果 Wi-Fi 和 MQTT 还没配置好，按 [本地 MQTT/HTTP 完整采集示例](../../cli/docs/zh-cn/data-collection.md#9-本地-mqtthttp-完整采集示例)里的 bring-up 主线继续。
+3. 用同一份[采集示例](../../cli/docs/zh-cn/data-collection.md#9-本地-mqtthttp-完整采集示例)完成雷达刷写加 5 分钟数据采集流程。
 
-`collect.md` 负责完整的详细步骤。参数契约、welcome/version 语义、topic split、raw capture 细节和启动模式边界都已并入本文后续章节。
+[雷达 DATA 采集指南](../../cli/docs/zh-cn/data-collection.md)统一负责完整操作步骤、传输方案、topic split、raw capture 和验收边界；本文保留 sensor 平台能力与固件 profile 说明。
 
 ### 3.3 路径 C：仅做 ESP OTA
 
@@ -158,9 +158,9 @@ UART 是本地工厂初始化、调试、恢复和台架 bring-up 路径。另�
 
 当前板子如果要让 PC 连接 UART，需要外接 UART 转 USB 转接器。PC 的 USB 口不能直接和裸 UART 管脚通信。
 
-WDR 和新设计是普通 CLI / 控制场景下的当前例外：它们通过 UART 和 USB 复用支持内置 USB 串口，所以普通控制接口不需要额外 UART 转 USB 转接器。
+WDR 和 WSR 是普通 CLI / 控制场景下的当前例外：它们通过 UART 和 USB 复用支持内置 USB 串口，所以普通控制接口不需要额外 UART 转 USB 转接器。
 
-ESP 芯片级刷机和普通控制接口是两件事。所有板子做 ESP 芯片级刷机时，仍然需要对应的外部转换器或刷机治具。
+ESP 芯片级刷机和普通控制接口是两件事。WDR/WSR 可通过原生 Type-C 进入对应的出厂烧录流程；只暴露 UART 的板卡仍需要外部转换器或刷机治具。具体步骤见[出厂烧录指南](./flash.md)。
 
 推荐主机入口：
 
@@ -172,7 +172,7 @@ UART 命令默认使用标准 CLI JSON 协议。CLI key 保护启用后，受保
 
 ### 6.2 UART 和 USB 复用
 
-UART 和 USB 复用会在启动或恢复后的空闲窗口内，在 UART 和 USB CDC 之间选择本地控制接口。目前只有 WDR 和新设计支持。
+UART 和 USB 复用会在启动或恢复后的空闲窗口内，在 UART 和 USB CDC 之间选择本地控制接口。目前由 WDR 和 WSR 支持。
 
 这个选择和优先网络无关。空闲窗口内检测到 UART 活动时，控制路径保持在 UART；窗口超时且没有 UART 活动时，控制路径切到 USB CDC。
 
@@ -520,12 +520,12 @@ ESP 侧 KEY 与 LED 行为默认在所有受支持板型上一致。上电后按
 | `details.kind=startup_failed` | 固件大概率没有真正启动到雷达 CLI。 |
 | 雷达配置文件已经发出，但始终没有数据返回 | 大概率是 `.cfg` 和当前运行的雷达固件不匹配，导致雷达固件在应用配置后进入异常/死机状态。请重新核对固件 demo、板型/AOP 变体、CLI 指令是否匹配，并且先在雷达开发板上确认同一份固件 + 配置本身能够正确跑起来。 |
 
-如果你要看完整的 bring-up 主线，请回到 [mmWave Sensor Development Kit](./mmwk-sensor.md)，再继续进入 [本地 `server.sh` + `run.sh` Wi-Fi 刷机与 5 分钟采集示例](./collect.md)。
+如果你要看完整的 bring-up 主线，请回到 [mmWave Sensor Development Kit](./mmwk-sensor.md)，再继续进入 [本地 MQTT/HTTP 完整采集示例](../../cli/docs/zh-cn/data-collection.md#9-本地-mqtthttp-完整采集示例)。
 
 ## 12. 相关文档
 
 - [出厂刷机指南](./flash.md)
-- [本地 `server.sh` + `run.sh` Wi-Fi 刷机与 5 分钟采集示例](./collect.md)
+- [雷达 DATA 采集指南](../../cli/docs/zh-cn/data-collection.md)
 - [设备 OTA 指南](./ota.md)
 - [CLI README](../../cli/docs/zh-cn/README.md)
 - [Radar Task Tools](../../cli/docs/zh-cn/radar-task-tools.md)

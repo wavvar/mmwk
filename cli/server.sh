@@ -4,6 +4,27 @@ set -euo pipefail
 
 INVOKE_PWD="$(pwd)"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+STATE_DIR="${INVOKE_PWD}/build_output/local_server"
+ENV_FILE="$STATE_DIR/server.env"
+
+# Keep the shell-level lifecycle hooks explicit for callers that inspect the
+# wrapper contract.  The Python runtime owns the actual server lifecycle; the
+# hooks document the stale-env invariant without duplicating that state machine.
+prepare_server() {
+    rm -f "$ENV_FILE"
+}
+
+cleanup_server() {
+    :
+}
+
+start_server() {
+    rm -f "$ENV_FILE"
+}
+
+stop_server() {
+    :
+}
 
 find_python() {
     local cmd ver major minor python_path

@@ -2,7 +2,7 @@
 
 [English Version](./README.md)
 
-`modules/` 目录当前覆盖三条产品线：[RPX](./rpx_cn.md)、[WDR](./wdr-m_cn.md) + [ML6432Ax](./ml6432ax_cn.md)，以及 [F9](./f9a1_cn.md)。下面按照系列进行纵览，帮助读者快速理解产品关系，并跳转到对应的详细文档。
+`modules/` 目录当前覆盖三条产品线：[RPX](./rpx_cn.md)、[WDR](./wdr-m_cn.md) + [ML6432Ax](./ml6432ax_cn.md)，以及 [F9](./f9a1_cn.md)，并提供独立的 [ESP32-S3-BOX-3 扩展坞雷达指南](./box3_cn.md)。下面按照系列进行纵览，帮助读者快速理解产品关系，并跳转到对应的详细文档。
 
 ## 1. RPX 系列
 
@@ -13,10 +13,10 @@
 
 `RPX` 系列主要面向独立感知模组和紧凑型开发平台，当前包含 `6843` 产品分支以及 `6432` 类别中的 `RPI` 平台。
 
-- [`MINI`](./mini_cn.md)、[`PRO(RTP)`](./pro_cn.md)、`RTL`、`CFH` 属于 `6843` 系列，适合人体存在检测、轨迹跟踪、空间占用感知和空间感知类应用。
+- [`MINI`](./mini_cn.md)、[`PRO(RTP)`](./pro_cn.md)、[`WSR`](./wsr_cn.md)、`RTL`、`CFH` 属于 `6843` 系列，适合人体存在检测、轨迹跟踪、空间占用感知和空间感知类应用。WSR 采用 PRO 硬件基线和 WDR 式原生 Type-C 接口。
 - [`RPI`](./rpx_cn.md#3-rpi-6432-感知模块) 是一款紧凑型 `6432` 类感知平台，适合低功耗嵌入式集成和体征相关应用。
 - 详细文档： [RPX 系列使用指南](./rpx_cn.md) | [English](./rpx.md)
-- 独立模组文档： [MINI 模组简介](./mini_cn.md) | [English](./mini.md) | [PRO 模组简介](./pro_cn.md) | [English](./pro.md)
+- 独立模组文档： [MINI 模组简介](./mini_cn.md) | [PRO 模组简介](./pro_cn.md) | [WSR 模组简介](./wsr_cn.md)；English: [MINI](./mini.md) | [PRO](./pro.md) | [WSR](./wsr.md)
 
 ## 2. WDR / ML6432Ax 系列
 
@@ -44,8 +44,15 @@
 - `F9A1-D` 是面向特定适配车型结构的安装变体。
 - 详细文档： [F9A1 技术规格书](./f9a1_cn.md) | [English](./f9a1.md)
 
-## 4. 阅读建议
+## 4. ESP32-S3-BOX-3 扩展坞雷达
 
-- 如果目标是查看独立 `6843` 模组细节，优先阅读 [MINI 模组简介](./mini_cn.md) 或 [PRO 模组简介](./pro_cn.md)；如果想看更完整的 RPX 产品图谱，再看 [rpx_cn.md](./rpx_cn.md)。
+`BOX3` 是独立的 ESP32-S3 SDK 板级目标，通过 BOX-3 扩展坞连接 IWRL6432/ML6432A 雷达。只有扩展坞雷达适配部分复用 WDR 类 6432 雷达协议和控制约定；BOX3 原生显示、触摸、音频和启动按键的 IO 保持板级定义。
+
+- [BOX3 扩展坞雷达接线和 SDK 指南](./box3_cn.md) | [English](./box3.md)
+
+## 5. 阅读建议
+
+- 如果目标是查看独立 `6843` 模组细节，优先阅读 [MINI 模组简介](./mini_cn.md)、[PRO 模组简介](./pro_cn.md)或 [WSR 模组简介](./wsr_cn.md)；如果想看更完整的 RPX 产品图谱，再看 [rpx_cn.md](./rpx_cn.md)。
 - 如果目标是集成完整的 `6432` 控制与通信平台，优先阅读 [wdr-m_cn.md](./wdr-m_cn.md)，再继续查看 [wdr-4g_cn.md](./wdr-4g_cn.md)、[ml6432a_bo_cn.md](./ml6432a_bo_cn.md) 和 [ml6432a_cn.md](./ml6432a_cn.md) 了解板级细节。
 - 如果目标是电动两轮车或三轮车的后向安全感知应用，优先阅读 [f9a1_cn.md](./f9a1_cn.md)。
+- 如果目标是使用 ESP32-S3-BOX-3 扩展坞作为雷达主机，优先阅读 [box3_cn.md](./box3_cn.md)。

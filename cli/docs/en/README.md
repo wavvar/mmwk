@@ -1,21 +1,26 @@
 # MMWK CLI Wrapper
 
-This document covers the host-side MMWK CLI wrappers for controlling and managing MMWK bridge/hub devices. The POSIX entrypoint is [`./run.sh`](../../run.sh) on macOS/Linux/Git Bash, and the PowerShell entrypoint is [`.\run.ps1`](../../run.ps1) on Windows. Both wrappers call the Python CLI in [`mmwk/`](../../mmwk/) and expose the same command surface over UART, WDR USB CDC, and MQTT, defaulting to canonical CLI JSON while also supporting MCP when paired with an MCP-enabled firmware build.
+This document covers the host-side MMWK CLI wrappers for controlling and managing MMWK bridge/hub devices. The POSIX entrypoint is [`./run.sh`](../../run.sh) on macOS/Linux/Git Bash, and the PowerShell entrypoint is [`.\run.ps1`](../../run.ps1) on Windows. Both wrappers call the Python CLI in [`mmwk/`](../../mmwk/) and expose the same command surface over UART, WDR/WSR USB CDC, and MQTT, defaulting to canonical CLI JSON while also supporting MCP when paired with an MCP-enabled firmware build.
 
 The CLI now defaults to the canonical CLI JSON protocol. Most MMWK firmware builds also ship with CLI as the built-in control protocol. Some firmware versions additionally provide MCP support; contact us if you need an MCP-enabled firmware version. When using such a firmware version, select `--protocol mcp`.
 
 ## Raw Semantics Contract
 
-- `raw_resp = startup-trimmed command-port output from on_cmd_data`
-- `raw_data = raw data-port bytes from on_radar_data`
-- `on_cmd_resp is an application-layer command response`, and it is different from raw capture.
-- `on_radar_frame is an application-layer frame callback`, and it is different from raw capture.
-- Startup noise before the first printable ASCII byte is trimmed in the radar driver before host-visible command-port output is published.
+Raw forwarding and recording are sibling actions of the single `radar` tool. See
+[Radar data collection](./data-collection.md) for the user workflow.
+
+- `radar raw` controls `mode=off|runtime|reconnect` and `channel=wire|mqtt|both`.
+- `radar record` controls recorder status, configuration, and lifecycle.
+- In `auto`, raw output is MQTT DATA-only; in `host`, the host may control CMD,
+  responses, and DATA.
+- Raw and parsed output are mutually exclusive on one physical channel after
+  raw opens; a separate route may remain parsed.
 
 ---
 
 ## Table of Contents
 - [Installation](#installation)
+- [CLI validation](#cli-validation)
 - [Host Platform Entry Points](#host-platform-entry-points)
 - [Quick Start](#quick-start)
 - [Core Concepts](#core-concepts)
@@ -24,9 +29,10 @@ The CLI now defaults to the canonical CLI JSON protocol. Most MMWK firmware buil
 - [Communication Layers](#communication-layers)
   - [Recommended Architecture](#recommended-architecture)
   - [UART (Local)](#uart-local)
-  - [USB CDC (WDR Local)](#usb-cdc-wdr-local)
+  - [USB CDC (WDR/WSR Local)](#usb-cdc-wdrwsr-local)
   - [MQTT (Remote)](#mqtt-remote)
 - [Command Reference](#command-reference)
+- [Radar Data Collection](./data-collection.md)
 - [Project Documentation](#project-documentation)
 - [Hardware Interaction](#hardware-interaction)
 - [Troubleshooting](#troubleshooting)
@@ -37,7 +43,7 @@ The CLI now defaults to the canonical CLI JSON protocol. Most MMWK firmware buil
 
 ### Prerequisites
 - Python 3.10 or higher
-- USB serial access to the device (when using UART or WDR USB CDC)
+- USB serial access to the device (when using UART or WDR/WSR USB CDC)
 - For POSIX workflows: macOS/Linux with `bash`, or Windows with Git Bash
 - For Windows PowerShell workflows: PowerShell plus Python dependencies installed with `pip install -r requirements.txt`
 
@@ -66,14 +72,47 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
+## CLI validation
+
+The CLI workflows run the same repository-local tests on Linux, macOS, and
+Windows with Python 3.10 and 3.12. Linux and macOS use `/bin/bash`, including
+macOS's system Bash 3.2; Windows tests the PowerShell wrappers and uses Git Bash
+for `config.ps1`. The checks compile all CLI Python modules, check wrapper syntax,
+and exercise help, argument forwarding, failure exit codes, caller-relative paths
+with spaces, and the local MQTT/HTTP server's start/status/env/stop commands.
+Tests use temporary files and local services; no radar device, external broker,
+Mosquitto installation, or sibling SDK checkout is required.
+
+Run from the repository root on Linux/macOS:
+
+```bash
+python3 -m venv cli/venv
+cli/venv/bin/python -m pip install -r cli/requirements.txt
+touch cli/venv/.deps_installed
+cli/venv/bin/python -m unittest discover -s cli/tests -v
+```
+
+On Windows, install PowerShell 7 (`pwsh`) and Git Bash, then run from the
+repository root with Git Bash's `bin` directory first on `PATH`:
+
+```powershell
+py -m pip install -r cli/requirements.txt
+py -m venv --system-site-packages cli/venv
+New-Item -ItemType File -Force -Path cli/venv/.deps_installed | Out-Null
+py -m unittest discover -s cli/tests -v
+```
+
 ## Host Platform Entry Points
 
 | Workflow | macOS / Linux / Git Bash | Windows PowerShell | Notes |
 |---|---|---|---|
 | Main CLI | `./run.sh ...` | `.\run.ps1 ...` | Both resolve relative file arguments from the directory where you invoke the wrapper. `run.sh` manages `./venv`; `run.ps1` uses the active/system Python 3.10+ environment. |
 | Local MQTT + HTTP server | `./server.sh ...` | `.\server.ps1 ...` | Both wrappers use the Python dependencies from `requirements.txt`; no system Mosquitto install is required. |
-| Registry task helpers | `./config.sh`, `./collect.sh` | `.\config.ps1`, `.\collect.ps1` | `config.ps1` delegates to `config.sh` and requires Bash, for example Git Bash. `collect.ps1` delegates to Bash when available; without Bash, `--trigger` pure-MQTT mode and a limited registry collection fallback remain available. |
+| Registry/config helpers | `./config.sh`, `./collect.sh` | `.\config.ps1`, `.\collect.ps1` | `config.ps1` requires Bash for registry tasks; `collect.ps1` invokes the Python collection engine directly. |
 | Direct Python | `python3 -m mmwk ...` | `py -m mmwk ...` or `python -m mmwk ...` | Use only when intentionally bypassing wrappers. |
+
+The built-in HTTP server starts without resolving the machine's host name,
+avoiding startup delays when that name cannot be resolved, including on macOS.
 
 PowerShell command arguments are the same as the POSIX examples except for the wrapper name and serial-port spelling. Use the long `--port` form for serial ports in PowerShell.
 
@@ -90,7 +129,7 @@ Relative `--fw`, `--cfg`, `--serve-dir`, and output paths are resolved from the 
 - `bridge` and `hub` now share one sensor runtime core; they remain compile-time profiles.
 - The hub-only public increment is `scene` plus the extra sensor endpoints/events that appear only after the requested sensor set passes support check.
 - Public capability introspection now uses `endpoint list` and `proto list|status|manifest`.
-- Public raw recorder/config control now uses `radar raw status`, `radar raw config get|set --json ...`, and `radar raw start|stop|trigger`.
+- Raw routing and recording now use `radar raw ...` and `radar record ...`; the old boot-time agent switch and separate raw tool are removed.
 - `node claim` is the UART/USB-local route identity claim flow; it obtains `cid`/`oid` and optional MQTT credentials. `network prov` remains Wi-Fi provisioning.
 - Legacy discovery roots were removed from public help/discovery; the command reference below reflects the current public surface.
 - `scene` is hub-only. On bridge, direct `scene` calls return unknown tool.
@@ -118,7 +157,7 @@ Factory or empty-key devices remain open for bring-up. After you set a key, prot
 
 ## Device Claim
 
-`node claim` obtains the route identity (`cid` and `oid`) and optional MQTT credentials from a claim provider. It is local only and may use UART or WDR USB CDC; MQTT transport is rejected.
+`node claim` obtains the route identity (`cid` and `oid`) and optional MQTT credentials from a claim provider. It is local only and may use UART or WDR/WSR USB CDC; MQTT transport is rejected.
 
 ```bash
 ./run.sh node claim --endpoint https://claim.example.com/device --token ONE_TIME_TOKEN -p /dev/cu.usbserial-0001
@@ -134,7 +173,8 @@ Use this path when you receive a new device and want the shortest end-to-end flo
 1. verify UART control,
 2. flash your own radar firmware + config,
 3. confirm the radar is running,
-4. collect startup-trimmed command-port text plus data-port raw bytes.
+4. collect raw radar bytes locally over host UART/USB, or use MQTT when the
+   device is remote.
 
 ### 1. Verify UART Control Path
 Check the shell wrapper and discover route identity:
@@ -172,8 +212,13 @@ Use the results as follows:
 - `radar fw version` returns the version string previously matched from the radar startup CLI output. If flash/OTA was performed without an expected version string, this field may be empty even though flashing succeeded.
 - Use `radar fw version` + `radar status` to verify the live radar image after flash.
 
-### 4. Configure Wi-Fi + MQTT for Data Collection
-`collect` captures data from MQTT topics. On a fresh device, configure Wi-Fi, optionally claim the device route identity, and then configure MQTT. `node claim` is the step that assigns tenant/product routing metadata. It stores `prod`, `oid`, and `cid`; `cid` becomes the third topic segment, while an unclaimed device falls back to `did`:
+### 4. Configure Wi-Fi + MQTT for Remote Collection
+Directly attached collection does not need Wi-Fi or MQTT: use host UART or native
+USB as described in [Radar data collection](./data-collection.md). For a
+remote host or application-owned auto stream, configure Wi-Fi, optionally claim
+the device route identity, and then configure MQTT. `node claim` is the step that
+assigns tenant/product routing metadata. It stores `prod`, `oid`, and `cid`; `cid`
+becomes the third topic segment, while an unclaimed device falls back to `did`:
 ```bash
 ./run.sh network wifi --ssid YOUR_SSID --pass YOUR_PASSWORD -p /dev/cu.usbserial-0001
 ./run.sh node claim --prod acme --oid tenant-a --cid kitchen-01 -p /dev/cu.usbserial-0001
@@ -191,44 +236,30 @@ For PRO devices and 4G-equipped WDR devices, store the mobile profile and then c
 
 `network priority --pref wifi|4g` controls the preferred network. Saving Wi-Fi credentials does not automatically change a 4G preference. 4G failure does not automatically fall back to Wi-Fi. If `pref=4g` cannot connect, the device may still report Wi-Fi as the current temporary bearer while the saved preference remains `4g`; `network status` reports this as `pref=4g,curr=wifi`, and `network diag` keeps the 4G failure reason. LED status uses one blink = Wi-Fi, two blinks = 4G.
 
-For SDK hardware acceptance runs, 4G is also explicit: pass the runner's `--4g` for PRO devices or 4G-equipped WDR devices; omit it to keep Wi-Fi as the test default.
-For shared lab validation, pass the runner's `--4g` only for SIM-equipped PRO/WDR devices.
-
-Provisioning AP display follows `PRODUCT-LAST6`, uppercase for readability, and does not include `oid`. `LAST6` uses `cid` when set, otherwise `did`; topic casing still preserves the configured values. Factory default Wi-Fi is `MMWK / mmwk123456`. Automated portal provisioning may temporarily connect the test host to the device AP and then restore the previous Wi-Fi network. On WSL, automated portal provisioning controls Windows Wi-Fi through PowerShell/netsh and submits the portal request from Windows. Set `TEST_PROVISIONING_AP_SSID` when multiple provisioning APs are visible, or set `TEST_PORTAL_PROVISION_AUTO=false` to use the old manual checkpoint.
+Provisioning AP display follows `PRODUCT-LAST6`, uppercase for readability, and does not include `oid`. `LAST6` uses `cid` when set, otherwise `did`; topic casing still preserves the configured values. Factory default Wi-Fi is `MMWK / mmwk123456`. Automated portal provisioning may temporarily connect the host to the device AP and then restore the previous Wi-Fi network. Select the target explicitly when multiple device APs are visible.
 
 The recovery portal is a self-help portal for MQTT broker configuration and diagnostics; it is not Wi-Fi provisioning. The portal remains visible after factory onboarding, but firmware policy controls whether MQTT fields are editable. CLI bridge firmware may expose editable MQTT recovery fields; HUB care/rmaker sidecars expose status only. Status-only portal pages expose MQTT state, last phase/code, remaining window seconds, and 4G diagnostics when preferred 4G is offline; they do not expose MQTT URI, user, or password.
 
-On a fresh bridge device, configure Wi-Fi, run `network mqtt`, reboot, and then verify with `node info` or `network status`. Treat `state=connected && ready=true` as the network-ready contract, and `mqtt_state=connected` as the MQTT-ready contract for MQTT-dependent flows. `node info` remains useful for identity and published metadata, but it is not the primary runtime readiness signal. Missing bridge agent keys default to `mqtt=1` and `raw_auto=1`, so this is the normal fresh-bridge bring-up path.
+On a fresh bridge device, configure Wi-Fi, run `network mqtt`, reboot, and then verify with `node info` or `network status`. Treat `state=connected && ready=true` as the network-ready contract, and `mqtt_state=connected` as the MQTT-ready contract for MQTT-dependent flows. `node info` remains useful for identity and published metadata, but it is not the primary runtime readiness signal. Raw collection is opened explicitly with `radar raw`; there is no boot-time raw agent switch.
 
-If you are recovering from older persisted settings or troubleshooting a bridge whose MQTT control path was manually disabled, use the explicit agent override path.
-Use `node agent --mqtt 1 --raw-auto 1` only for manual override or troubleshooting.
+### 5. Choose a Data Collection Path
 
-### 5. Collect Data and Verify Both Paths
-The simplest host-side smoke test is:
-```bash
-./run.sh collect --duration 12 \
-  --data-output ./data_resp.sraw \
-  --resp-output ./cmd_resp.log \
-  -p /dev/cu.usbserial-0001
-```
+Local UART/USB capture writes complete TI frames and fails if the final frame
+or cleanup is incomplete. While wire raw is active, the bridge suppresses
+unsolicited JSON events on that wire; MQTT events remain available.
 
-When `-p/--port` is provided, `collect` first uses UART for discovery and waits for the device to regain a non-zero runtime IP before arming MQTT raw capture. This reduces the chance of losing startup `raw_resp` while Wi-Fi/MQTT is still reconnecting after reboot or radar restart.
+| Scenario | Command shape |
+| --- | --- |
+| MINI/PRO/WSR UART | `./run.sh collect --transport uart --port PORT --duration 30` |
+| BOX3 UART (lossy diagnostics only) | `./run.sh collect --transport uart --port PORT --raw-baud 1000000 --allow-lossy --duration 30` |
+| WDR/WSR native USB | `./run.sh collect --transport usb --port PORT --duration 30` |
+| Remote MQTT | `./run.sh collect --transport mqtt --broker URI --did DID` |
+| Split wire/MQTT | `./run.sh collect --ctrl-transport uart --data-transport mqtt --port PORT --broker URI --did DID` |
+| Application-owned DATA | `./run.sh collect --transport mqtt --mode auto --attach --broker URI --did DID` |
 
-After `radar fw flash`, `radar fw ota`, `radar config apply`, or the first boot after factory/baseline recovery, treat `radar status = running` as the explicit ready gate before any pure-MQTT late-attach collection. If you use `collect -p` as the startup proof path for that recovery window, require `cmd_resp.log` to be non-empty.
-
-At the end, `collect` prints a summary similar to:
-- `Data topic frames (DATA UART / binary): ...`
-- `Resp topic frames (CMD UART / startup-trimmed command-port text): ...`
-- `Data output: ...`
-- `Resp output: ...`
-
-For the basic bring-up scenario, treat this as the minimum pass criteria:
-- `Resp topic frames > 0`: raw command/config responses came back.
-- `Data topic frames > 0`: raw radar payloads came back.
-- `data_resp.sraw` and `cmd_resp.log` are both non-empty.
-- `cmd_resp.log` starts at the first printable ASCII byte and reads as startup-trimmed command-port text.
-
-If `Resp topic frames > 0` but `Data topic frames == 0`, the control path is alive but the radar data path is still not healthy. Re-check `radar status`, MQTT reachability, `node agent --raw-auto`, and whether the flashed `.cfg` matches the `.bin`.
+See the standalone [Radar DATA collection guide](./data-collection.md) for
+identity checks, default outputs, DATA-magic success criteria, QoS/ACL policy,
+attach safety, rate limits, and cleanup. Local UART/USB needs no network.
 
 ---
 
@@ -251,19 +282,21 @@ If `Resp topic frames > 0` but `Data topic frames == 0`, the control path is ali
 Canonical topics are:
 - `mmwk/mmwk/dc5475c879c0/device/cmd` and `mmwk/mmwk/dc5475c879c0/device/resp` before claim
 - `acme/tenant-a/kitchen-01/device/cmd` and `acme/tenant-a/kitchen-01/device/resp` after the example claim
-- `acme/tenant-a/kitchen-01/raw/data` and `acme/tenant-a/kitchen-01/raw/resp` in every mode; host mode additionally exposes `acme/tenant-a/kitchen-01/raw/cmd`
+- `acme/tenant-a/kitchen-01/raw/data` is the DATA topic; host control additionally exposes `raw/cmd` and `raw/resp`.
 
 When using `--transport mqtt`, pass the same route fields with `--did`, `--prod`, `--oid`, and `--cid`.
 
 #### 3. MQTT Channels and Responsibilities
 - `network mqtt` configures the broker connection and auth. Route identity is configured separately by `node claim`.
 - The built-in control plane subscribes to `{prod}/{oid}/{cid-or-did}/device/cmd` and publishes to `{prod}/{oid}/{cid-or-did}/device/resp`.
-- The MQTT raw passthrough plane publishes to `{prod}/{oid}/{cid-or-did}/raw/data` and `{prod}/{oid}/{cid-or-did}/raw/resp`. In host mode it also derives the optional `{prod}/{oid}/{cid-or-did}/raw/cmd`.
-- Public `radar raw` commands manage recorder/config surfaces, while host-side `collect` and `collect.sh --trigger` subscribe to the MQTT raw passthrough topics.
-- `raw_data` corresponds to raw data-port bytes from `on_radar_data` and is typically collected as `data_resp.sraw`.
-- `raw_resp` corresponds to startup-trimmed command-port output from `on_cmd_data` and is typically collected as `cmd_resp.log`.
-- `on_cmd_resp` and `on_radar_frame` are application-layer callbacks and are different from raw capture outputs.
-- `raw_cmd` is an optional host-mode MQTT ingress for radar CMD UART passthrough and is distinct from the CLI JSON command topic `{prod}/{oid}/{cid-or-did}/device/cmd`.
+- The MQTT raw plane follows the selected `radar raw` route. Auto mode publishes only `{prod}/{oid}/{cid-or-did}/raw/data`; host mode may expose `raw/cmd`, `raw/resp`, and `raw/data`.
+- Use `collect` for the shared host/auto collection engine; see [Radar data collection](./data-collection.md).
+- MQTT `raw/data` contains DATA-only payloads. The collector phase-segments a
+  local host run so `radar.sraw` starts at DATA magic; only optional
+  `--wire-output` is a delimiter-free merged raw-transport audit.
+- Applications that subscribe to DATA directly must manage routing and processing; this is different from `collect` raw capture.
+- `raw/cmd` is an optional host-mode MQTT ingress for radar CMD passthrough and
+  is distinct from the CLI JSON command topic `{prod}/{oid}/{cid-or-did}/device/cmd`.
 - Recommended practice: real applications, services, dashboards, and agents should integrate through MQTT. UART is mainly for factory setup, initial flashing, bring-up, bench debugging, and emergency fallback.
 
 #### 4. Startup Ownership Contract
@@ -277,8 +310,7 @@ When using `--transport mqtt`, pass the same route fields with `--did`, `--prod`
 - `radar start` without `--mode` uses the saved `mode`.
 - `radar stop` stops the current radar service without rewriting `mode`.
 - `radar status` is query-only and no longer accepts `--set`.
-- `raw_auto` only controls raw-plane auto-start. It does not decide who owns radar startup.
-- In bridge `host`, the ESP still exposes raw transport, but it does not automatically send radar configuration as part of boot ownership.
+- `host` gives the external collector radar lifecycle ownership; `auto` leaves lifecycle and parsing in application firmware.
 
 ### Network & Provisioning
 
@@ -318,16 +350,16 @@ flowchart LR
     D -->|"CMD UART"| RC["Radar CMD UART"]
     RD["Radar DATA UART"] --> D
     D <-->|"MQTT CLI JSON\nnetwork mqtt\n {prod}/{oid}/{cid-or-did}/device/cmd + resp"| B["MQTT Broker"]
-    D <-->|"MQTT RAW\nradar raw\n {prod}/{oid}/{cid-or-did}/raw/data + resp\n(+ cmd in host)"| B
+    D <-->|"MQTT RAW\nradar raw\n raw/data (auto)\nraw/cmd + resp + data (host)"| B
     A["Application / Cloud / AI Agent"] <-->|"Primary integration path"| B
 ```
 
 This is the recommended communication model:
 - **UART** is the local service path. Use it for factory provisioning, initial flashing, low-level bring-up, bench debugging, and rescue access when the device is not yet on the network.
-- **USB CDC** is an additional local service path for WDR command control after the firmware selects the native Type-C route. It is text-only and is not a firmware-update or raw-data path.
+- **USB CDC** is an additional local service path for WDR/WSR command control and native raw DATA after the firmware pins the USB route.
 - **MQTT CLI JSON** is the builtin device interaction channel configured by `network mqtt`. It is the right path for real applications to send commands, read status, and manage devices remotely.
-- **MQTT RAW** is the radar passthrough channel auto-derived from the device MQTT identity. In bridge/auto mode it is an output-only radar surface carrying `raw_data` and `raw_resp`; host mode can additionally enable `raw_cmd`.
-- **Radar Raw Recorder Surface** is the public `radar raw` command family for recorder state/config and recording triggers.
+- **MQTT RAW** is the explicitly opened `radar raw` route. Auto mode is DATA-only; host mode can expose command, response, and DATA topics.
+- **Radar recording** is the sibling `radar record` action and is independent of raw forwarding.
 - **MCPv1** remains a compatibility/reference layer. Use it only when an MCP client specifically requires that protocol shape.
 - **Application guidance**: if you are building a product feature, service, AI agent, dashboard, or cloud workflow, integrate through MQTT. Do not treat a persistent UART cable as the normal application architecture.
 
@@ -338,9 +370,9 @@ Primary transport for factory setup, local debugging, and recovery. Ordinary UAR
 ./run.sh radar fw flash --fw fw.bin -p /dev/cu.usbserial-0001 --baudrate 921600 --reset
 ```
 
-#### WDR UART / USB CDC control selection
+#### WDR/WSR UART / USB CDC control selection
 
-On standard WDR bridge firmware, the enabled local control adapter starts on
+On standard WDR/WSR bridge firmware, the enabled local control adapter starts on
 UART and watches for UART RX for 5000 ms. UART input during that window keeps
 control on UART; an idle window switches the existing CLI/MCP control channel
 to native USB CDC (`/dev/ttyACM*` on Linux or `/dev/cu.usbmodem*` on macOS).
@@ -352,39 +384,39 @@ to native USB CDC (`/dev/ttyACM*` on Linux or `/dev/cu.usbmodem*` on macOS).
 ```
 
 `usb_ms` accepts integer milliseconds from `0` through `60000`. A missing value
-uses the firmware factory policy (5000 ms on standard WDR); explicit `0`
+uses the firmware factory policy (5000 ms on standard WDR/WSR); explicit `0`
 disables automatic USB takeover and stays on UART. Saving a value does not
 switch the current connection: it applies on the next boot or after 4G releases
 USB. `node agent` is the only public read/write surface; `node info` and
-`network diag` do not expose this field. Non-WDR queries omit it, and non-WDR
+`network diag` do not expose this field. Non-WDR/WSR queries omit it, and non-WDR/WSR
 writes return `not.supported`.
 
-USB CDC carries CLI/MCP control only. It does not carry raw radar-data
-passthrough.
+USB CDC carries CLI/MCP control and, on WDR/WSR, native raw radar DATA after a host
+raw route is opened. Once raw owns that physical channel, parsed text is no
+longer interleaved on it; use another route for parsed control if needed.
 
-### USB CDC (WDR Local)
-### USB CDC (WDR Local)
+### USB CDC (WDR/WSR Local)
 
-`--transport usb` is a WDR-only local control path. It uses the native Type-C
+`--transport usb` is a WDR/WSR local control path. It uses the native Type-C
 USB CDC serial interface at 115200 baud and carries the existing newline-
 delimited CLI/MCP text protocol. It does not add binary framing.
 
 ```bash
-# One immediate descriptor scan; auto-select a single Wavvar/WDR CDC port
+# One immediate descriptor scan; auto-select a single Wavvar WDR/WSR CDC port
 ./run.sh node info --transport usb --protocol cli
 
-# Wait up to 8 seconds for enumeration, then validate board=WDR
+# Wait up to 8 seconds for enumeration, then validate board=WDR/WSR
 ./run.sh node info --transport usb --usb-wait-ms 8000
 
-# Pin one exact CDC path when more than one WDR candidate is attached
+# Pin one exact CDC path when more than one WDR/WSR candidate is attached
 ./run.sh radar status --transport usb --port /dev/ttyACM0 --did 1020ba76b404
 ```
 
 Without `--port`, the host first filters serial descriptors with
-`manufacturer=Wavvar` and `product=WDR`, or the native ESP32 WDR CDC VID/PID
+`manufacturer=Wavvar` and `product=WDR|WSR`, or the native ESP32-S3 CDC VID/PID
 `303A:4001`. Windows may expose that CDC through its generic driver as
 `Microsoft` / `USB Serial Device`, so the VID/PID fallback is intentional. The
-host then probes `node info` and requires `board=WDR`. If more than one
+host then probes `node info` and requires `board=WDR|WSR`. If more than one
 candidate remains, provide `--did` or an exact `--port`; DID matching uses
 `did`, then the legacy `id` or `client_id` fields, case-insensitively. An
 explicit `--port` never scans another path.
@@ -397,7 +429,8 @@ open USB session. USB selection never falls back to UART or MQTT and never
 reboots the device. Use `--reset` and `--uart-proxy` only with UART.
 
 Binary update paths (`node ota`, `radar fw flash`, `radar fw ota`, and `radar
-fw download`) remain on UART/MQTT. `collect` remains an MQTT raw-capture flow.
+fw download`) remain on UART/MQTT. `collect` supports local host collection over
+UART/USB, remote MQTT collection, and the split `ctrl=wire,data=mqtt` flow.
 
 ### MQTT (Remote)
 Recommended transport for real applications, dashboards, automation, and fleet/device management over the network.
@@ -407,14 +440,14 @@ Recommended transport for real applications, dashboards, automation, and fleet/d
 - **Topics**: `{prod}/{oid}/{cid-or-did}/device/cmd` (input) and `{prod}/{oid}/{cid-or-did}/device/resp` (output).
 - **Configured by**: `network mqtt`
 - **Route arguments**: pass `--did` for unclaimed devices, or `--prod --oid --cid` for claimed routes.
-- **Raw passthrough relation**: the device publishes MQTT raw passthrough traffic to `{prod}/{oid}/{cid-or-did}/raw/data` and `{prod}/{oid}/{cid-or-did}/raw/resp`. Host mode can additionally derive `{prod}/{oid}/{cid-or-did}/raw/cmd`.
+- **Raw route relation**: `radar raw` selects `{prod}/{oid}/{cid-or-did}/raw/data`, `raw/resp`, and optional host `raw/cmd`.
 - **Default QoS**: 1 (At least once delivery).
 
 ---
 
 ## Compatibility Facades
 
-- Canonical public entry names are `node`, `proto`, `endpoint`, `scene`, `radar.fw`, `radar.diag`, `radar.raw`, plus the `network` and `collect` flows documented below.
+- Canonical public entry names are `node`, `proto`, `endpoint`, `scene`, `radar`, `radar.fw`, `radar.diag`, plus the `network` and `collect` flows documented below.
 - `entity` is compatibility-only. `device.catalog` is compatibility-only. `device.proto` is compatibility-only. They remain only behind explicit compatibility shims and are not part of public help or discovery.
 - For multi-sensor devices, child endpoints own measurements, events, and truth. Composite endpoints only aggregate or orchestrate topology such as `area`, `safety`, `vitals`, `maintenance`, and hub `scene`.
 - `scene` is a hub-only composite facade for topology, capability selection, and orchestration. It does not replace endpoint truth ownership or become a second semantic center.
@@ -427,11 +460,11 @@ Recommended transport for real applications, dashboards, automation, and fleet/d
 | Command | Action Description |
 |---------|---------------------|
 | `node info` | Handshake: identify model, version, and published metadata |
-| `node claim` | Claim route identity and credentials over UART or WDR USB-local transport |
+| `node claim` | Claim route identity and credentials over UART or WDR/WSR USB-local transport |
 | `node factory-reset` | Trigger factory reset (clear NVS + runtime assets, reboot after 1s) |
 | `node reboot` | Reboot the device |
 | `node ota` | Update the ESP firmware via HTTP or MQTT stream OTA |
-| `node agent` | Configure built-in agents and WDR local-control startup policy |
+| `node agent` | Configure built-in agents and WDR/WSR local-control startup policy |
 | `node heartbeat` | Configure system heartbeat packets |
 | `node key status/set/clear` | Inspect, set, update, or clear CLI key protection |
 | `endpoint list` | Show the active Matter-oriented endpoint directory for the current profile / effective sensor set |
@@ -444,12 +477,11 @@ Recommended transport for real applications, dashboards, automation, and fleet/d
 | `radar config read` | Read back radar cfg text (file cfg by default, hub `--gen` optional) |
 | `radar status` | Query radar sensing state, `mode`, and `modes` |
 | `radar fw version` | Query running firmware version |
-| `radar raw status` | Show radar raw recorder state |
-| `radar raw config get/set --json` | Read or update radar raw recorder config |
-| `radar raw start/stop/trigger` | Manage radar raw recorder lifecycle |
+| `radar raw status/runtime/reconnect/off` | Query or change raw route state |
+| `radar record status/config/start/stop/trigger` | Manage recorder state, config, and lifecycle |
 | `radar diag` | Inspect or set radar diagnostics |
 | `radar fw list/set/switch/del/download` | Manage firmware partitions stored on device |
-| `collect` | Subscribe `raw_data` / `raw_resp` and save DATA/CMD UART capture files on host |
+| `collect` | Collect raw data in host/auto mode over UART, USB, or MQTT |
 | `endpoint list/describe/read/config get/config set` | Inspect the Matter-oriented endpoint directory and runtime state (`endpoint list --json` / `endpoint describe` expose `endpoint_key`, `parent_endpoint_key`, `parts`, `truth_source`, and device-type metadata) |
 | `scene read/set/apply/wait` | Manage hub-only scene orchestration and radar config flows |
 | `network wifi/4g/priority/mqtt/prov/status/ntp` | Configure networking; `network status` returns `state`, `active_ip`, `pref`, `curr`, `ready`, and `mqtt_state` |
@@ -482,8 +514,8 @@ Recommended transport for real applications, dashboards, automation, and fleet/d
 ./run.sh radar config apply --welcome --no-verify -p /dev/cu.usbserial-0001
 ./run.sh radar config read -p /dev/cu.usbserial-0001
 ./run.sh radar raw status -p /dev/cu.usbserial-0001
-./run.sh radar raw config set --json '{"auto_upload": true, "max_duration_sec": 30}' -p /dev/cu.usbserial-0001
-./run.sh radar raw trigger --event factory_test --duration-s 15 -p /dev/cu.usbserial-0001
+./run.sh radar raw runtime --channel wire --baud 1000000 --escape +++ -p /dev/cu.usbserial-0001
+./run.sh radar raw off --channel wire -p /dev/cu.usbserial-0001
 ./run.sh radar diag snapshot -p /dev/cu.usbserial-0001
 
 # --- Firmware Catalog ---
@@ -493,18 +525,18 @@ Recommended transport for real applications, dashboards, automation, and fleet/d
 ./run.sh radar fw download --source http://example.com/fw.bin --name oob --fw-version 1.0.0 --size 524288 -p /dev/cu.usbserial-0001
 
 # --- Recording ---
-./run.sh radar raw start --uri http://192.168.1.100:8080/upload -p /dev/cu.usbserial-0001
-./run.sh radar raw stop -p /dev/cu.usbserial-0001
-./run.sh radar raw trigger --event MANUAL --duration-s 10 -p /dev/cu.usbserial-0001
-./run.sh collect --duration 12 --data-output ./data_resp.sraw --resp-output ./cmd_resp.log -p /dev/cu.usbserial-0001
+./run.sh radar record start --uri http://192.168.1.100:8080/upload -p /dev/cu.usbserial-0001
+./run.sh radar record stop -p /dev/cu.usbserial-0001
+./run.sh radar record trigger --event MANUAL --duration-s 10 -p /dev/cu.usbserial-0001
+./run.sh collect --transport uart --port /dev/cu.usbserial-0001 --duration 12
 
 # --- Endpoints ---
 ./run.sh endpoint list -p /dev/cu.usbserial-0001
 ./run.sh endpoint list --json -p /dev/cu.usbserial-0001
 ./run.sh endpoint describe mgmt.device -p /dev/cu.usbserial-0001
 ./run.sh endpoint read mgmt.device -p /dev/cu.usbserial-0001
-./run.sh endpoint config get radar.raw -p /dev/cu.usbserial-0001
-./run.sh endpoint config set radar.raw --config-json '{"auto_upload": true}' -p /dev/cu.usbserial-0001
+./run.sh radar record config get -p /dev/cu.usbserial-0001
+./run.sh radar record config set --json '{"auto_upload": true}' -p /dev/cu.usbserial-0001
 ./run.sh scene read -p /dev/cu.usbserial-0001   # hub only
 
 # --- Network ---
@@ -709,9 +741,9 @@ ESP firmware:
   --fw ./app.bin
 ```
 
-For ESP MQTT stream OTA, use an app-only `.bin`; SDK builds stage this as `firmwares/esp/<board>/<firmware>/v<version>/app.bin`. Full MWFB bundles with an assets payload must use HTTP OTA.
+For ESP MQTT stream OTA, use an app-only `.bin`. Full MWFB bundles with an assets payload must use HTTP OTA.
 
-HTTP `node ota --target esp --url` accepts app-only ESP images, SDK `MWFB` full bundles, and ERC whole-OTA packages.
+HTTP `node ota --target esp --url` accepts app-only ESP images, `MWFB` full bundles, and ERC whole-OTA packages.
 An ERC package is a binary whole-OTA format with a 32-byte v1 or 256-byte v2 little-endian header, followed by an ESP app image and radar payload entries. Supported radar payload entries store radar firmware followed by a 4096-byte radar config.
 
 Radar firmware plus config:
@@ -746,7 +778,7 @@ Runtime reconf behavior:
 Related startup-mode behavior:
 - BRIDGE reports `modes: ["auto", "host"]` on radar-facing status surfaces, while device-facing surfaces no longer expose startup policy.
 - BRIDGE supports `["auto", "host"]`; HUB supports `["auto"]`.
-- In bridge `host`, `raw_auto=1` auto-starts `{prod}/{oid}/{cid-or-did}/raw/data`, `{prod}/{oid}/{cid-or-did}/raw/resp`, and `{prod}/{oid}/{cid-or-did}/raw/cmd`.
+- In bridge `host`, raw routes start only after an explicit `radar raw runtime` request; in `auto`, `radar raw runtime --channel mqtt` exposes DATA only.
 
 ### Method D: Read Back the Current Radar CFG
 
@@ -780,136 +812,28 @@ Both methods also work over MQTT instead of UART. Add `--transport mqtt` and pro
 
 ## Data Collection Workflow
 
-### Method A: Host-Side MQTT Collection (via `collect` Command)
+`collect` is the single collection entrypoint. Choose the matching scenario and
+then follow the standalone [Radar DATA collection guide](./data-collection.md):
 
-The `collect` command is the simplest way to capture both radar data-port raw bytes and command-port output on the host. When a UART port is specified, it auto-discovers all MQTT parameters from the device via `node info`, uses the bridge raw bootstrap path to ensure MQTT raw passthrough is active, subscribes to the appropriate topics, and saves payloads to local files. `cmd_resp.log` keeps the startup-trimmed command-port text stream, starting from the first printable ASCII byte.
+| Scenario | Command shape |
+| --- | --- |
+| MINI/PRO/WSR attached UART | `./run.sh collect --transport uart --port PORT --duration 30` |
+| BOX3 UART (lossy diagnostics only) | `./run.sh collect --transport uart --port PORT --raw-baud 1000000 --allow-lossy --duration 30` |
+| WDR/WSR attached native USB | `./run.sh collect --transport usb --port PORT --duration 30` |
+| Remote host MQTT | `./run.sh collect --transport mqtt --broker URI --did DID` |
+| Split control/DATA | `./run.sh collect --ctrl-transport uart --data-transport mqtt --port PORT --broker URI --did DID` |
+| Application-owned DATA | `./run.sh collect --transport mqtt --mode auto --attach --broker URI --did DID` |
 
-Before using it on a fresh device, make sure the board can actually reach a Wi-Fi network and MQTT broker (see the Quick Start section above).
+`run.ps1`, `collect.sh`, and `collect.ps1` forward these same options. The
+standalone guide covers identity checks, raw/parsed exclusivity, QoS, output
+reservation, baud limits, attach safety, and cleanup. Use
+[Radar Task Tools](radar-task-tools.md) only for surrounding registry/config
+tasks and [Collect Trigger Helper](collect-trigger.md) for its explicit
+advanced reconnect workflow.
 
-Treat this default `-p/--port` flow as the strict startup-aware path. If your collection window starts at reboot, OTA recovery, or any other fresh startup/welcome phase, keep `raw_resp` mandatory and expect `cmd_resp.log` to be non-empty.
-After `radar fw flash`, `radar fw ota`, `radar config apply`, or the first boot after factory/baseline recovery, use `radar status = running` as the explicit ready gate before any pure-MQTT late-attach collect window.
-
-```bash
-# One-liner: auto-discover config and collect for 12 seconds
-./run.sh collect --duration 12 \
-  --data-output ./data_resp.sraw \
-  --resp-output ./cmd_resp.log \
-  -p /dev/cu.usbserial-0001
-```
-
-What happens under the hood:
-1. Sends `node info` over UART to discover MQTT broker, route identity, and topic configuration
-2. Waits for the device to regain a usable runtime IP when Wi-Fi/MQTT is still recovering
-3. Queries `node agent` and `radar fw list` to backfill any missing fields
-4. Uses the bridge raw bootstrap path to make sure MQTT raw passthrough is active on the device
-5. Connects to the MQTT broker and subscribes to the reported `raw_data` and `raw_resp` topics
-6. Writes received payloads to the output files for the specified duration, keeping `cmd_resp.log` as startup-trimmed command-port text
-
-Recommended smoke-test criteria after the run:
-- `Resp topic frames > 0`: command/config responses were received
-- `Data topic frames > 0`: raw radar payloads were received
-- `data_resp.sraw` exists and is non-empty
-- `cmd_resp.log` exists and starts at the first printable ASCII byte
-- `cmd_resp.log` is readable as startup-trimmed command-port text
-
-If you need end-to-end evidence for the OTA/config stage itself, use `radar fw ota` with raw capture enabled before the OTA command is sent:
-
-```bash
-./run.sh radar fw ota --fw ./radar.bin --cfg ./radar.cfg \
-  --raw-resp-output ./ota_cmd_resp.log \
-  -p /dev/cu.usbserial-0001
-```
-
-That mode arms the `raw_resp` capture before OTA starts, so welcome output, cfg-line responses, and later command-port bytes can all land in the same capture session.
-
-You can also provide explicit MQTT parameters to skip auto-discovery:
-
-```bash
-./run.sh collect --duration 30 \
-  --broker mqtt://192.168.1.100:1883 \
-  --did dc5475c879c0 \
-  --data-topic mmwk/mmwk/dc5475c879c0/raw/data \
-  --resp-topic mmwk/mmwk/dc5475c879c0/raw/resp \
-  --data-output ./data_resp.sraw --resp-output ./cmd_resp.log
-```
-
-If the radar has already been running for a while and you are only attaching late for a steady-state observation window, add `--resp-optional` to the pure-MQTT form above. Only do that after `radar status` already reports `running`. That late-attach mode does not restart the radar to force startup text, so do not use it as startup/welcome proof.
-
-### External Tools
-
-`collect` remains the official command. The helper scripts below stay outside the main CLI wrapper, and the working directory is the `cli` directory. POSIX examples use `*.sh`; on Windows PowerShell use the matching `*.ps1` wrapper where available, with the parity notes in [Host Platform Entry Points](#host-platform-entry-points).
-
-- [Radar Task Tools](radar-task-tools.md): use `./config.sh init|update|list` plus `./collect.sh` when you want registry-backed UART setup, network update, and MQTT raw collection.
-- [Develop Radar With Bridge](bridge-ti-radar-debug.md): end-to-end bridge-development guide for choosing the right board and running `config.sh init|update|list` plus `collect.sh` on 6843- and 6432-series radar.
-- [Config Helper](config.md): use `./config.sh set` when you need to push Wi-Fi/MQTT settings over UART or an existing MQTT control path, and `./config.sh search` when you need to find device `did` values over mDNS.
-- [Collect Trigger Helper](collect-trigger.md): use `./collect.sh --trigger ...` when you intentionally need pure MQTT for both control and raw capture.
-
-Do not treat these helpers as a replacement for the strict startup-aware `collect -p` flow.
-
-### Method B: Manual MQTT Subscription
-
-If you prefer direct MQTT subscriptions, configure the device first via UART and then subscribe using any MQTT client.
-
-**Step 1: Configure WiFi and MQTT** (if not already done)
-```bash
-./run.sh network wifi --ssid YOUR_SSID --pass YOUR_PASSWORD -p /dev/cu.usbserial-0001
-./run.sh network mqtt --uri mqtt://192.168.1.100:1883 -p /dev/cu.usbserial-0001
-./run.sh node reboot -p /dev/cu.usbserial-0001
-```
-
-On fresh bridge devices this is enough to bring up MQTT control. Use `node agent --mqtt 1 --raw-auto 1` only for manual override or troubleshooting when persisted agent values need repair.
-
-**Step 2: Ensure raw passthrough auto-start is enabled** (fresh bridge defaults to `raw_auto=1`)
-```bash
-./run.sh node agent --raw-auto 1 -p /dev/cu.usbserial-0001
-./run.sh node reboot -p /dev/cu.usbserial-0001
-```
-
-**Step 3: Subscribe with Mosquitto (or any MQTT client)**
-```bash
-# Subscribe to all MMWK topics
-mosquitto_sub -h 192.168.1.100 -t 'mmwk/#' -v
-
-# Or subscribe to specific topics
-mosquitto_sub -h 192.168.1.100 -t 'mmwk/mmwk/dc5475c879c0/raw/data'
-mosquitto_sub -h 192.168.1.100 -t 'mmwk/mmwk/dc5475c879c0/raw/resp'
-```
-
-### Method C: Device-Side Recording
-
-For on-device recording (writes to SD card / flash and uploads via HTTP):
-
-```bash
-# 1) Query current radar status
-./run.sh radar status -p /dev/cu.usbserial-0001
-
-# 2) Start recording (uri must be a reachable HTTP URL)
-./run.sh radar raw start --uri http://192.168.1.100:8080/upload -p /dev/cu.usbserial-0001
-
-# 3) (Optional) Trigger an event snippet
-./run.sh radar raw trigger --event MANUAL --duration-s 10 -p /dev/cu.usbserial-0001
-
-# 4) Stop recording
-./run.sh radar raw stop -p /dev/cu.usbserial-0001
-```
-
-### Radar Raw Recorder
-
-Use the public `radar raw` surface for recorder state/config and recording triggers:
-
-```bash
-# Show recorder state
-./run.sh radar raw status -p /dev/cu.usbserial-0001
-
-# Read or update recorder config
-./run.sh radar raw config get -p /dev/cu.usbserial-0001
-./run.sh radar raw config set --json '{"auto_upload": true, "max_duration_sec": 30}' -p /dev/cu.usbserial-0001
-
-# Manage recorder lifecycle
-./run.sh radar raw start --uri http://192.168.1.100:8080/upload -p /dev/cu.usbserial-0001
-./run.sh radar raw trigger --event MANUAL --duration-s 10 -p /dev/cu.usbserial-0001
-./run.sh radar raw stop -p /dev/cu.usbserial-0001
-```
+Device-side `radar record` is independent of raw collection. See
+[Radar Task Tools](radar-task-tools.md) for its status, config, start, trigger,
+and stop commands.
 
 ---
 
@@ -948,7 +872,7 @@ This is usually a radar-side configuration problem, not an ESP-side UART/MQTT tr
 ### FAQ: `welcome=true` but No Welcome Text Ever Appears
 When the target firmware is declared with `welcome=true`, the startup CLI/welcome text is the runtime proof that the radar firmware really booted. Here "welcome text" means any non-empty startup output from the radar CLI, and it may be multi-line rather than a fixed banner string.
 
-The driver trims startup junk before the first printable ASCII byte, so host-visible command-port capture should begin with readable startup text in `cmd_resp.log` or `ota_cmd_resp.log`.
+The driver trims startup junk before the first printable ASCII byte, so host-visible command-port capture should begin with readable startup text in `commands.log` or `ota_cmd_resp.log`.
 
 If no welcome text appears before timeout:
 - Treat it as a radar startup failure, not as a silent success.

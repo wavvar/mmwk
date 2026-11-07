@@ -35,7 +35,7 @@ The ESP chip communicates with the radar chip through three interfaces:
 
 The ESP's flash is partitioned to hold NVS (device settings), PHY init data, the factory application, and an **assets** partition that stores radar firmware binaries and configuration files. In managed startup flows such as bridge `auto` and hub `auto`, the ESP can load radar firmware from this assets partition and flash/configure the radar chip automatically.
 
-Peripherals vary by board. PRO includes onboard 4G/LTE Cat1 as standard, while selected variants provide ESP-side user I/O, audio, or external 4G/LTE modules. The host connects to the ESP via USB-UART/Serial for local access.
+Peripherals vary by board. PRO and WSR include onboard 4G/LTE Cat1 as standard, while selected variants provide ESP-side user I/O, audio, or external 4G/LTE modules. The host connects through USB-UART/Serial, or through native Type-C USB on WDR and WSR.
 
 ### 2.2 Board Types
 
@@ -43,6 +43,7 @@ Name | ESP | Audio | Radar | LED | 4G/LTE Support
 --- | --- | --- | --- | --- | ---
 [MINI](./modules/mini.md) | ESP32 | No | IWR6843AoP | 1 | No
 [PRO](./modules/pro.md) | ESP32S3 | Optional | IWR6843AoP | 1 | Standard Cat1/4G
+[WSR](./modules/wsr.md) | ESP32S3 | Optional | IWR6843AoP | 1 | Standard Cat1/4G
 [RPI](./modules/rpx.md#3-rpi-6432-sensing-module) | ESP32S3 | Yes | IWRL6432AoP | 1 | No
 [CFH](./modules/rpx.md#2-6843-series-sensing-modules) | ESP32S3 | Yes | IWR6843AoP | 1 | No
 IOT | ESP32S3 | No | IWR6843AoP | 1 | Yes
@@ -106,7 +107,7 @@ MMWK provides the freedom to bring your own software and hardware to the ecosyst
 
 ### 3.2 Application Scenarios
 
-**Collect radar data:** Use this path when an [`mmwk_sensor`](./docs/en/mmwk-sensor.md) firmware profile is already running and you want raw radar data, point-cloud/data validation, or a repeatable capture workflow. Configure Wi-Fi or 4G, make sure MQTT is reachable, then follow the [mmWave Sensor Development Kit](./docs/en/mmwk-sensor.md) and the [Local `server.sh` + `run.sh` Wi-Fi Flash and 5-Minute Collection Example](./docs/en/collect.md). For task-oriented wrappers, use [Radar Task Tools](./cli/docs/en/radar-task-tools.md) and [Develop Radar With Bridge](./cli/docs/en/bridge-ti-radar-debug.md).
+**Collect radar data:** Use this path when an [`mmwk_sensor`](./docs/en/mmwk-sensor.md) firmware profile is already running and you want raw radar data, point-cloud/data validation, or a repeatable capture workflow. Configure Wi-Fi or 4G, make sure MQTT is reachable, then follow the [mmWave Sensor Development Kit](./docs/en/mmwk-sensor.md) and the [Local MQTT/HTTP End-to-End Collection Example](./cli/docs/en/data-collection.md#9-local-mqtthttp-end-to-end-collection-example). For task-oriented wrappers, use [Radar Task Tools](./cli/docs/en/radar-task-tools.md) and [Develop Radar With Bridge](./cli/docs/en/bridge-ti-radar-debug.md).
 
 **Flash your own radar firmware:** Use this path when you have a radar firmware/config pair that you developed or selected yourself. Validate the `.bin` / `.appimage` plus `.cfg` pairing on the radar development board when possible, then use the MMWK bridge capability to flash, configure, and collect from the same artifact pair. The main references are [Radar Firmwares](#5-radar-firmwares), [Develop Radar With Bridge](./cli/docs/en/bridge-ti-radar-debug.md), and the CLI [Firmware Flashing Workflow](./cli/docs/en/README.md#firmware-flashing-workflow). Use HTTP when you want network OTA download; use UART or MQTT chunk transfer when that is the better fit for your bench setup.
 

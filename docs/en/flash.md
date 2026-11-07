@@ -9,12 +9,14 @@ The published bridge release now ships as two zip files under the versioned rele
 
 This guide only uses `factory.zip` for the first flash onto a blank or erased board. `ota.zip` is the companion package for later ESP OTA updates and is covered in [Device OTA Guide](./ota.md).
 
+WSR uses the same controller and radar capabilities as PRO, while its native Type-C wiring and factory-flash entry follow WDR. Always select the package matching the actual board: WSR uses `<board>=wsr`; do not substitute a PRO or WDR package.
+
 ## Prerequisites
 
 - The commands below assume the current working directory is the `mmwk` project root, which contains `firmwares/` and `cli/`.
 - You already received the published bridge zip packages for your board and version.
 - Choose one flashing path:
-  - Local serial erase plus `factory/flash.sh` requires ESP-IDF installed locally and the target device port available as `<port>`.
+  - Local serial erase plus `factory/flash.sh` requires ESP-IDF installed locally and the target device port available as `<port>`. MINI/PRO normally use a UART-to-USB adapter; WDR/WSR can use native Type-C.
   - Espressif official `ESP Launchpad` DIY does not require a local ESP-IDF installation.
 
 ## Extract `factory.zip`
@@ -72,10 +74,14 @@ Use this exact extracted file:
 From the `mmwk` project root, verify runtime identity:
 
 ```bash
+# MINI/PRO UART
 ./cli/run.sh node info --reset -p <port>
+
+# WDR/WSR native Type-C USB CDC
+./cli/run.sh node info --transport usb --port <native-usb-port>
 ```
 
-`node info` should report the bridge identity. Confirm that its `version` field matches the version encoded in the published package path or extracted binary name, for example:
+`node info` should report the bridge identity. Confirm that its `board` and `version` fields match the target board and the version encoded in the published package path or extracted binary name, for example:
 
 ```text
 ./firmwares/esp/mini/mmwk_sensor_bridge/v1.2.2/factory.zip

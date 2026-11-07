@@ -1,4 +1,4 @@
-"""WDR USB CDC command transport and host-side port selection."""
+"""WDR/WSR USB CDC command transport and host-side port selection."""
 
 from dataclasses import dataclass
 import json
@@ -12,9 +12,10 @@ from mmwk.transport import RadarTransport
 
 
 # Windows may bind the native ESP32-S3 CDC interface to its generic serial
-# driver and replace the firmware-provided Wavvar/WDR descriptor strings.
+# driver and replace the firmware-provided Wavvar board descriptor strings.
 _ESP32_NATIVE_USB_VID = 0x303A
-_ESP32_NATIVE_WDR_CDC_PID = 0x4001
+_ESP32_NATIVE_USB_CDC_PID = 0x4001
+_SUPPORTED_USB_BOARDS = frozenset({"wdr", "wsr"})
 
 
 @dataclass(frozen=True)
@@ -31,7 +32,7 @@ class UsbPortCandidate:
 
 
 class UsbTransportError(RuntimeError):
-    """A USB CDC port could not be selected or passed WDR identity validation."""
+    """A USB CDC port could not be selected or passed board identity validation."""
 
 
 def _default_port_provider():
@@ -69,17 +70,17 @@ def _coerce_candidate(value) -> UsbPortCandidate:
     )
 
 
-def _descriptor_is_wdr(candidate: UsbPortCandidate) -> bool:
+def _descriptor_is_supported_board(candidate: UsbPortCandidate) -> bool:
     return (
         candidate.manufacturer.strip().casefold() == "wavvar"
-        and candidate.product.strip().casefold() == "wdr"
+        and candidate.product.strip().casefold() in _SUPPORTED_USB_BOARDS
     )
 
 
-def _vid_pid_is_native_wdr(candidate: UsbPortCandidate) -> bool:
+def _vid_pid_is_native_usb(candidate: UsbPortCandidate) -> bool:
     return (
         candidate.vid == _ESP32_NATIVE_USB_VID
-        and candidate.pid == _ESP32_NATIVE_WDR_CDC_PID
+        and candidate.pid == _ESP32_NATIVE_USB_CDC_PID
     )
 
 
@@ -90,7 +91,7 @@ def _is_explicit_windows_serial_path(path: str) -> bool:
 
 
 class UsbPortResolver:
-    """Select one WDR CDC path using a bounded host-side enumeration budget.
+    """Select one WDR/WSR CDC path using a bounded enumeration budget.
 
     The resolver intentionally delegates final board/DID validation to the
     caller's node-info probe. USB descriptors are only a first-pass filter.
@@ -142,7 +143,7 @@ class UsbPortResolver:
         return [
             candidate
             for candidate in snapshot
-            if _descriptor_is_wdr(candidate) or _vid_pid_is_native_wdr(candidate)
+            if _descriptor_is_supported_board(candidate) or _vid_pid_is_native_usb(candidate)
         ]
 
     @staticmethod
@@ -175,7 +176,7 @@ class UsbPortResolver:
             if len(candidates) > 1 and not port and not did:
                 paths = ", ".join(candidate.device for candidate in candidates)
                 raise UsbTransportError(
-                    "Multiple WDR USB CDC candidates found: "
+                    "Multiple WDR/WSR USB CDC candidates found: "
                     f"{paths}; provide --did or --port"
                 )
 
@@ -207,7 +208,7 @@ class UsbPortResolver:
                 if wait_ms == 0:
                     detail = f" ({last_probe_error})" if last_probe_error else ""
                     raise UsbTransportError(
-                        "USB CDC candidate did not pass WDR node info validation" + detail
+                        "USB CDC candidate did not pass WDR/WSR node info validation" + detail
                     )
 
             if wait_ms == 0:
@@ -221,7 +222,7 @@ class UsbPortResolver:
             if remaining <= 0:
                 if candidates and last_probe_error:
                     raise UsbTransportError(
-                        "USB CDC candidates did not pass WDR node info validation "
+                        "USB CDC candidates did not pass WDR/WSR node info validation "
                         f"before --usb-wait-ms deadline ({last_probe_error})"
                     )
                 if port:

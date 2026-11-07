@@ -114,7 +114,7 @@ ML6432A 系列是基于 TI IWR6432AOP 芯片开发的高性能低功耗毫米波
 
 <div style="text-align: center; margin: 10px 0;">
   <img src="./img/MDR/ml6432a-connector-layout-reference.png" alt="ML6432A 连接器布局参考图" width="48%" style="display: inline-block; margin: 0 12px;" />
-  <img src="./img/MDR/ml6432a-p1-p2-position-reference.png" alt="ML6432A P1 与 P2 位置参考图" width="38%" style="display: inline-block; margin: 0 12px;" />
+  <img src="./img/MDR/ml6432a-connector-pin-assignment.png" alt="ML6432A P1 与 P2 位置参考图" width="38%" style="display: inline-block; margin: 0 12px;" />
   <p style="margin: 4px 0 0 0;">连接器布局与 P1/P2 位置参考</p>
 </div>
 

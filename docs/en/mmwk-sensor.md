@@ -78,10 +78,10 @@ Choose this path if `node info` already reports a reachable `mmwk_sensor` firmwa
 Recommended order:
 
 1. Confirm the device is reachable over UART with `./cli/run.sh node info -p <port>` on POSIX shells, or `.\cli\run.ps1 node info --port COM3` on Windows PowerShell.
-2. If Wi-Fi and MQTT are not configured yet, follow the bring-up sequence in [Local `server.sh` + `run.sh` Wi-Fi Flash and 5-Minute Collection Example](./collect.md).
-3. Use [Local `server.sh` + `run.sh` Wi-Fi Flash and 5-Minute Collection Example](./collect.md) for the validated radar firmware flash plus 5-minute collection walkthrough.
+2. If Wi-Fi and MQTT are not configured yet, follow the bring-up sequence in the [Local MQTT/HTTP End-to-End Collection Example](../../cli/docs/en/data-collection.md#9-local-mqtthttp-end-to-end-collection-example).
+3. Use the same [collection example](../../cli/docs/en/data-collection.md#9-local-mqtthttp-end-to-end-collection-example) for the radar firmware update and five-minute collection walkthrough.
 
-`collect.md` owns the full detailed procedure. Those parameter contracts, welcome/version semantics, topic split, raw capture details, and startup-mode boundaries are included later in this document.
+The [Radar DATA Collection Guide](../../cli/docs/en/data-collection.md) is the single source for the complete procedure, transport options, topic split, raw capture, and acceptance boundaries. This document retains the sensor platform and firmware-profile context.
 
 ### 3.3 Path C: ESP OTA
 
@@ -161,13 +161,14 @@ pin assignments are board-specific; check the board schematic before wiring.
 When a PC connects to UART on current boards, use an external UART-to-USB
 adapter. A PC USB port cannot communicate directly with bare UART pins.
 
-WDR and new designs are the current exception for normal CLI/control use: they
+WDR and WSR are the current exception for normal CLI/control use: they
 support built-in USB serial through UART and USB multiplexing, so a separate
 UART-to-USB adapter is not required for the normal control interface.
 
 ESP chip-level flashing is separate from the normal control interface. All
-boards still require the appropriate external converter or flashing fixture for
-ESP chip-level flashing.
+WDR/WSR devices can use native Type-C for the matching factory-flash flow;
+UART-only boards still require an external converter or flashing fixture. See
+the [Factory Flash Guide](./flash.md).
 
 The recommended host entry point is:
 
@@ -180,8 +181,8 @@ UART commands use the canonical CLI JSON protocol by default. Protected commands
 ### 6.2 UART and USB Multiplexing
 
 UART and USB multiplexing selects the local control interface between UART and
-USB CDC during the boot or restore idle window. It is currently supported only
-by WDR and new designs.
+USB CDC during the boot or restore idle window. It is currently supported by
+WDR and WSR.
 
 The selection is independent of the preferred network bearer. If UART activity
 is detected during the idle window, the control path remains on UART. If the
@@ -533,12 +534,12 @@ If `node info` still reports `ip = 0.0.0.0`, treat the device network as not rea
 | `details.kind=startup_failed` | The firmware likely never reached its startup CLI on the radar. |
 | Radar config was sent but no data returns | The `.cfg` is most likely wrong for the currently running radar firmware, so the radar firmware enters a bad/hung state after config. Re-check the exact firmware/demo pairing, board variant, and CLI commands, and first prove the same firmware + config works correctly on the radar development board itself. |
 
-For the full validated bring-up walkthrough, return to [mmWave Sensor Development Kit](./mmwk-sensor.md) and continue into [Local `server.sh` + `run.sh` Wi-Fi Flash and 5-Minute Collection Example](./collect.md).
+For the full bring-up walkthrough, return to [mmWave Sensor Development Kit](./mmwk-sensor.md) and continue into the [Local MQTT/HTTP End-to-End Collection Example](../../cli/docs/en/data-collection.md#9-local-mqtthttp-end-to-end-collection-example).
 
 ## 12. Related Documents
 
 - [Factory Flash Guide](./flash.md)
-- [Local `server.sh` + `run.sh` Wi-Fi Flash and 5-Minute Collection Example](./collect.md)
+- [Radar DATA Collection Guide](../../cli/docs/en/data-collection.md)
 - [Device OTA Guide](./ota.md)
 - [CLI README](../../cli/docs/en/README.md)
 - [Radar Task Tools](../../cli/docs/en/radar-task-tools.md)

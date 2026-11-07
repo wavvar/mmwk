@@ -145,7 +145,11 @@ class DeviceOtaCommand:
         except Exception as exc:
             return False, f"node.info_error={exc}"
 
-        required_fields = ("radar_fw", "radar_fw_version", "radar_cfg")
+        # Radar metadata permits an empty version (for example the WDR 6432
+        # RADW image).  Firmware identity and its paired config are the
+        # runtime-readiness contract; an unreported optional version must not
+        # turn a successful ESP OTA reboot into a false timeout.
+        required_fields = ("radar_fw", "radar_cfg")
         missing_fields = [field for field in required_fields if not str(hi_data.get(field, "")).strip()]
         if missing_fields:
             detail = (
@@ -156,9 +160,10 @@ class DeviceOtaCommand:
             )
             return False, detail
 
+        radar_fw_version = str(hi_data.get("radar_fw_version", "")).strip() or "<unreported>"
         return True, (
             f"radar_fw={hi_data.get('radar_fw', '')}, "
-            f"radar_fw_version={hi_data.get('radar_fw_version', '')}, "
+            f"radar_fw_version={radar_fw_version}, "
             f"radar_cfg={hi_data.get('radar_cfg', '')}"
         )
 

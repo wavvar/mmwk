@@ -39,13 +39,12 @@ def _build_node_tool(profile: str) -> dict:
         actions.append("reboot")
     return _tool(
         "node",
-        "Node-level configuration: agent flags, WDR local-control startup policy, "
+        "Node-level configuration: agent flags, WDR/WSR local-control startup policy, "
         "heartbeat, identity probe, and ESP OTA.",
         {
             "action": _action_property(actions, "Operation"),
             "mqtt": {"type": "number", "description": "MQTT agent enable (0/1)"},
             "uart": {"type": "number", "description": "UART agent enable (0/1)"},
-            "raw_auto": {"type": "number", "description": "Auto-enable raw stream on boot (0/1)"},
             "uart_split": {"type": "number", "description": "Split single-UART runtime data after sensorStart (0/1)"},
             "led": {"type": "number", "description": "LED error display enable (0/1)"},
             "reboot_ms": {"type": "number", "description": "Reboot threshold when MQTT stays disconnected"},
@@ -54,7 +53,7 @@ def _build_node_tool(profile: str) -> dict:
                 "minimum": 0,
                 "maximum": 60000,
                 "description": (
-                    "WDR UART-to-USB CDC idle window in milliseconds "
+                    "WDR/WSR UART-to-USB CDC idle window in milliseconds "
                     "(0 disables auto-switch)"
                 ),
             },
@@ -83,19 +82,110 @@ def _build_proto_tool() -> dict:
 
 
 def _build_radar_tool() -> dict:
-    return _tool(
+    tool = _tool(
         "radar",
-        "Radar runtime control: query status and start or stop the service.",
+        "Radar runtime, raw route, and recording control.",
         {
-            "action": _action_property(["status", "start", "stop"], "Runtime operation"),
+            "action": _action_property(["status", "start", "stop", "raw", "record"], "Radar operation"),
             "mode": {
                 "type": "string",
-                "enum": ["auto", "host"],
-                "description": "Persisted start mode for action=start",
+                "description": "Start mode (auto|host) or raw mode (runtime|reconnect|off), selected by action",
             },
+            "channel": {
+                "type": "string",
+                "enum": ["wire", "mqtt", "both"],
+                "description": "Raw route shorthand for action=raw",
+            },
+            "ctrl": {
+                "type": "string",
+                "enum": ["off", "wire", "mqtt", "both"],
+                "description": "Raw command/response route",
+            },
+            "data": {
+                "type": "string",
+                "enum": ["off", "wire", "mqtt", "both"],
+                "description": "Raw radar-data route",
+            },
+            "baud": {"type": "number", "description": "Wire raw data baud, capped at 1000000"},
+            "escape": {"type": "string", "description": "Wire host escape sequence; default is +++"},
+            "op": {
+                "type": "string",
+                "enum": ["status", "config_get", "config_set", "start", "stop", "trigger"],
+                "description": "Recording operation for action=record",
+            },
+            "config": {"type": "object", "description": "Record configuration for op=config_set"},
+            "uri": {"type": "string", "description": "Upload target for action=record op=start"},
+            "event": {"type": "string", "description": "Trigger event for action=record op=trigger"},
+            "duration_s": {"type": "number", "description": "Trigger duration for action=record op=trigger"},
         },
         ["action"],
     )
+    tool["inputSchema"]["allOf"] = [
+        {
+            "if": {"properties": {"action": {"const": "start"}}},
+            "then": {"properties": {"mode": {"enum": ["auto", "host"]}}},
+        },
+        {
+            "if": {"properties": {"action": {"const": "raw"}}},
+            "then": {"properties": {"mode": {"enum": ["runtime", "reconnect", "off"]}}},
+        },
+        {
+            "if": {
+                "properties": {
+                    "action": {"const": "raw"},
+                    "mode": {"enum": ["runtime", "reconnect", "off"]},
+                },
+                "required": ["action", "mode"],
+            },
+            "then": {
+                "anyOf": [
+                    {"required": ["channel"]},
+                    {"required": ["ctrl", "data"]},
+                ]
+            },
+        },
+        {
+            "if": {
+                "properties": {"action": {"const": "raw"}},
+                "required": ["action"],
+            },
+            "then": {
+                "allOf": [
+                    {"not": {"required": ["channel", "ctrl"]}},
+                    {"not": {"required": ["channel", "data"]}},
+                ],
+            },
+        },
+        {
+            "if": {
+                "properties": {
+                    "action": {"const": "raw"},
+                    "mode": {"const": "reconnect"},
+                },
+                "required": ["action", "mode"],
+            },
+            "then": {
+                "properties": {
+                    "channel": {"const": "mqtt"},
+                    "ctrl": {"maxLength": 0},
+                    "data": {"maxLength": 0},
+                },
+                "required": ["channel"],
+            },
+        },
+        {
+            "if": {"properties": {"action": {"const": "record"}}},
+            "then": {
+                "properties": {
+                    "op": {
+                        "enum": ["status", "config_get", "config_set", "start", "stop", "trigger"]
+                    }
+                },
+                "required": ["op"],
+            },
+        },
+    ]
+    return tool
 
 
 def _build_radar_config_tool() -> dict:
@@ -105,9 +195,6 @@ def _build_radar_config_tool() -> dict:
         {
             "action": _action_property(["read", "apply"], "Config operation"),
             "gen": {"type": "boolean", "description": "Return generated config for action=read"},
-            "enabled": {"type": "boolean", "description": "Data output enable"},
-            "uri": {"type": "string", "description": "Raw MQTT broker URI"},
-            "uart": {"type": "boolean", "description": "Mirror raw frames to UART notifications"},
         },
         ["action"],
     )
@@ -141,25 +228,6 @@ def _build_radar_fw_tool(profile: str) -> dict:
         "radar.fw",
         "Radar firmware catalog management and package acquisition.",
         properties,
-        ["action"],
-    )
-
-
-def _build_radar_raw_tool() -> dict:
-    return _tool(
-        "radar.raw",
-        "Inspect raw recorder state, update raw config, and trigger raw recordings.",
-        {
-            "action": _action_property(
-                ["status", "config_get", "config_set", "start", "stop", "trigger"],
-                "Raw operation",
-            ),
-            "config": {"type": "object", "description": "radar.raw config patch payload for config_set"},
-            "patch": {"type": "object", "description": "Alias of config for config_set"},
-            "uri": {"type": "string", "description": "Upload target URI for start"},
-            "event": {"type": "string", "description": "Trigger event name for trigger"},
-            "duration_s": {"type": "number", "description": "Trigger duration in seconds for trigger"},
-        },
         ["action"],
     )
 
@@ -227,7 +295,6 @@ def _canonical_tools(profile: str) -> list[dict]:
         _build_radar_tool(),
         _build_radar_config_tool(),
         _build_radar_fw_tool(profile),
-        _build_radar_raw_tool(),
         _build_radar_diag_tool(),
     ]
 
