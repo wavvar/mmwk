@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 from pathlib import Path
 import re
 import sys
@@ -84,8 +85,13 @@ def parse_json(data: bytes) -> dict:
         return obj
     def reject_constant(value):
         raise ValueError("non-finite JSON value: " + value)
+    def finite_float(value):
+        number = float(value)
+        if not math.isfinite(number):
+            raise ValueError("non-finite JSON float: " + value)
+        return number
     obj = json.loads(data, object_pairs_hook=object_pairs,
-                     parse_constant=reject_constant)
+                     parse_constant=reject_constant, parse_float=finite_float)
     if type(obj) is not dict:
         raise ValueError("JSON root must be an object")
     return obj

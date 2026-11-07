@@ -85,6 +85,79 @@ build_presence_board() {
     if [[ "$explicit" = 1 ]]; then build_dir="$build_dir/$preset"; fi
     local sdkconfig_path="$build_dir/sdkconfig"
     local sdkconfig_defaults="sdkconfig.defaults;sdkconfig.defaults.$board"
+    # Legacy startup must not reuse an aggregate CMakeCache, even when the
+    # shell's Stage1 environment variables have been cleared. This also
+    # prevents idf.py set-target from mutating the prior aggregate build.
+    local cache="$build_dir/CMakeCache.txt"
+    if [[ -L "$build_dir" || -L "$cache" ]]; then
+        echo "Refusing linked presence build directory or CMake cache." >&2
+        return 2
+    fi
+    if [[ "$MMWK_STAGE1_BUILD_MODE" = legacy && -f "$cache" ]] &&
+       grep -Eq '^MMWK_STAGE1_(BOARD|ABI|LOCK_FILE):[^=]*=|^MMWK_STAGE1_PRESET:[^=]*=(offline|local-control|wifi-data)
+        cd "$project_dir"
+        local -a stage1_args=()
+        if [[ "$MMWK_STAGE1_BUILD_MODE" = aggregate ]]; then
+            stage1_args=(-D "MMWK_STAGE1_PRESET=$preset"
+                         -D "MMWK_STAGE1_BOARD=$board"
+                         -D "MMWK_STAGE1_ABI=$MMWK_STAGE1_ABI"
+                         -D "MMWK_STAGE1_LOCK_FILE=$MMWK_STAGE1_LOCK_FILE")
+        else
+            # Legacy packages must never inherit stale Stage1 selections
+            # from a user's shell or a previously configured build cache.
+            # Always force the compatible default for the legacy path.
+            export MMWK_STAGE1_PRESET=default
+            unset MMWK_STAGE1_BOARD MMWK_STAGE1_LOCK_FILE MMWK_STAGE1_ABI
+            stage1_args=(-D "MMWK_STAGE1_PRESET=default")
+        fi
+        idf.py -B "$build_dir" \
+            -D "SDKCONFIG=$sdkconfig_path" \
+            -D "SDKCONFIG_DEFAULTS=$sdkconfig_defaults" \
+            "${stage1_args[@]}" set-target "$target" build
+    )
+}
+
+build_presence() {
+    local board="$1" preset="$2" explicit="$3"
+    case "$board" in
+        mini|pro|wdr) build_presence_board "$board" "$preset" "$explicit" ;;
+        all)
+            build_presence_board mini "$preset" "$explicit"
+            build_presence_board pro "$preset" "$explicit"
+            build_presence_board wdr "$preset" "$explicit"
+            ;;
+        *) echo "Unsupported presence target: $board" >&2; usage; return 1 ;;
+    esac
+}
+
+main() {
+    local example="${1:-}" target="${2:-}" preset=default explicit=0
+    if [[ "$example" = all && $# -eq 1 ]]; then
+        build_presence all default 0
+        return
+    fi
+    if [[ "$example" != presence || -z "$target" ]]; then
+        usage
+        return 1
+    fi
+    if [[ $# -eq 4 && "$3" = --preset ]]; then
+        preset="$4"
+        explicit=1
+    elif [[ $# -ne 2 ]]; then
+        usage
+        return 1
+    fi
+    case "$preset" in
+        default|offline|local-control|wifi-data) ;;
+        *) echo "Unknown preset: $preset" >&2; usage; return 1 ;;
+    esac
+    build_presence "$target" "$preset" "$explicit"
+}
+main "$@"
+ "$cache"; then
+        echo "Legacy SDK cannot reuse aggregate Stage1 CMake cache; select a fresh output directory." >&2
+        return 2
+    fi
     (
         cd "$project_dir"
         local -a stage1_args=()

@@ -1,6 +1,7 @@
 """CLI-only shell selection checks, using a fake idf.py instead of hardware."""
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -60,6 +61,33 @@ class PresenceBuildSelectionTests(unittest.TestCase):
         self.assertEqual(len(self.calls()), 1)
         self.assertIn("MMWK_STAGE1_PRESET=default", self.calls()[0])
         self.assertNotIn("MMWK_STAGE1_BOARD=wdr", self.calls()[0])
+
+    def test_legacy_rejects_aggregate_build_cache_without_running_idf(self):
+        # Work only inside a temporary copy; never modify real build dirs.
+        copied = self.dir / "sdk/examples"
+        copied.mkdir(parents=True)
+        (copied / "presence").mkdir()
+        shutil.copyfile(SCRIPT, copied / "build.sh")
+        cache = copied / "build/presence/mini/CMakeCache.txt"
+        cache.parent.mkdir(parents=True)
+        cache.write_text(
+            "MMWK_STAGE1_PRESET:UNINITIALIZED=default\n"
+            "MMWK_STAGE1_BOARD:UNINITIALIZED=mini\n"
+            "MMWK_STAGE1_ABI:UNINITIALIZED=idf553-os\n"
+            "MMWK_STAGE1_LOCK_FILE:UNINITIALIZED=/frozen/old.lock\n")
+        result = subprocess.run(
+            ["bash", str(copied / "build.sh"), "presence", "mini"],
+            capture_output=True, text=True, env=self.env)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("cannot reuse aggregate Stage1 CMake cache", result.stderr)
+        self.assertEqual(self.calls(), [])
+        self.assertIn("MMWK_STAGE1_ABI", cache.read_text())
+        cache.unlink()
+        allowed = subprocess.run(
+            ["bash", str(copied / "build.sh"), "presence", "mini"],
+            capture_output=True, text=True, env=self.env)
+        self.assertEqual(allowed.returncode, 0, allowed.stderr)
+        self.assertEqual(len(self.calls()), 1)
 
     def test_explicit_default_isolated_output(self):
         run = self.run_build("presence", "pro", "--preset", "default")

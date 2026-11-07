@@ -193,6 +193,14 @@ class BundleLockTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "unsafe|invalid"):
                     bundle.safe_path(self.root, name)
 
+    def test_bundled_consumer_rejects_float_overflow_and_nonfinite_json(self):
+        for data in (b'{"value":1e9999}', b'{"value":-1e9999}',
+                     b'{"value":NaN}', b'{"value":Infinity}'):
+            with self.subTest(data=data):
+                with self.assertRaisesRegex(ValueError, "non-finite"):
+                    bundle.parse_json(data)
+        self.assertEqual(bundle.parse_json(b'{"value":0.25}')["value"], 0.25)
+
     def test_bad_manifest_syntax_or_unsafe_path(self):
         self.put_manifest()
         (self.root / "release-manifest.json").write_bytes(b'{"schema":3,"schema":3}')
