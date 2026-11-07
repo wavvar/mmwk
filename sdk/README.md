@@ -110,3 +110,8 @@ formatting JSON. `test_presence_state_concurrency.py` executes the actual
 public C source with host pthreads and validates that untrusted timeout
 values (NaN, fractions, out-of-range) are rejected. This is a host concurrency
 contract, **not** ESP target timing or hardware acceptance.
+
+In aggregate mode, presence flashes only the SDK-managed `assets/radar68xx`
+or `assets/radarl64xx` firmware/config pair. Legacy/default mode continues
+to use its native `firmwares/radar` tree. A missing package asset never falls
+back to another native firmware image.
