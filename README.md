@@ -8,6 +8,8 @@ Chinese version: [中文文档](./README_CN.md)
 
 Wavvar MMWK (mmWave Kit) is a product-level mmWave radar sensor platform. This directory contains all pre-built firmwares, documentation, and CLI tools needed to operate and manage MMWK devices.
 
+**Coming soon — `mmwk_rdf`:** Wavvar will soon release a radar development framework built on MMWK and open-source additional components to help developers build radar applications more quickly. Wavvar will also add support for ESP BOX3 and contribute more radar firmware code to the open-source ecosystem. Stay tuned.
+
 ## 1. Features
 
 - **Radar Development Fast-track**: The [**mmWave Sensor Development Kit**](./docs/en/mmwk-sensor.md) gives MMWK a shared sensor platform for CLI control, Wi-Fi/MQTT/4G connectivity, OTA, radar firmware management, and raw radar passthrough. Start prototyping your radar-powered application in minutes, not months.
