@@ -1,6 +1,7 @@
 #include "presence_cli.h"
 #include "presence_radar_assets.h"
 #include "presence_state.h"
+#include "presence_ui.h"
 
 #include <stdint.h>
 
@@ -12,6 +13,16 @@
 
 static const char *TAG = "presence_main";
 static presence_state_t s_presence_state;
+
+/* Application UI is opt-in and fully editable. This example does not install
+ * a default key/LED task. For custom IO set claim_key/claim_led to true and
+ * use presence_ui_read_key()/presence_ui_set_led() in your own app logic.
+ * Old SDK packages retain their original internal key/LED ownership. */
+static const presence_ui_policy_t s_ui_policy = {
+    .claim_key = false,
+    .claim_led = false,
+    .led_initially_on = false,
+};
 
 static void presence_raw_event_callback(const mmwk_sensor_raw_event_t *event,
                                         void *ctx)
@@ -75,6 +86,7 @@ void app_main(void)
     profile = mmwk_sensor_load_profile();
     proto_cfg = mmwk_sensor_load_protocol_family();
     startup = mmwk_sensor_load_startup_policy(&profile, &proto_cfg);
+    ESP_ERROR_CHECK(presence_ui_configure(&s_ui_policy));
     /* The new aggregate SDK lets the application own key/LED GPIOs. The
      * current legacy SDK has no such policy fields and retains its original
      * behavior, so the same native presence source remains buildable there. */
