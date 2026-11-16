@@ -13,6 +13,10 @@ typedef struct {
 } presence_ui_policy_t;
 
 esp_err_t presence_ui_configure(const presence_ui_policy_t *policy);
+/* Release application-owned GPIO when the sensor runtime exits.
+ * No-op on the legacy SDK or when no GPIO was claimed. On a GPIO reset
+ * failure the failed pin remains owned, allowing the application to retry. */
+esp_err_t presence_ui_release(void);
 /* Returns -1 when key GPIO is not claimed by this application. */
 int presence_ui_read_key(void);
 /* Returns ESP_ERR_INVALID_STATE when LED GPIO has not been claimed. */

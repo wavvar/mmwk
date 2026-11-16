@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 from pathlib import Path
 import re
 import sys
@@ -26,6 +27,47 @@ PRESETS = {
     "wifi-data": {"core", "network"},
     "default": {"core", "local_control", "network", "portal", "mqtt_control"},
 }
+OWNED_PREFIXES = (
+    "components/mmwk_board/", "components/mmwk_sdk/",
+    "assets/", "licenses/", "patches/",
+)
+
+
+def audit_owned_files(root: Path, managed: set[str]) -> None:
+    """The consumer must not compile unlisted files beside signed-off files."""
+    unapproved = sorted(name for name in managed
+                        if name != "NOTICE" and
+                        not name.startswith(OWNED_PREFIXES))
+    if unapproved:
+        raise ValueError("unapproved aggregate SDK managed paths: " +
+                         ", ".join(unapproved[:5]))
+    actual = set()
+    for prefix in OWNED_PREFIXES:
+        directory = root / prefix.rstrip("/")
+        if directory.is_symlink():
+            raise ValueError("symlink in SDK-owned payload: " + prefix)
+        if not directory.exists():
+            continue
+        if not directory.is_dir():
+            raise ValueError("invalid SDK-owned directory: " + prefix)
+        for item in directory.rglob("*"):
+            name = item.relative_to(root).as_posix()
+            if item.is_symlink():
+                raise ValueError("symlink in SDK-owned payload: " + name)
+            if item.is_dir():
+                continue
+            if not item.is_file():
+                raise ValueError("non-file in SDK-owned payload: " + name)
+            # Do not accept traversal, hidden Git metadata or aliases.
+            safe_path(root, name)
+            actual.add(name)
+    expected = {name for name in managed if name.startswith(OWNED_PREFIXES)}
+    if actual != expected:
+        raise ValueError("SDK-owned payload differs from exact managed file inventory"
+                         " extra=" + repr(sorted(actual - expected)[:5]) +
+                         " missing=" + repr(sorted(expected - actual)[:5]))
+
+
 LEGACY_ARCHIVES = (
     "components/mmwk_sdk/lib/mini/libmmwk_sdk.a",
     "components/mmwk_sdk/lib/pro/libmmwk_sdk.a",
@@ -43,8 +85,13 @@ def parse_json(data: bytes) -> dict:
         return obj
     def reject_constant(value):
         raise ValueError("non-finite JSON value: " + value)
+    def finite_float(value):
+        number = float(value)
+        if not math.isfinite(number):
+            raise ValueError("non-finite JSON float: " + value)
+        return number
     obj = json.loads(data, object_pairs_hook=object_pairs,
-                     parse_constant=reject_constant)
+                     parse_constant=reject_constant, parse_float=finite_float)
     if type(obj) is not dict:
         raise ValueError("JSON root must be an object")
     return obj
@@ -55,7 +102,7 @@ def safe_path(root: Path, name: str) -> Path:
             "\\" in name or "\0" in name:
         raise ValueError("invalid SDK file path")
     parts = name.split("/")
-    if any(x in ("", ".", "..", ".git", ".gitmodules", ".lfsconfig") for x in parts):
+    if any(x in ("", ".", "..") or x.startswith(".") or ":" in x for x in parts):
         raise ValueError("unsafe SDK file path: " + name)
     candidate = root
     for part in parts:
@@ -124,6 +171,7 @@ def inspect(root: Path, board: str, preset: str, abi: str) -> dict:
         raise ValueError("incomplete managed SHA256 inventory")
     if "release-manifest.json" in full_hashes:
         raise ValueError("manifest must not hash itself")
+    audit_owned_files(root, set(managed))
     for name in managed:
         # Verify every managed file, not only the files for this board. This
         # guards the public CMake, NOTICE, licensing and optional resources.
@@ -135,9 +183,31 @@ def inspect(root: Path, board: str, preset: str, abi: str) -> dict:
     ) != (target, chip, family):
         raise ValueError("board target, chip or resource family mismatch")
     caps = board_entry.get("capabilities")
-    if type(caps) is not list or any(type(x) is not str for x in caps) or \
-            len(set(caps)) != len(caps) or not PRESETS[preset] <= set(caps):
+    if (type(caps) is not list or any(type(x) is not str for x in caps) or
+            len(set(caps)) != len(caps) or
+            not PRESETS[preset] <= set(caps) or
+            not set(caps) <= PRESETS["default"]):
         raise ValueError("requested preset not supported by SDK board")
+    expected_members = {"esp32": ["mini"], "esp32s3": ["pro", "wdr"]}
+    if set(groups) != set(expected_members) or set(board_map) != set(PROFILES):
+        raise ValueError("incomplete or unapproved aggregate board/target inventory")
+    for group_target, members in expected_members.items():
+        record = groups[group_target]
+        if (type(record) is not dict or record.get("target") != group_target or
+                record.get("boards") != members):
+            raise ValueError("unapproved aggregate target group members: " + group_target)
+    for profile_name, expected_profile in PROFILES.items():
+        record = board_map[profile_name]
+        if (type(record) is not dict or
+                (record.get("target"), record.get("radar_chip"),
+                 record.get("asset_family")) != expected_profile):
+            raise ValueError("unapproved aggregate board profile: " + profile_name)
+        caps = record.get("capabilities")
+        if (type(caps) is not list or
+                any(type(cap) is not str for cap in caps) or
+                len(set(caps)) != len(caps) or
+                not set(caps) <= PRESETS["default"]):
+            raise ValueError("unapproved aggregate board capabilities: " + profile_name)
     group = groups.get(target)
     if type(group) is not dict or group.get("target") != target or \
             group.get("abi") != abi or board not in group.get("boards", []):
@@ -163,6 +233,8 @@ def inspect(root: Path, board: str, preset: str, abi: str) -> dict:
         x.endswith("mmwk_board_config.h") for x in board_source_paths
     ):
         raise ValueError("board config C implementation/header is missing")
+    if set(asset_pairs) != {"radar68xx", "radarl64xx"}:
+        raise ValueError("unapproved aggregate radar resource families")
     pair = asset_pairs.get(family)
     if type(pair) is not dict or set(pair) != {"firmware", "config"}:
         raise ValueError("incomplete selected radar firmware/config pair")

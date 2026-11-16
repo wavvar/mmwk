@@ -63,15 +63,52 @@ project(mmwk_presence_example)
 
 # Firmware/config pairing is consumer-owned; the shipped SDK cannot
 # infer the radar chip or choose a build from a neighboring checkout.
-set(MMWK_PUBLIC_RADAR_ROOT "${MMWK_USER_SDK_ROOT}/../firmwares/radar")
+# An aggregate package already verifies its own SHA256-managed assets.
+# It must not accidentally flash a different native firmware checkout.
+set(MMWK_PRESENCE_AGGREGATE_ASSETS OFF)
+set(_presence_manifest "${MMWK_USER_SDK_ROOT}/release-manifest.json")
+if(IS_SYMLINK "${_presence_manifest}")
+    message(FATAL_ERROR "presence: linked aggregate SDK manifest is forbidden")
+elseif(EXISTS "${_presence_manifest}")
+    set(MMWK_PRESENCE_AGGREGATE_ASSETS ON)
+    set(MMWK_PUBLIC_RADAR_ROOT "${MMWK_USER_SDK_ROOT}/assets")
+else()
+    if(DEFINED MMWK_STAGE1_PRESET AND NOT MMWK_STAGE1_PRESET STREQUAL "default")
+        message(FATAL_ERROR "presence: non-default capability requires a verified aggregate SDK")
+    endif()
+    set(MMWK_PUBLIC_RADAR_ROOT "${MMWK_USER_SDK_ROOT}/../firmwares/radar")
+endif()
 include("${CMAKE_CURRENT_LIST_DIR}/presence_asset_profiles.cmake")
 presence_resolve_asset_profile("${MMWK_PUBLIC_RADAR_ROOT}")
 
-set(PRESENCE_RADAR_ASSET_DIR "${CMAKE_BINARY_DIR}/presence_assets")
+# Never silently reuse stale SPIFFS sources from an earlier board/preset.
+# Different source bytes use different output paths, with no destructive
+# cleanup of previous firmware build evidence.
+presence_resolve_asset_staging_dir(
+    "${CMAKE_BINARY_DIR}" "${PRESENCE_RADAR_FAMILY}"
+    "${PRESENCE_RADAR_FW_SRC}" "${PRESENCE_RADAR_CFG_SRC}"
+    PRESENCE_RADAR_ASSET_DIR)
+if(IS_SYMLINK "${CMAKE_BINARY_DIR}/presence_assets" OR
+   IS_SYMLINK "${CMAKE_BINARY_DIR}/presence_assets/${PRESENCE_RADAR_FAMILY}" OR
+   IS_SYMLINK "${PRESENCE_RADAR_ASSET_DIR}")
+    message(FATAL_ERROR "presence: linked generated asset staging directory forbidden")
+endif()
 file(MAKE_DIRECTORY "${PRESENCE_RADAR_ASSET_DIR}")
-
+presence_validate_asset_staging(
+    "${PRESENCE_RADAR_ASSET_DIR}"
+    "${PRESENCE_RADAR_FW_NAME}"
+    "${PRESENCE_RADAR_CFG_NAME}")
 file(COPY "${PRESENCE_RADAR_FW_SRC}" DESTINATION "${PRESENCE_RADAR_ASSET_DIR}")
 file(COPY "${PRESENCE_RADAR_CFG_SRC}" DESTINATION "${PRESENCE_RADAR_ASSET_DIR}")
+# file(COPY) uses timestamp heuristics; verify actual staged bytes.
+file(SHA256 "${PRESENCE_RADAR_FW_SRC}" _source_fw_sha)
+file(SHA256 "${PRESENCE_RADAR_ASSET_DIR}/${PRESENCE_RADAR_FW_NAME}" _staged_fw_sha)
+file(SHA256 "${PRESENCE_RADAR_CFG_SRC}" _source_cfg_sha)
+file(SHA256 "${PRESENCE_RADAR_ASSET_DIR}/${PRESENCE_RADAR_CFG_NAME}" _staged_cfg_sha)
+if(NOT _source_fw_sha STREQUAL _staged_fw_sha OR
+   NOT _source_cfg_sha STREQUAL _staged_cfg_sha)
+    message(FATAL_ERROR "presence: SPIFFS staging does not match locked source firmware/config")
+endif()
 file(WRITE "${PRESENCE_RADAR_ASSET_DIR}/meta.json"
     "{\n"
     "  \"idx\": ${PRESENCE_RADAR_FID},\n"

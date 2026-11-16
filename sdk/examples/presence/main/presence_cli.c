@@ -1,6 +1,7 @@
 #include "presence_cli.h"
 
 #include <stdbool.h>
+#include <math.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -10,8 +11,9 @@
 static cJSON *presence_cli_config_to_json(const presence_state_t *state)
 {
     cJSON *root;
+    presence_state_t snapshot;
 
-    if (!state) {
+    if (!presence_state_snapshot(state, &snapshot)) {
         return NULL;
     }
 
@@ -20,7 +22,7 @@ static cJSON *presence_cli_config_to_json(const presence_state_t *state)
         return NULL;
     }
 
-    if (!cJSON_AddNumberToObject(root, "timeout_ms", state->timeout_ms)) {
+    if (!cJSON_AddNumberToObject(root, "timeout_ms", snapshot.timeout_ms)) {
         cJSON_Delete(root);
         return NULL;
     }
@@ -33,13 +35,14 @@ static bool presence_cli_parse_timeout_ms(const cJSON *args, uint32_t *out_timeo
     cJSON *item;
     uint32_t timeout_ms;
 
-    if (!args || !out_timeout_ms) {
+    if (!cJSON_IsObject(args) || !out_timeout_ms) {
         return false;
     }
 
-    item = cJSON_GetObjectItem(args, "timeout_ms");
+    item = cJSON_GetObjectItemCaseSensitive(args, "timeout_ms");
     if (!cJSON_IsNumber(item) ||
-        item->valuedouble < 0.0 ||
+        !isfinite(item->valuedouble) ||
+        item->valuedouble < 1000.0 ||
         item->valuedouble > 60000.0) {
         return false;
     }
@@ -69,7 +72,6 @@ static mmwk_sensor_cli_status_t presence_cli_handle(const mmwk_sensor_cli_reques
     }
 
     if (strcmp(req->action, "status") == 0) {
-        presence_state_refresh(state);
         *out_result = presence_state_to_json(state);
         return *out_result ? MMWK_SENSOR_CLI_STATUS_OK : MMWK_SENSOR_CLI_STATUS_NO_MEMORY;
     }

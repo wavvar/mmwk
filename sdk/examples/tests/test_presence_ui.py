@@ -69,6 +69,7 @@ int main(void) {
   assert(presence_ui_configure(&policy) == ESP_OK);
   assert(presence_ui_read_key() == -1);
   assert(presence_ui_set_led(true) == ESP_ERR_NOT_SUPPORTED);
+  assert(presence_ui_release() == ESP_OK);
   policy.claim_key = true;
   assert(presence_ui_configure(&policy) == ESP_ERR_NOT_SUPPORTED);
   return 0;
@@ -101,6 +102,40 @@ int main(void) {
   assert(presence_ui_set_led(true)==ESP_OK);
   assert(levels==2 && resets==0);
   assert(presence_ui_configure(&policy)==ESP_ERR_INVALID_STATE);
+  return 0;
+}
+""")
+
+    def test_new_package_releases_claims_after_runtime_and_retries_failed_reset(self):
+        self.build(modern=True, program="""
+#include "presence_ui.h"
+#include "mmwk_board_config.h"
+#include "driver/gpio.h"
+#include <assert.h>
+static mmwk_board_config_t board={sizeof(board),1,15,16};
+static int resets,fail_led_reset;
+const mmwk_board_config_t *mmwk_board_get_config(void){return &board;}
+esp_err_t gpio_config(const gpio_config_t *cfg){(void)cfg;return ESP_OK;}
+esp_err_t gpio_set_level(int pin,int level){(void)pin;(void)level;return ESP_OK;}
+esp_err_t gpio_reset_pin(int pin){resets++;return (fail_led_reset && pin==16) ? -9 : ESP_OK;}
+int gpio_get_level(int pin){(void)pin;return 1;}
+int main(void){
+  presence_ui_policy_t p={.claim_key=true,.claim_led=true};
+  assert(presence_ui_release()==ESP_OK);
+  assert(presence_ui_configure(&p)==ESP_OK);
+  fail_led_reset=1;
+  assert(presence_ui_release()==-9);
+  assert(resets==2); /* Key released, LED retained. */
+  assert(presence_ui_read_key()==-1);
+  assert(presence_ui_set_led(true)==ESP_OK);
+  assert(presence_ui_configure(&p)==ESP_ERR_INVALID_STATE);
+  fail_led_reset=0;
+  assert(presence_ui_release()==ESP_OK);
+  assert(resets==3);
+  assert(presence_ui_set_led(true)==ESP_ERR_INVALID_STATE);
+  assert(presence_ui_release()==ESP_OK);
+  assert(presence_ui_configure(&p)==ESP_OK); /* fresh lifecycle */
+  assert(presence_ui_release()==ESP_OK);
   return 0;
 }
 """)

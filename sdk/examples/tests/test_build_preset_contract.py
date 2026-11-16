@@ -1,6 +1,7 @@
 """CLI-only shell selection checks, using a fake idf.py instead of hardware."""
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -16,11 +17,15 @@ class PresenceBuildSelectionTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.dir = Path(self.temp.name)
         self.log = self.dir / "calls.txt"
+        self.env_log = self.dir / "preset-env.txt"
         mock = self.dir / "idf.py"
-        mock.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$MMWK_TEST_BUILD_LOG"\n')
+        mock.write_text(
+            '#!/bin/sh\nprintf "%s\\n" "$*" >> "$MMWK_TEST_BUILD_LOG"\n'
+            'printf "%s\\n" "${MMWK_STAGE1_PRESET-UNSET}" >> "$MMWK_TEST_ENV_LOG"\n')
         mock.chmod(0o755)
         self.env = {**os.environ, "PATH": str(self.dir) + os.pathsep + os.environ.get("PATH", ""),
-                    "MMWK_TEST_BUILD_LOG": str(self.log)}
+                    "MMWK_TEST_BUILD_LOG": str(self.log),
+                    "MMWK_TEST_ENV_LOG": str(self.env_log)}
 
     def run_build(self, *args):
         return subprocess.run(["bash", str(SCRIPT), *args], capture_output=True,
@@ -29,12 +34,74 @@ class PresenceBuildSelectionTests(unittest.TestCase):
     def calls(self):
         return self.log.read_text().splitlines() if self.log.exists() else []
 
+    def test_build_script_shell_syntax_and_single_entrypoints(self):
+        checked = subprocess.run(["bash", "-n", str(SCRIPT)],
+                                 capture_output=True, text=True)
+        self.assertEqual(checked.returncode, 0, checked.stderr)
+        source = SCRIPT.read_text()
+        for function in ("require_preset_ready", "preflight_presence_cache",
+                         "build_presence_board", "build_presence", "main"):
+            self.assertEqual(source.count(function + "() {"), 1, function)
+        self.assertEqual(source.count('main "$@"'), 1)
+        self.assertLess(source.index('preflight_presence_cache() {'),
+                        source.index('build_presence_board() {'))
+        self.assertLess(source.index('for check_board in mini pro wdr'),
+                        source.index('build_presence_board mini "$preset" "$explicit"'))
+
+    def test_native_host_runner_never_invokes_target_or_publisher(self):
+        runner = ROOT / "sdk/examples/tests/run_host_checks.sh"
+        self.assertTrue(runner.is_file())
+        script = runner.read_text()
+        self.assertIn("unittest discover", script)
+        self.assertIn("PYTHONDONTWRITEBYTECODE=1", script)
+        self.assertNotIn("idf.py build", script)
+        self.assertNotIn("release_publisher.py", script)
+
     def test_legacy_default_entry_stays_compatible(self):
         run = self.run_build("presence", "mini")
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertEqual(len(self.calls()), 1)
         self.assertIn("/build/presence/mini", self.calls()[0])
         self.assertNotIn("/build/presence/mini/default", self.calls()[0])
+
+    def test_legacy_build_ignores_stale_inherited_stage1_selection(self):
+        self.env["MMWK_STAGE1_PRESET"] = "offline"
+        self.env["MMWK_STAGE1_BOARD"] = "wdr"
+        self.env["MMWK_STAGE1_ABI"] = "untrusted"
+        self.env["MMWK_STAGE1_LOCK_FILE"] = "/nonexistent.lock"
+        outcome = self.run_build("presence", "mini")
+        self.assertEqual(outcome.returncode, 0, outcome.stderr)
+        self.assertEqual(self.env_log.read_text().splitlines(), ["default"])
+        self.assertEqual(len(self.calls()), 1)
+        self.assertIn("MMWK_STAGE1_PRESET=default", self.calls()[0])
+        self.assertNotIn("MMWK_STAGE1_BOARD=wdr", self.calls()[0])
+
+    def test_legacy_rejects_aggregate_build_cache_without_running_idf(self):
+        # Work only inside a temporary copy; never modify real build dirs.
+        copied = self.dir / "sdk/examples"
+        copied.mkdir(parents=True)
+        (copied / "presence").mkdir()
+        shutil.copyfile(SCRIPT, copied / "build.sh")
+        cache = copied / "build/presence/mini/CMakeCache.txt"
+        cache.parent.mkdir(parents=True)
+        cache.write_text(
+            "MMWK_STAGE1_PRESET:UNINITIALIZED=default\n"
+            "MMWK_STAGE1_BOARD:UNINITIALIZED=mini\n"
+            "MMWK_STAGE1_ABI:UNINITIALIZED=idf553-os\n"
+            "MMWK_STAGE1_LOCK_FILE:UNINITIALIZED=/frozen/old.lock\n")
+        result = subprocess.run(
+            ["bash", str(copied / "build.sh"), "presence", "mini"],
+            capture_output=True, text=True, env=self.env)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("cannot reuse aggregate Stage1 CMake cache", result.stderr)
+        self.assertEqual(self.calls(), [])
+        self.assertIn("MMWK_STAGE1_ABI", cache.read_text())
+        cache.unlink()
+        allowed = subprocess.run(
+            ["bash", str(copied / "build.sh"), "presence", "mini"],
+            capture_output=True, text=True, env=self.env)
+        self.assertEqual(allowed.returncode, 0, allowed.stderr)
+        self.assertEqual(len(self.calls()), 1)
 
     def test_explicit_default_isolated_output(self):
         run = self.run_build("presence", "pro", "--preset", "default")
@@ -48,6 +115,22 @@ class PresenceBuildSelectionTests(unittest.TestCase):
                 result = self.run_build("presence", "wdr", "--preset", name)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("requires a verified aggregate package", result.stderr)
+        self.assertEqual(self.calls(), [])
+
+    def test_all_fails_before_any_idf_if_later_board_has_stale_cache(self):
+        copied = self.dir / "sdk/examples"
+        copied.mkdir(parents=True)
+        (copied / "presence").mkdir()
+        shutil.copyfile(SCRIPT, copied / "build.sh")
+        stale = copied / "build/presence/pro/CMakeCache.txt"
+        stale.parent.mkdir(parents=True)
+        stale.write_text("MMWK_STAGE1_BOARD:UNINITIALIZED=pro\n"
+                         "MMWK_STAGE1_ABI:UNINITIALIZED=old\n")
+        result = subprocess.run(
+            ["bash", str(copied / "build.sh"), "all"],
+            capture_output=True, text=True, env=self.env)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("cannot reuse aggregate Stage1 CMake cache", result.stderr)
         self.assertEqual(self.calls(), [])
 
     def test_all_legacy_boards_and_bad_preset(self):

@@ -3,6 +3,7 @@
 import argparse
 import json
 from pathlib import Path
+import re
 import sys
 
 BOARD_TARGET = {"mini": "esp32", "pro": "esp32s3", "wdr": "esp32s3"}
@@ -12,7 +13,75 @@ def fail(message):
     raise ValueError(message)
 
 
-def check(build_dir: Path, board: str, action: str):
+def _unique_json_object(pairs):
+    obj = {}
+    for key, value in pairs:
+        if key in obj:
+            fail("duplicate flasher_args.json key: " + key)
+        obj[key] = value
+    return obj
+
+
+def _reject_nonfinite(value):
+    fail("nonfinite flasher_args.json value: " + value)
+
+
+def check_stage1_cache(build_dir: Path, board: str, preset: str, abi: str,
+                       lock: Path) -> None:
+    """Ensure the isolated firmware was configured for this exact SDK mode.
+
+    This is source/build-directory identity only. Real hardware flashes still
+    require the signed-off target build and later S6 physical acceptance.
+    """
+    if preset not in ("offline", "default") or not abi or not lock.is_absolute():
+        fail("unsupported or incomplete Stage1 flash selection")
+    cache = build_dir / "CMakeCache.txt"
+    if not cache.is_file() or cache.is_symlink():
+        fail("missing isolated Stage1 CMakeCache; rebuild this preset first")
+    keys = ("MMWK_STAGE1_PRESET", "MMWK_STAGE1_BOARD", "MMWK_STAGE1_ABI",
+            "MMWK_STAGE1_LOCK_FILE")
+    values = {}
+    for line in cache.read_text(encoding="utf-8").splitlines():
+        if line.startswith("//") or line.startswith("#") or "=" not in line:
+            continue
+        keytype, value = line.split("=", 1)
+        key = keytype.split(":", 1)[0]
+        if key in keys:
+            if key in values:
+                fail("duplicate Stage1 CMake cache selection")
+            values[key] = value
+    if values != {
+        "MMWK_STAGE1_PRESET": preset,
+        "MMWK_STAGE1_BOARD": board,
+        "MMWK_STAGE1_ABI": abi,
+        "MMWK_STAGE1_LOCK_FILE": str(lock),
+    }:
+        fail("isolated Stage1 CMake build does not match requested SDK lock")
+
+def check_legacy_cache(build_dir: Path) -> None:
+    """Never flash an aggregate-built image after swapping in legacy SDK.
+
+    The legacy build script may set MMWK_STAGE1_PRESET=default, but an ABI,
+    board or lock entry only appears in the aggregate-mode CMake cache.
+    """
+    cache = build_dir / "CMakeCache.txt"
+    if cache.is_symlink():
+        fail("symlink in legacy CMake cache")
+    if not cache.is_file():
+        return
+    forbidden = {"MMWK_STAGE1_ABI", "MMWK_STAGE1_BOARD",
+                 "MMWK_STAGE1_LOCK_FILE"}
+    for row in cache.read_text(encoding="utf-8").splitlines():
+        if row.startswith(("//", "#")) or "=" not in row:
+            continue
+        key = row.split("=", 1)[0].split(":", 1)[0]
+        if key in forbidden:
+            fail("aggregate CMake cache requires exact SDK manifest and lock")
+
+
+def check(build_dir: Path, board: str, action: str, *,
+          stage1_preset: str | None = None, stage1_abi: str | None = None,
+          stage1_lock: Path | None = None):
     if board not in BOARD_TARGET:
         fail("unsupported radar board")
     if action not in {"flash", "flash-monitor", "monitor"}:
@@ -34,6 +103,13 @@ def check(build_dir: Path, board: str, action: str):
         fail("firmware ESP target does not match board")
     if "CONFIG_COMPILER_OPTIMIZATION_SIZE=y" not in lines:
         fail("SDK library requires CONFIG_COMPILER_OPTIMIZATION_SIZE=y")
+    if stage1_preset is not None:
+        if stage1_lock is None or stage1_abi is None:
+            fail("Stage1 flash build selection incomplete")
+        check_stage1_cache(build_dir, board, stage1_preset,
+                           stage1_abi, stage1_lock)
+    else:
+        check_legacy_cache(build_dir)
     if action == "monitor":
         return {"board": board, "target": target, "action": action}
 
@@ -41,29 +117,61 @@ def check(build_dir: Path, board: str, action: str):
     if not args_file.is_file() or args_file.is_symlink():
         fail("missing flasher_args.json; build presence before flashing")
     try:
-        args = json.loads(args_file.read_text(encoding="utf-8"))
+        args = json.loads(args_file.read_text(encoding="utf-8"),
+                          object_pairs_hook=_unique_json_object,
+                          parse_constant=_reject_nonfinite)
     except (ValueError, UnicodeDecodeError) as exc:
         fail(f"invalid flasher_args.json: {exc}")
+    if type(args) is not dict:
+        fail("flasher_args.json must be a JSON object")
     flash_files = args.get("flash_files")
-    if not isinstance(flash_files, dict) or not flash_files:
+    if type(flash_files) is not dict or not flash_files:
         fail("flasher_args.json contains no flash_files")
+    # ESP-IDF normally uses hex offsets. Decimal aliases must not allow two
+    # distinct dictionary keys to write the same address. Reject overlap,
+    # invalid image bytes, or a path that traverses an in-tree symlink.
     images = []
+    ranges = []
+    seen_offsets = set()
+    seen_paths = set()
     for offset, relative in flash_files.items():
-        try:
-            int(offset, 0)
-        except (TypeError, ValueError):
+        if not isinstance(offset, str) or not re.fullmatch(
+            r"(?:0[xX][0-9a-fA-F]+|[1-9][0-9]*|0)", offset
+        ):
             fail("invalid flash offset")
+        address = int(offset, 0 if offset.lower().startswith("0x") else 10)
+        if address < 0 or address > 0xFFFFFFFF or address % 0x1000:
+            fail("invalid or unaligned flash offset")
+        if address in seen_offsets:
+            fail("duplicate numeric flash offset")
+        seen_offsets.add(address)
         if not isinstance(relative, str) or not relative or relative.startswith("/"):
             fail("unsafe flash image path")
         parts = relative.split("/")
-        if any(part in ("", ".", "..") for part in parts) or "\\" in relative:
+        if any(part in ("", ".", "..") or part.startswith(".")
+               for part in parts) or "\\" in relative or "\x00" in relative:
             fail("unsafe flash image path")
-        path = build_dir.joinpath(*parts)
-        if path.is_symlink() or not path.is_file() or not path.resolve().is_relative_to(build_dir):
+        if relative in seen_paths:
+            fail("duplicate flash image path")
+        seen_paths.add(relative)
+        path = build_dir
+        for part in parts:
+            path = path / part
+            if path.is_symlink():
+                fail("symlink in flash image path")
+        if not path.is_file() or not path.resolve().is_relative_to(build_dir):
             fail("flash image missing or outside build: " + relative)
+        size = path.stat().st_size
+        if size <= 0 or size > 0x100000000 - address:
+            fail("empty or oversized flash image: " + relative)
         images.append(path.name)
-    if "assets.bin" not in images:
-        fail("first-flash radar assets.bin missing from flash_files")
+        ranges.append((address, address + size, relative))
+    ranges.sort()
+    for left, right in zip(ranges, ranges[1:]):
+        if left[1] > right[0]:
+            fail("overlapping flash image ranges: " + left[2] + " / " + right[2])
+    if images.count("assets.bin") != 1:
+        fail("first-flash radar assets.bin missing or duplicated in flash_files")
     if not any(name.endswith(".bin") and name not in {
         "assets.bin", "bootloader.bin", "partition-table.bin"
     } for name in images):
@@ -77,9 +185,15 @@ def main():
     parser.add_argument("--build-dir", type=Path, required=True)
     parser.add_argument("--board", choices=BOARD_TARGET, required=True)
     parser.add_argument("--action", choices=("flash", "flash-monitor", "monitor"), required=True)
+    parser.add_argument("--stage1-preset", choices=("offline", "default"))
+    parser.add_argument("--stage1-abi")
+    parser.add_argument("--stage1-lock", type=Path)
     options = parser.parse_args()
     try:
-        result = check(options.build_dir, options.board, options.action)
+        result = check(options.build_dir, options.board, options.action,
+                       stage1_preset=options.stage1_preset,
+                       stage1_abi=options.stage1_abi,
+                       stage1_lock=options.stage1_lock)
     except (ValueError, OSError) as exc:
         print(f"presence flash preflight rejected: {exc}", file=sys.stderr)
         return 2

@@ -88,6 +88,26 @@ esp_err_t presence_ui_configure(const presence_ui_policy_t *policy)
 #endif
 }
 
+esp_err_t presence_ui_release(void)
+{
+#ifdef MMWK_SENSOR_STARTUP_LEGACY_UI_POLICY_V1
+    esp_err_t result = ESP_OK;
+    if (s_owned_led >= 0) {
+        esp_err_t err = gpio_reset_pin(s_owned_led);
+        if (err == ESP_OK) s_owned_led = -1;
+        else result = err;
+    }
+    if (s_owned_key >= 0) {
+        esp_err_t err = gpio_reset_pin(s_owned_key);
+        if (err == ESP_OK) s_owned_key = -1;
+        else if (result == ESP_OK) result = err;
+    }
+    return result;
+#else
+    return ESP_OK;
+#endif
+}
+
 int presence_ui_read_key(void)
 {
 #ifdef MMWK_SENSOR_STARTUP_LEGACY_UI_POLICY_V1

@@ -26,7 +26,21 @@ require_preset_ready() {
     local board="$1" preset="$2"
     local sdk_root="${SCRIPT_DIR}/.."
     MMWK_STAGE1_BUILD_MODE=legacy
-    if [[ ! -f "$sdk_root/release-manifest.json" ]]; then
+    MMWK_STAGE1_SELECTED_LOCK=""
+    local manifest="$sdk_root/release-manifest.json"
+    local libs="$sdk_root/components/mmwk_sdk/lib"
+    if [[ -L "$manifest" || ( -e "$manifest" && ! -f "$manifest" ) ]]; then
+        echo "Invalid SDK release manifest; refusing an implicit legacy fallback." >&2
+        return 2
+    fi
+    if [[ ! -f "$manifest" ]]; then
+        # An incomplete aggregate package must never be treated as a valid
+        # legacy SDK just because its release-manifest.json disappeared.
+        if [[ -e "$libs/esp32" || -L "$libs/esp32" ||
+              -e "$libs/esp32s3" || -L "$libs/esp32s3" ]]; then
+            echo "Aggregate SDK archives require a verified release manifest." >&2
+            return 2
+        fi
         if [[ "$preset" = default ]]; then return 0; fi
         echo "Stage1 '$preset' requires a verified aggregate package, not legacy archives." >&2
         return 2
@@ -44,7 +58,7 @@ require_preset_ready() {
         return 2
     fi
     local lock="${MMWK_STAGE1_LOCK_FILE:-${SCRIPT_DIR}/../../mmwk-sdk.${board}.${preset}.lock.json}"
-    if [[ "$lock" != /* || ! -f "$lock" ]]; then
+    if [[ "$lock" != /* || ! -f "$lock" || -L "$lock" ]]; then
         echo "Missing absolute lock: $lock. Create it using sdk/examples/tools/mmwk_sdk_bundle.py." >&2
         return 2
     fi
@@ -55,9 +69,43 @@ require_preset_ready() {
         return 2
     fi
     MMWK_STAGE1_BUILD_MODE=aggregate
+    # Keep the caller lock override intact for multi-board selection.
+    MMWK_STAGE1_SELECTED_LOCK="$lock"
     export MMWK_STAGE1_PRESET="$preset"
     export MMWK_STAGE1_BOARD="$board"
-    export MMWK_STAGE1_LOCK_FILE="$lock"
+}
+
+preflight_presence_cache() {
+    local board="$1" preset="$2" explicit="$3"
+    local build_dir="${SCRIPT_DIR}/build/presence/$board"
+    if [[ "$explicit" = 1 ]]; then build_dir="$build_dir/$preset"; fi
+    local cache="$build_dir/CMakeCache.txt"
+    if [[ -L "$build_dir" || -L "$cache" ]]; then
+        echo "Refusing linked presence build directory or CMake cache." >&2
+        return 2
+    fi
+    # An old bundle cannot silently reuse a cached aggregate board/ABI/lock.
+    if [[ "$MMWK_STAGE1_BUILD_MODE" = legacy && -f "$cache" ]] &&
+       grep -Eq '^MMWK_STAGE1_(BOARD|ABI|LOCK_FILE):[^=]*=|^MMWK_STAGE1_PRESET:[^=]*=(offline|local-control|wifi-data)$' "$cache"; then
+        echo "Legacy SDK cannot reuse aggregate Stage1 CMake cache; select a fresh output directory." >&2
+        return 2
+    fi
+    if [[ "$MMWK_STAGE1_BUILD_MODE" = aggregate && -f "$cache" ]]; then
+        # Reuse the exact flash-side cache contract before idf.py can rewrite
+        # a prior aggregate build (preset/board/ABI/lock are all immutable).
+        if ! python3 -B -c '
+import sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from verify_presence_flash import check_stage1_cache
+check_stage1_cache(Path(sys.argv[2]), sys.argv[3], sys.argv[4],
+                   sys.argv[5], Path(sys.argv[6]))
+' "$SCRIPT_DIR/tools" "$build_dir" "$board" "$preset" \
+  "$MMWK_STAGE1_ABI" "$MMWK_STAGE1_SELECTED_LOCK"; then
+            echo "Aggregate SDK build cache differs from selected board/preset/ABI/lock; use a fresh output directory." >&2
+            return 2
+        fi
+    fi
 }
 
 build_presence_board() {
@@ -72,14 +120,21 @@ build_presence_board() {
     if [[ "$explicit" = 1 ]]; then build_dir="$build_dir/$preset"; fi
     local sdkconfig_path="$build_dir/sdkconfig"
     local sdkconfig_defaults="sdkconfig.defaults;sdkconfig.defaults.$board"
+    preflight_presence_cache "$board" "$preset" "$explicit" || return $?
     (
         cd "$project_dir"
         local -a stage1_args=()
         if [[ "$MMWK_STAGE1_BUILD_MODE" = aggregate ]]; then
+            export MMWK_STAGE1_LOCK_FILE="$MMWK_STAGE1_SELECTED_LOCK"
             stage1_args=(-D "MMWK_STAGE1_PRESET=$preset"
                          -D "MMWK_STAGE1_BOARD=$board"
                          -D "MMWK_STAGE1_ABI=$MMWK_STAGE1_ABI"
-                         -D "MMWK_STAGE1_LOCK_FILE=$MMWK_STAGE1_LOCK_FILE")
+                         -D "MMWK_STAGE1_LOCK_FILE=$MMWK_STAGE1_SELECTED_LOCK")
+        else
+            # Isolate legacy from inherited aggregate selections.
+            export MMWK_STAGE1_PRESET=default
+            unset MMWK_STAGE1_BOARD MMWK_STAGE1_LOCK_FILE MMWK_STAGE1_ABI
+            stage1_args=(-D "MMWK_STAGE1_PRESET=default")
         fi
         idf.py -B "$build_dir" \
             -D "SDKCONFIG=$sdkconfig_path" \
@@ -93,6 +148,10 @@ build_presence() {
     case "$board" in
         mini|pro|wdr) build_presence_board "$board" "$preset" "$explicit" ;;
         all)
+            for check_board in mini pro wdr; do
+                require_preset_ready "$check_board" "$preset" || return $?
+                preflight_presence_cache "$check_board" "$preset" "$explicit" || return $?
+            done
             build_presence_board mini "$preset" "$explicit"
             build_presence_board pro "$preset" "$explicit"
             build_presence_board wdr "$preset" "$explicit"

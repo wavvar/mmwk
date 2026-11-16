@@ -16,6 +16,8 @@ import unittest
 REPO = Path(__file__).resolve().parents[3]
 SCRIPT = REPO / "sdk/examples/build.sh"
 BUNDLE = REPO / "sdk/examples/tools/mmwk_sdk_bundle.py"
+FLASH = REPO / "sdk/examples/flash.sh"
+FLASH_CHECK = REPO / "sdk/examples/tools/verify_presence_flash.py"
 SPEC = importlib.util.spec_from_file_location("stage1_consumer_bundle", BUNDLE)
 bundle = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(bundle)
@@ -39,6 +41,8 @@ class Stage1BuildLockTests(unittest.TestCase):
         (self.examples / "presence/main").mkdir(parents=True)
         shutil.copyfile(SCRIPT, self.examples / "build.sh")
         shutil.copyfile(BUNDLE, self.examples / "tools/mmwk_sdk_bundle.py")
+        shutil.copyfile(FLASH, self.examples / "flash.sh")
+        shutil.copyfile(FLASH_CHECK, self.examples / "tools/verify_presence_flash.py")
         (self.examples / "presence/main/presence_offline.c").write_text("/* owned by app */")
         self.log = self.home / "idf-invocations.txt"
         fake_idf = self.home / "idf.py"
@@ -66,6 +70,120 @@ class Stage1BuildLockTests(unittest.TestCase):
     def invocations(self):
         return self.log.read_text().splitlines() if self.log.exists() else []
 
+    def prepare_flash_fixture(self, preset="offline"):
+        build = self.examples / "build/presence/wdr" / preset
+        build.mkdir(parents=True, exist_ok=True)
+        (build / "sdkconfig").write_text(
+            'CONFIG_RADAR_BOARD_WDR=y\nCONFIG_IDF_TARGET="esp32s3"\n'
+            "CONFIG_COMPILER_OPTIMIZATION_SIZE=y\n")
+        (build / "bootloader.bin").write_bytes(b"boot")
+        (build / "mmwk_presence_example.bin").write_bytes(b"application")
+        (build / "assets.bin").write_bytes(b"firmware and config")
+        (build / "flasher_args.json").write_text(json.dumps({
+            "flash_files": {"0x0": "bootloader.bin",
+                            "0x10000": "mmwk_presence_example.bin",
+                            "0x210000": "assets.bin"}}))
+        (build / "CMakeCache.txt").write_text(
+            f"MMWK_STAGE1_PRESET:UNINITIALIZED={preset}\n"
+            f"MMWK_STAGE1_BOARD:UNINITIALIZED=wdr\n"
+            f"MMWK_STAGE1_ABI:UNINITIALIZED=os-idf553\n"
+            f"MMWK_STAGE1_LOCK_FILE:UNINITIALIZED={self.env['MMWK_STAGE1_LOCK_FILE']}\n"
+        )
+        return build
+
+    def flash_offline(self):
+        return subprocess.run(
+            ["bash", str(self.examples / "flash.sh"),
+             "presence", "wdr", "--port", "COM4", "--preset", "offline"],
+            env=self.env, capture_output=True, text=True)
+
+    def test_offline_flash_requires_exact_existing_aggregate_lock_and_build(self):
+        self.lock("offline")
+        result = self.flash_offline()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("build not found", result.stderr)
+        build = self.prepare_flash_fixture()
+        ok = self.flash_offline()
+        self.assertEqual(ok.returncode, 0, ok.stderr)
+        self.assertIn("assets_included", ok.stdout)
+        self.assertIn(" flash", self.invocations()[-1])
+        self.assertIn("/build/presence/wdr/offline", self.invocations()[-1])
+        (build / "CMakeCache.txt").write_text(
+            (build / "CMakeCache.txt").read_text().replace(
+                "MMWK_STAGE1_ABI:UNINITIALIZED=os-idf553",
+                "MMWK_STAGE1_ABI:UNINITIALIZED=other"))
+        before = len(self.invocations())
+        mismatch = self.flash_offline()
+        self.assertNotEqual(mismatch.returncode, 0)
+        self.assertIn("does not match requested SDK lock", mismatch.stderr)
+        self.assertEqual(len(self.invocations()), before)
+
+    def test_offline_flash_tampered_bundle_or_wrong_lock_cannot_invoke_idf(self):
+        self.prepare_flash_fixture()
+        self.lock("default")
+        wrong = self.flash_offline()
+        self.assertNotEqual(wrong.returncode, 0)
+        self.assertIn("offline SDK/asset/ABI lock invalid", wrong.stderr)
+        self.assertEqual(self.invocations(), [])
+        self.lock("offline")
+        (self.sdk / self.fixture.fw).write_bytes(b"bad payload")
+        tampered = self.flash_offline()
+        self.assertNotEqual(tampered.returncode, 0)
+        self.assertEqual(self.invocations(), [])
+
+    def test_default_aggregate_flash_requires_exact_bundle_and_cache(self):
+        self.lock("default")
+        build = self.prepare_flash_fixture(preset="default")
+        command = ["bash", str(self.examples / "flash.sh"),
+                   "presence", "wdr", "--port", "COM4",
+                   "--preset", "default"]
+        def run():
+            return subprocess.run(command, env=self.env, capture_output=True, text=True)
+        correct = run()
+        self.assertEqual(correct.returncode, 0, correct.stderr)
+        self.assertIn("assets_included", correct.stdout)
+        before = len(self.invocations())
+
+        (build / "CMakeCache.txt").write_text(
+            (build / "CMakeCache.txt").read_text().replace(
+                "MMWK_STAGE1_PRESET:UNINITIALIZED=default",
+                "MMWK_STAGE1_PRESET:UNINITIALIZED=offline"))
+        bad_cache = run()
+        self.assertNotEqual(bad_cache.returncode, 0)
+        self.assertIn("does not match requested SDK lock", bad_cache.stderr)
+        self.assertEqual(before, len(self.invocations()))
+        (build / "CMakeCache.txt").write_text(
+            (build / "CMakeCache.txt").read_text().replace(
+                "MMWK_STAGE1_PRESET:UNINITIALIZED=offline",
+                "MMWK_STAGE1_PRESET:UNINITIALIZED=default"))
+        (self.sdk / self.fixture.fw).write_bytes(b"tampered resource")
+        tampered = run()
+        self.assertNotEqual(tampered.returncode, 0)
+        self.assertIn("aggregate SDK/asset/ABI lock invalid", tampered.stderr)
+        self.assertEqual(before, len(self.invocations()))
+        (self.sdk / self.fixture.fw).write_bytes(self.fixture.contents[self.fixture.fw])
+
+        # Reverting to a legacy package does not authorize flashing the
+        # previously built aggregate image via the legacy default path.
+        (self.sdk / "release-manifest.json").unlink()
+        fallback = run()
+        self.assertNotEqual(fallback.returncode, 0)
+        self.assertIn("aggregate CMake cache", fallback.stderr)
+        self.assertEqual(before, len(self.invocations()))
+
+    def test_aggregate_build_rejects_stale_lock_cache_before_idf(self):
+        self.lock("offline")
+        build = self.prepare_flash_fixture()
+        cache = build / "CMakeCache.txt"
+        cache.write_text(cache.read_text().replace(
+            "MMWK_STAGE1_ABI:UNINITIALIZED=os-idf553",
+            "MMWK_STAGE1_ABI:UNINITIALIZED=old-abi"))
+        denied = self.call("offline")
+        self.assertNotEqual(denied.returncode, 0)
+        self.assertIn("Aggregate SDK build cache differs", denied.stderr)
+        self.assertEqual(self.invocations(), [])
+        self.assertIn("old-abi", cache.read_text())
+
     def test_verified_offline_archive_and_lock_are_used_before_idf(self):
         self.lock("offline")
         result = self.call("offline")
@@ -77,6 +195,15 @@ class Stage1BuildLockTests(unittest.TestCase):
         self.assertIn("MMWK_STAGE1_ABI=os-idf553", command)
         self.assertIn("set-target esp32s3 build", command)
 
+    def test_extra_unlisted_sdk_file_never_reaches_idf_build(self):
+        self.lock("offline")
+        rogue = self.sdk / "components/mmwk_sdk/include/rogue.h"
+        rogue.write_bytes(b"not present in manifest")
+        blocked = self.call("offline")
+        self.assertNotEqual(blocked.returncode, 0)
+        self.assertIn("exact managed file inventory", blocked.stderr)
+        self.assertEqual(self.invocations(), [])
+
     def test_wrong_lock_and_tampered_package_do_not_invoke_idf(self):
         self.lock("default")
         wrong = self.call("offline")
@@ -86,6 +213,33 @@ class Stage1BuildLockTests(unittest.TestCase):
         (self.sdk / self.fixture.fw).write_bytes(b"tampered image")
         changed = self.call("offline")
         self.assertNotEqual(changed.returncode, 0)
+        self.assertEqual(self.invocations(), [])
+
+    def test_incomplete_aggregate_bundle_never_falls_back_to_legacy(self):
+        self.prepare_flash_fixture(preset="default")
+        self.lock("default")
+        manifest = self.sdk / "release-manifest.json"
+        manifest.unlink()
+        result = self.call("default")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Aggregate SDK archives require", result.stderr)
+        self.assertEqual(self.invocations(), [])
+
+        manifest.symlink_to(self.sdk / "missing-manifest.json")
+        result = self.call("default")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Invalid SDK release manifest", result.stderr)
+        self.assertEqual(self.invocations(), [])
+
+    def test_aggregate_build_requires_regular_lock(self):
+        self.lock("offline")
+        lock = Path(self.env["MMWK_STAGE1_LOCK_FILE"])
+        real = lock.with_name("trusted-lock.json")
+        lock.rename(real)
+        lock.symlink_to(real)
+        result = self.call("offline")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Missing absolute lock", result.stderr)
         self.assertEqual(self.invocations(), [])
 
     def test_missing_abi_and_unimplemented_presets_fail_closed(self):
@@ -100,6 +254,24 @@ class Stage1BuildLockTests(unittest.TestCase):
             with self.subTest(preset=preset):
                 self.assertNotEqual(self.call(preset).returncode, 0)
         self.assertEqual(self.invocations(), [])
+
+    def test_all_three_boards_select_independent_default_locks(self):
+        env = dict(self.env)
+        env.pop("MMWK_STAGE1_LOCK_FILE")
+        for board in ("mini", "pro", "wdr"):
+            record = bundle.inspect(self.sdk, board, "default", "os-idf553")
+            (self.home / ("mmwk-sdk." + board + ".default.lock.json")).write_text(
+                json.dumps(record, sort_keys=True))
+        run = subprocess.run(
+            ["bash", str(self.examples / "build.sh"),
+             "presence", "all", "--preset", "default"],
+            env=env, capture_output=True, text=True)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        calls = self.invocations()
+        self.assertEqual(len(calls), 3)
+        for name, command in zip(("mini", "pro", "wdr"), calls):
+            self.assertIn("MMWK_STAGE1_BOARD=" + name, command)
+            self.assertIn("mmwk-sdk." + name + ".default.lock.json", command)
 
     def test_default_requires_matching_new_package_lock(self):
         self.lock("default")
