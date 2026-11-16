@@ -31,3 +31,49 @@ schema-3 Manifest 必须包含覆盖**全部**受管文件的 `file_sha256`（�
 ## CLI 刷写会话兼容
 
 `mmwk/arch_v2` 中的主机 CLI 现可识别旧版 `err=-2` 与新版 SDK 的 `err=-3415` 雷达 UART 升级会话失活反馈，且不会把无关的 `err=-20`、`err=-34150` 误判为同类问题。原有的有界重试及重开会话逻辑不变。当前只进行主机模拟传输回归，**未执行真实设备刷写或 OTA**。CLI 仍独立维护，不进入 SDK 候选覆盖路径。
+
+## 应用独立管理按键与 LED
+
+新版聚合 SDK 在原有 `startup` 参数中增加
+`disable_legacy_key`、`disable_legacy_led` 字段，**无需新增公开导出函数**。
+在调用 `mmwk_sensor_bridge_run()` 前设置为 `true`，即可跳过 SDK
+默认按键 GPIO/任务和 LED 驱动/延迟任务的初始化，让应用独占相应 GPIO
+并自行实现按键、灯效策略。这两个字段**不等于**关闭 Wi-Fi、自动配网或其他
+网络服务；网络能力需要独立选择。内部旧固件保留零默认值和现有行为。
+
+原生 presence 使用 `#ifdef MMWK_SENSOR_STARTUP_LEGACY_UI_POLICY_V1`
+适配新版头文件；在尚未替换的旧版分板库中不引用不存在的字段。
+这仅证明源码适配，完整聚合构建和实体按键/LED 争用还需要后续验收。
+
+## 不依赖主机 CLI 的构建、首次刷写和监控
+
+首先加载匹配版本的 ESP-IDF，并根据实物确认板型；**不能仅凭 USB
+串口号推断硬件型号**。以下操作只依赖 ESP-IDF、Python 和公开 SDK：
+
+```sh
+cd sdk/examples
+./build.sh presence mini
+./flash.sh presence mini --port /dev/ttyUSB0 --monitor
+# 仅监控，不刷写：
+./flash.sh presence mini --port /dev/ttyUSB0 --monitor-only
+
+# 指定 default 时使用独立输出目录：
+./build.sh presence wdr --preset default
+./flash.sh presence wdr --preset default --port /dev/ttyACM0 --monitor
+```
+
+`flash.sh` 必须显式提供 `--port`，并检查构建目录中的
+`sdkconfig` 板型/ESP 目标/size 优化、`flasher_args.json` 和应用
+及 `assets.bin` 镜像；不允许只刷 ESP 应用而漏刷雷达资源。
+presence 工程已有
+`spiffs_create_partition_image(assets ... FLASH_IN_PROJECT)`，因此
+`idf.py flash` 首刷时会一并写入配对的雷达固件、配置和 `meta.json`
+分区。`--monitor-only` 不执行刷写。实际设备执行仍属于 S6，不冒充已验收。
+
+独立 ESP-IDF 应用可只加入交付的 `sdk/components` 作为组件根，
+在应用 `main/CMakeLists.txt` 中依赖 `mmwk_sdk`，选用目标板型
+`sdkconfig.defaults` 并保持 `CONFIG_COMPILER_OPTIMIZATION_SIZE=y`。
+自己的 `assets` 分区应只包含匹配同一雷达家族的固件/config/catalog，
+且使用 `FLASH_IN_PROJECT` 一并首刷，不能从相邻私有仓自动回退资源。
+新版聚合库可用之后，还必须校验完整 Manifest 和消费锁；当前旧库
+暂时只支持既有 default 功能。Windows 上可指定相应 COM 串口。

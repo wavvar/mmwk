@@ -75,6 +75,13 @@ void app_main(void)
     profile = mmwk_sensor_load_profile();
     proto_cfg = mmwk_sensor_load_protocol_family();
     startup = mmwk_sensor_load_startup_policy(&profile, &proto_cfg);
+    /* The new aggregate SDK lets the application own key/LED GPIOs. The
+     * current legacy SDK has no such policy fields and retains its original
+     * behavior, so the same native presence source remains buildable there. */
+#ifdef MMWK_SENSOR_STARTUP_LEGACY_UI_POLICY_V1
+    startup.disable_legacy_key = true;
+    startup.disable_legacy_led = true;
+#endif
 
     mmwk_sensor_bridge_run(&profile, &proto_cfg, &startup);
 }

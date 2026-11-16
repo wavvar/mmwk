@@ -31,3 +31,63 @@ The host CLI is optional for offline applications. After the new package has pas
 ## CLI flash-session compatibility
 
 The host CLI on `mmwk/arch_v2` now recognizes both legacy `err=-2` and current SDK `err=-3415` inactive radar UART update responses, and avoids treating unrelated `err=-20` or `err=-34150` as the same error. The change preserves the previous bounded retry/reopen behavior; it is validated by host fake-transport tests only, **not** an actual firmware flash or OTA. The public CLI remains independent of the SDK candidate overlay.
+
+## Application-owned key and LED
+
+The new aggregate SDK adds `startup.disable_legacy_key` and
+`startup.disable_legacy_led` to the existing startup policy, without
+adding a new exported API. Set both **before** calling
+`mmwk_sensor_bridge_run()`. This prevents the legacy button GPIO/task
+and LED driver/delayed-task initialization; the application may then
+configure those pins with its own policy. These flags do **not** disable
+Wi-Fi provisioning or the network runtime; those capabilities require
+separate build selection. Internal legacy firmware keeps its old behavior
+when the policy fields are zero.
+
+The native presence source uses
+`#ifdef MMWK_SENSOR_STARTUP_LEGACY_UI_POLICY_V1` to set these flags only
+when consuming the new header/archive. On the still-published old per-board
+SDK it builds without accessing absent fields. This source-path opt-out is
+not a substitute for the eventual aggregate SDK target build or physical
+key/LED ownership test.
+
+## Flash, monitor and first-flash radar assets without host CLI
+
+Build with the matching ESP-IDF environment activated, then identify the
+**physical** board (do not choose MINI/PRO/WDR from a changing USB port name).
+The following commands use only ESP-IDF, Python and the public SDK files:
+
+```sh
+cd sdk/examples
+./build.sh presence mini
+./flash.sh presence mini --port /dev/ttyUSB0 --monitor
+# Subsequent serial monitoring only, with no flash:
+./flash.sh presence mini --port /dev/ttyUSB0 --monitor-only
+
+# Explicit default uses an isolated output directory:
+./build.sh presence wdr --preset default
+./flash.sh presence wdr --preset default --port /dev/ttyACM0 --monitor
+```
+
+The flash wrapper refuses an unknown board, missing explicit `--port`,
+incompatible `sdkconfig` board/ESP target/size-optimization setting, missing
+`flasher_args.json` or missing app and `assets.bin` image. The presence
+project already calls `spiffs_create_partition_image(assets ... FLASH_IN_PROJECT)`,
+so `idf.py flash` includes the approved paired radar firmware, configuration
+and `meta.json` **on initial flash**. It refuses incomplete images rather
+than silently flashing only the ESP application. `--monitor-only` never flashes.
+Real flashing and serial/device behavior remain subject to S6 acceptance.
+
+For an independent ESP-IDF application, include only the delivered
+`sdk/components` directory as a component root, link `mmwk_sdk` from
+your app's `main/CMakeLists.txt`, choose its matching board-specific
+`sdkconfig.defaults` and keep `CONFIG_COMPILER_OPTIMIZATION_SIZE=y`.
+Prepare your own `assets` SPIFFS partition from the paired radar firmware,
+config and catalog (with `FLASH_IN_PROJECT`); do not silently take assets
+from another board or a sibling source checkout. When the new aggregate
+package is ready, validate its entire `release-manifest.json` and lock
+before selecting backend/preset. The current legacy binary only supports
+the existing default profile.
+
+Use a Windows COM port when appropriate. No host MMWK CLI or prior device
+configuration is required for the ESP image and radar-resource partition flash.
