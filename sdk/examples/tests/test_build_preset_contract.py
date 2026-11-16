@@ -47,7 +47,7 @@ class PresenceBuildSelectionTests(unittest.TestCase):
             with self.subTest(name=name):
                 result = self.run_build("presence", "wdr", "--preset", name)
                 self.assertNotEqual(result.returncode, 0)
-                self.assertIn("requires a verified arch_v2 aggregate", result.stderr)
+                self.assertIn("requires a verified aggregate package", result.stderr)
         self.assertEqual(self.calls(), [])
 
     def test_all_legacy_boards_and_bad_preset(self):

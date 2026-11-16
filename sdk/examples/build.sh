@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Consumer-owned presence build. Legacy default remains unchanged when no v2
+# manifest exists; other presets never silently fall back to full legacy.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -7,60 +9,82 @@ usage() {
 Usage:
   ./build.sh presence mini|pro|wdr|all [--preset default|offline|local-control|wifi-data]
   ./build.sh all
-Legacy invocation without --preset remains supported.
+Legacy default works without a v2 bundle. For v2, set MMWK_STAGE1_ABI and
+create one board+preset lock per selection, or set MMWK_STAGE1_LOCK_FILE.
 EOF
 }
 
 idf_target_for_board() {
     case "$1" in
-        mini) echo "esp32" ;;
-        pro|wdr) echo "esp32s3" ;;
+        mini) echo esp32 ;;
+        pro|wdr) echo esp32s3 ;;
         *) return 1 ;;
     esac
 }
 
 require_preset_ready() {
-    local preset="$1"
-    if [[ "$preset" = default ]]; then
-        return 0
-    fi
-    # Do NOT silently build a full legacy image under an 'offline' label.
-    # The current public package still contains per-board archives and its
-    # presence source does not yet implement static feature assembly.
-    if [[ ! -f "${SCRIPT_DIR}/../release-manifest.json" ||
-          ! -f "${SCRIPT_DIR}/presence/main/presence_stage1.c" ]]; then
-        echo "Preset '$preset' requires a verified arch_v2 aggregate package and migrated presence sources; this checkout still has legacy SDK assets." >&2
+    local board="$1" preset="$2"
+    local sdk_root="${SCRIPT_DIR}/.."
+    MMWK_STAGE1_BUILD_MODE=legacy
+    if [[ ! -f "$sdk_root/release-manifest.json" ]]; then
+        if [[ "$preset" = default ]]; then return 0; fi
+        echo "Stage1 '$preset' requires a verified aggregate package, not legacy archives." >&2
         return 2
     fi
-    # When the v2 package and migrated presence exist, a full independent
-    # manifest/lock preflight will be required before this is enabled.
-    echo "Preset '$preset' is not enabled until the v2 manifest/lock and 12 build proofs are integrated." >&2
-    return 2
+    if [[ "$preset" = local-control || "$preset" = wifi-data ]]; then
+        echo "Stage1 '$preset' presence adapter is not ready; refusing a false build." >&2
+        return 2
+    fi
+    if [[ "$preset" = offline && ! -f "${SCRIPT_DIR}/presence/main/presence_offline.c" ]]; then
+        echo "Stage1 offline RAW consumer source is missing." >&2
+        return 2
+    fi
+    if [[ -z "${MMWK_STAGE1_ABI:-}" ]]; then
+        echo "Set MMWK_STAGE1_ABI to the verified archive ABI in release-manifest.json." >&2
+        return 2
+    fi
+    local lock="${MMWK_STAGE1_LOCK_FILE:-${SCRIPT_DIR}/../../mmwk-sdk.${board}.${preset}.lock.json}"
+    if [[ "$lock" != /* || ! -f "$lock" ]]; then
+        echo "Missing absolute lock: $lock. Create it using sdk/examples/tools/mmwk_sdk_bundle.py." >&2
+        return 2
+    fi
+    if ! python3 "${SCRIPT_DIR}/tools/mmwk_sdk_bundle.py" \
+        --sdk-root "$sdk_root" --board "$board" --preset "$preset" \
+        --abi "$MMWK_STAGE1_ABI" --check-lock "$lock"; then
+        echo "Stage1 aggregate manifest/ABI/asset/lock preflight rejected the build." >&2
+        return 2
+    fi
+    MMWK_STAGE1_BUILD_MODE=aggregate
+    export MMWK_STAGE1_PRESET="$preset"
+    export MMWK_STAGE1_BOARD="$board"
+    export MMWK_STAGE1_LOCK_FILE="$lock"
 }
 
 build_presence_board() {
-    local board="$1" preset="$2" explicit="$3"
-    local target
+    local board="$1" preset="$2" explicit="$3" target
     target="$(idf_target_for_board "$board")" || {
         echo "Unsupported board: $board" >&2
         return 1
     }
-    require_preset_ready "$preset" || return $?
-
+    require_preset_ready "$board" "$preset" || return $?
     local project_dir="${SCRIPT_DIR}/presence"
     local build_dir="${SCRIPT_DIR}/build/presence/$board"
-    if [[ "$explicit" = 1 ]]; then
-        build_dir="$build_dir/$preset"
-    fi
+    if [[ "$explicit" = 1 ]]; then build_dir="$build_dir/$preset"; fi
     local sdkconfig_path="$build_dir/sdkconfig"
     local sdkconfig_defaults="sdkconfig.defaults;sdkconfig.defaults.$board"
-
     (
         cd "$project_dir"
+        local -a stage1_args=()
+        if [[ "$MMWK_STAGE1_BUILD_MODE" = aggregate ]]; then
+            stage1_args=(-D "MMWK_STAGE1_PRESET=$preset"
+                         -D "MMWK_STAGE1_BOARD=$board"
+                         -D "MMWK_STAGE1_ABI=$MMWK_STAGE1_ABI"
+                         -D "MMWK_STAGE1_LOCK_FILE=$MMWK_STAGE1_LOCK_FILE")
+        fi
         idf.py -B "$build_dir" \
             -D "SDKCONFIG=$sdkconfig_path" \
             -D "SDKCONFIG_DEFAULTS=$sdkconfig_defaults" \
-            set-target "$target" build
+            "${stage1_args[@]}" set-target "$target" build
     )
 }
 
@@ -100,5 +124,4 @@ main() {
     esac
     build_presence "$target" "$preset" "$explicit"
 }
-
 main "$@"

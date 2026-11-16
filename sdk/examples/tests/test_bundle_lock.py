@@ -46,6 +46,7 @@ class BundleLockTests(unittest.TestCase):
             file.write_bytes(content)
         self.manifest = {
             "schema": 3, "format": "mmwk-sdk-aggregate-v2",
+            "board_config_abi": 2,
             "target_groups": {"esp32s3": {
                 "target": "esp32s3", "abi": "os-idf553",
                 "boards": ["pro", "wdr"],
@@ -76,6 +77,15 @@ class BundleLockTests(unittest.TestCase):
     def inspect(self, manifest=None, preset="offline"):
         self.put_manifest(manifest)
         return bundle.inspect(self.root, "wdr", preset, "os-idf553")
+
+    def test_rejects_wrong_board_configuration_abi(self):
+        import copy
+        for value in (1, "2", True, None):
+            with self.subTest(value=value):
+                spec = copy.deepcopy(self.manifest)
+                spec["board_config_abi"] = value
+                with self.assertRaisesRegex(ValueError, "board configuration ABI"):
+                    self.inspect(spec)
 
     def test_good_bundle_and_exact_consumer_lock(self):
         lock = self.root.parent / "mmwk-sdk.lock.json"
