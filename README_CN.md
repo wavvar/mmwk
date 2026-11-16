@@ -8,6 +8,8 @@ English version: [English docs](./README.md)
 
 Wavvar MMWK（mmWave Kit）是一个面向产品化的毫米波雷达传感器平台。本目录包含运行和管理 MMWK 设备所需的预编译固件、文档和 CLI 工具。
 
+**即将推出 `mmwk_rdf`：** Wavvar 近期将发布基于 MMWK 的雷达开发框架（Radar Development Framework），并逐步开源更多组件，帮助开发者更快速地构建雷达应用。同时，Wavvar 还将支持 ESP BOX3，并向开源社区贡献更多雷达固件代码。敬请关注。
+
 ## 1. 特性
 
 - **雷达开发快速起步**：[**mmWave Sensor Development Kit**](./docs/zh-cn/mmwk-sensor.md) 为 MMWK 提供共享 sensor 平台能力，包括 CLI 控制、Wi-Fi/MQTT/4G 联网、OTA、雷达固件管理和原始雷达透传，几分钟内就能开始原型验证。
