@@ -66,6 +66,7 @@ class BundleLockTests(unittest.TestCase):
                 "config": {"path": self.cfg, "sha256": digest(self.contents[self.cfg])},
             }},
             "managed_paths": list(self.contents),
+            "file_sha256": {name: digest(blob) for name, blob in self.contents.items()},
         }
 
     def put_manifest(self, obj=None):
@@ -117,6 +118,36 @@ class BundleLockTests(unittest.TestCase):
         spec["managed_paths"].remove(self.board_header)
         with self.assertRaisesRegex(ValueError, "incomplete managed"):
             self.inspect(spec)
+
+    def test_full_managed_file_inventory_detects_unselected_tampering(self):
+        extra = "components/mmwk_sdk/CMakeLists.txt"
+        data = b"reviewed CMake payload"
+        path = self.root / extra
+        path.write_bytes(data)
+        manifest = copy.deepcopy(self.manifest)
+        manifest["managed_paths"].append(extra)
+        manifest["file_sha256"][extra] = digest(data)
+        self.inspect(manifest)
+        path.write_bytes(b"unreviewed CMake change")
+        with self.assertRaisesRegex(ValueError, "digest mismatch"):
+            self.inspect(manifest)
+        manifest["file_sha256"].pop(extra)
+        with self.assertRaisesRegex(ValueError, "SHA256 inventory"):
+            self.inspect(manifest)
+
+    def test_wrong_hash_set_and_malformed_managed_items_fail_closed(self):
+        manifest = copy.deepcopy(self.manifest)
+        manifest["file_sha256"].pop(self.lib)
+        with self.assertRaisesRegex(ValueError, "SHA256 inventory"):
+            self.inspect(manifest)
+        manifest = copy.deepcopy(self.manifest)
+        manifest["managed_paths"].append({"path": "../oops"})
+        with self.assertRaisesRegex(ValueError, "invalid managed"):
+            self.inspect(manifest)
+        manifest = copy.deepcopy(self.manifest)
+        manifest["managed_paths"].append(self.lib.swapcase())
+        with self.assertRaisesRegex(ValueError, "invalid managed"):
+            self.inspect(manifest)
 
     def test_corrupted_archive_and_missing_assets(self):
         (self.root / self.lib).write_bytes(b"unexpected library")

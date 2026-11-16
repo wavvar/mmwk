@@ -112,14 +112,20 @@ def inspect(root: Path, board: str, preset: str, abi: str) -> dict:
     if not all(type(x) is dict and x for x in
                (groups, board_map, asset_pairs, headers, board_sources)):
         raise ValueError("incomplete aggregate SDK manifest")
-    if type(managed) is not list or not managed or len(set(managed)) != len(managed):
+    if (type(managed) is not list or not managed or
+            any(type(name) is not str for name in managed) or
+            len(set(managed)) != len(managed) or
+            len({name.casefold() for name in managed}) != len(managed)):
         raise ValueError("invalid managed paths")
-    if any(not isinstance(x, str) for x in managed):
-        raise ValueError("invalid managed path element")
+    full_hashes = manifest.get("file_sha256")
+    if type(full_hashes) is not dict or set(full_hashes) != set(managed):
+        raise ValueError("incomplete managed SHA256 inventory")
+    if "release-manifest.json" in full_hashes:
+        raise ValueError("manifest must not hash itself")
     for name in managed:
-        # Directories can contain more than the packaged payload, but an
-        # explicitly managed file may not be absent or an unsafe symlink.
-        safe_path(root, name)
+        # Verify every managed file, not only the files for this board. This
+        # guards the public CMake, NOTICE, licensing and optional resources.
+        check_hash(root, name, full_hashes[name])
     board_entry = board_map.get(board)
     if type(board_entry) is not dict or (
         board_entry.get("target"), board_entry.get("radar_chip"),
