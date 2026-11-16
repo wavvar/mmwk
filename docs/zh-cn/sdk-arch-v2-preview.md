@@ -127,3 +127,19 @@ SDK 运行启动**之前**拒绝继续。为兼容旧代码，仍保留
 由应用负责，不能由聚合 SDK 二进制偷偷选择。已完成本地 GCC/CMake
 的合法组合、错误匹配及缺件测试，但实际 ESP 构建、固件内容与首次刷写
 仍需要后续独立验收。
+
+## Stage1 纯雷达 presence 源码模式
+
+公开 presence 现在有两个互斥入口。旧版/default 仍使用 `main.c` 的
+Bridge 和现有主机 CLI 流程；新增的 `offline` 源码模式（**目前尚未向
+普通构建放开**）选择 `presence_offline.c`，复用同一份
+`presence_state.c` 业务逻辑，直接通过 `mmwk_service_init` 和
+`mmwk_service_raw_subscribe` 接收 RAW 数据，由应用静态指定
+6432/6843 后端，并设置 `disable_external_raw_commands=true`。
+这个应用入口不初始化 Bridge 网络运行时、MQTT、portal、CLI 或按键/LED。
+
+此模式使用 `MMWK_SERVICE_START_HOST`，**前提是雷达已有匹配的固件**；
+仅将资源分区写入 ESP 不等于已经升级雷达。示例提供仅供外部线程
+调用的 `presence_offline_stop()` 生命周期入口，不能在 RAW 回调中
+执行同步停止。当前 `build.sh` 仍拒绝尚未验证的非 default 能力组合；
+新增源码及主机侧 CMake 选择检查不能替代新聚合包的真实目标构建。

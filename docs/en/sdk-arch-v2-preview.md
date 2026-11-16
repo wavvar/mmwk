@@ -148,3 +148,22 @@ firmware or embedded asset partition. Host GCC and CMake test cases cover
 the three valid profiles, mismatches and missing resources. Actual firmware
 contents, target linkage and initial flash remain separate verification
 requirements.
+
+## Stage1 radar-only presence source mode
+
+The native presence application now has two mutually exclusive entry sources.
+Existing default/legacy builds keep `main.c` with the current Bridge and host
+CLI behavior. The new, **not yet enabled for normal users**, `offline`
+source mode selects `presence_offline.c` plus the same `presence_state.c`
+business logic. It uses `mmwk_service_init`, a generation-protected
+`mmwk_service_raw_subscribe` token and a consumer-selected 6432/6843 backend,
+with `disable_external_raw_commands=true`. It has no Bridge network runtime,
+MQTT, portal, CLI, or key/LED initialization in its application source.
+
+It starts in `MMWK_SERVICE_START_HOST`: the radar itself must already have
+approved firmware. Shipping an ESP resource partition alone does **not**
+prove that the radar has been updated. The optional
+`presence_offline_stop()` is an external-thread lifecycle example and must
+not be called from a RAW callback. The current `build.sh` deliberately
+refuses non-default presets until the actual v2 aggregate/lock and target
+builds have passed; the source and mock-CMake tests do not lift that gate.
